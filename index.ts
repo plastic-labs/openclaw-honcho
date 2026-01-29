@@ -143,6 +143,195 @@ const honchoPlugin = {
     // DATA RETRIEVAL TOOLS (cheap, raw observations — agent interprets)
     // ========================================================================
 
+        // ========================================================================
+    // TOOL: honcho_session — Session conversation history
+    // ========================================================================
+    api.registerTool(
+      {
+        name: "honcho_session",
+        label: "Get Session History",
+        description: `Retrieve conversation history and summaries from the current session. Direct data access, no LLM reasoning.
+
+━━━ DATA TOOL ━━━
+Returns: Recent messages + optional summary of earlier conversation
+Cost: Low (database query only, no LLM)
+Speed: Fast
+
+Best for:
+- Answering "what did we talk about?" questions
+- Recalling recent conversation context
+- Finding specific topics discussed in this session
+- Getting chronological conversation history
+
+Examples:
+- "What did we discuss earlier?" → Returns recent messages + summary
+- "What was that thing you mentioned?" → Search through session messages
+- "Can you remind me what we decided?" → Get conversation context
+
+Parameters:
+- includeMessages: Get recent message history (default: true)
+- includeSummary: Get summary of earlier conversation (default: true)
+- searchQuery: Optional semantic search to find specific topics
+- messageLimit: Approximate token budget for messages (default: 4000)
+
+━━━ What You Get ━━━
+• Messages: Recent conversation with peer attribution
+• Summary: Compressed overview of earlier conversation (if available)
+• Peer Card: Key facts about the user (if available)
+
+━━━ vs Other Tools ━━━
+• honcho_session: THIS session's history (what we talked about)
+• honcho_search: ALL observations across sessions (what we know about user)
+• honcho_context: Broad representation (synthesized knowledge)
+• honcho_profile: Just key facts (identity, preferences)
+
+Use honcho_session for "what did we discuss" questions.
+Use honcho_search for "what do I know about X" questions.`,
+        parameters: Type.Object({
+          includeMessages: Type.Optional(
+            Type.Boolean({
+              description: "Include recent message history (default: true)",
+            })
+          ),
+          includeSummary: Type.Optional(
+            Type.Boolean({
+              description:
+                "Include summary of earlier conversation (default: true)",
+            })
+          ),
+          searchQuery: Type.Optional(
+            Type.String({
+              description:
+                "Optional semantic search query to find specific topics in the conversation",
+            })
+          ),
+          messageLimit: Type.Optional(
+            Type.Number({
+              description:
+                "Approximate token budget for messages (default: 4000). Lower values return fewer but more recent messages.",
+              minimum: 100,
+              maximum: 32000,
+            })
+          ),
+        }),
+        async execute(_toolCallId, params) {
+          const {
+            includeMessages = true,
+            includeSummary = true,
+            searchQuery,
+            messageLimit = 4000,
+          } = params as {
+            includeMessages?: boolean;
+            includeSummary?: boolean;
+            searchQuery?: string;
+            messageLimit?: number;
+          };
+
+          await ensureInitialized();
+
+          // NOTE: You'll need access to the current session key from the context
+          // This example assumes you store it or can derive it
+          const rawSessionKey = "default"; // Replace with actual session key access
+          const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+          try {
+            const session = await honcho.session(sessionKey);
+
+            // Get session context with the specified options
+            const context = await session.context({
+              summary: includeSummary,
+              tokens: messageLimit,
+              peerTarget: ownerPeer!,
+              peerPerspective: moltbotPeer!,
+              searchQuery: searchQuery,
+            });
+
+            const sections: string[] = [];
+
+            // Add summary if available
+            if (context.summary?.content) {
+              sections.push(
+                `## Earlier Conversation Summary\n\n${context.summary.content}`
+              );
+            }
+
+            // Add peer card if available
+            if (context.peerCard?.length) {
+              sections.push(
+                `## User Profile\n\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`
+              );
+            }
+
+            // Add peer representation if available
+            if (context.peerRepresentation) {
+              sections.push(
+                `## User Context\n\n${context.peerRepresentation}`
+              );
+            }
+
+            // Add messages if requested
+            if (includeMessages && context.messages.length > 0) {
+              const messageLines = context.messages.map((msg) => {
+                const speaker = msg.peerId === ownerPeer!.id ? "User" : "Moltbot";
+                const timestamp = msg.createdAt
+                  ? new Date(msg.createdAt).toLocaleString()
+                  : "";
+                return `**${speaker}**${timestamp ? ` (${timestamp})` : ""}:\n${msg.content}`;
+              });
+              sections.push(
+                `## Recent Messages (${context.messages.length})\n\n${messageLines.join("\n\n---\n\n")}`
+              );
+            }
+
+            if (sections.length === 0) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "No conversation history available for this session yet.",
+                  },
+                ],
+              };
+            }
+
+            const searchNote = searchQuery
+              ? `\n\n*Results filtered by search: "${searchQuery}"*`
+              : "";
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: sections.join("\n\n---\n\n") + searchNote,
+                },
+              ],
+            };
+          } catch (error) {
+            // Session might not exist yet
+            const isNotFound =
+              error instanceof Error &&
+              (error.name === "NotFoundError" ||
+                error.message.toLowerCase().includes("not found"));
+
+            if (isNotFound) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "No conversation history found. This appears to be a new session.",
+                  },
+                ],
+              };
+            }
+
+            throw error;
+          }
+        },
+      },
+      { name: "honcho_session" }
+    );
+
+
     // ========================================================================
     // TOOL: honcho_profile — Quick access to user's key facts
     // ========================================================================
