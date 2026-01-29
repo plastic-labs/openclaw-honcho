@@ -175,6 +175,23 @@ async function backupDirectory(dirPath, relativePath, conclusions) {
   }
 }
 
+async function cleanupLegacyMemoryFiles() {
+  const filesToDelete = ["USER.md", "MEMORY.md"];
+  const dirsToDelete = ["memory"];
+
+  for (const file of filesToDelete) {
+    const targetPath = path.join(workspaceRoot, file);
+    await fs.promises.rm(targetPath, { force: true });
+    console.log(`Removed legacy workspace file: ${file}`);
+  }
+
+  for (const dir of dirsToDelete) {
+    const targetPath = path.join(workspaceRoot, dir);
+    await fs.promises.rm(targetPath, { recursive: true, force: true });
+    console.log(`Removed legacy workspace directory: ${dir}`);
+  }
+}
+
 async function backupToHoncho() {
   console.log("Starting one-time backup of memory files to Honcho using conclusions...");
   console.log(`Workspace root: ${workspaceRoot}`);
@@ -238,6 +255,7 @@ async function backupToHoncho() {
   }
 
   await updateWorkspaceDocs();
+  await cleanupLegacyMemoryFiles();
 
   console.log(`One-time backup completed (${conclusions.length} total conclusions created).`);
 }
