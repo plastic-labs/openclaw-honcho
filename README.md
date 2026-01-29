@@ -10,6 +10,8 @@ This plugin uses Moltbot's slot system (`kind: "memory"`) to replace the built-i
 moltbot plugins install @plastic-labs/moltbot-honcho
 ```
 
+Reminder: installing this plugin deletes your clawdbot/moltbot memory files. Make sure they are saved to version control first.
+
 Restart Moltbot after installing.
 
 ## Configuration
@@ -67,7 +69,7 @@ The plugin manages markdown files in your workspace:
 | `BOOTSTRAP.md` | Initial context and instructions for the agent. |
 | `IDENTITY.md` | Static agent identity (unchanged by Honcho). |
 
-Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are migrated to Honcho during installation and removed from the workspace.
+Reminder: legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are migrated to Honcho during installation and removed from the workspace. Commit them to version control before installing.
 
 ## AI Tools
 

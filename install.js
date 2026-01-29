@@ -3,6 +3,11 @@ import os from "os";
 import path from "path";
 import { Honcho } from "@honcho-ai/sdk";
 
+// Reminder: this install deletes clawdbot/moltbot memory files; commit them first.
+const MEMORY_DELETION_WARNING =
+  "Reminder: installing this plugin deletes your clawdbot/moltbot memory files. Save them to version control first.";
+console.warn(MEMORY_DELETION_WARNING);
+
 const OWNER_ID = "owner";
 const MOLTBOT_ID = "moltbot";
 
