@@ -21,6 +21,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "install": "node install.js",
     "test": "vitest"
   }
 }
