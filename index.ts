@@ -191,30 +191,6 @@ const honchoPlugin = {
     });
 
     // ========================================================================
-    // HOOK: before_agent_start — Inject relevant memory context
-    // ========================================================================
-    api.on("before_agent_start", async (event, ctx) => {
-      if (!event.prompt || event.prompt.length < 5) return;
-
-      try {
-        await ensureInitialized();
-
-        // Use dialectic chat to get relevant context
-        const context = await moltbotPeer!.chat(event.prompt, {
-          target: ownerPeer!,
-        });
-        if (!context) return;
-
-        return {
-          prependContext: `<honcho-memory>\n${context}\n</honcho-memory>`,
-        };
-      } catch (error) {
-        api.logger.warn(`Failed to fetch Honcho context: ${error}`);
-        return;
-      }
-    });
-
-    // ========================================================================
     // HOOK: agent_end — Persist messages to Honcho
     // ========================================================================
     api.on("agent_end", async (event, ctx) => {
