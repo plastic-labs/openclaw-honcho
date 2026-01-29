@@ -10,8 +10,6 @@ import { Honcho, type Peer, type Session, type MessageInput } from "@honcho-ai/s
 // @ts-ignore - resolved by moltbot runtime
 import type { MoltbotPluginApi } from "clawdbot/plugin-sdk";
 import { honchoConfigSchema, type HonchoConfig } from "./config.js";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 
 // ============================================================================
 // Constants
@@ -19,14 +17,6 @@ import * as path from "node:path";
 
 const OWNER_ID = "owner";
 const MOLTBOT_ID = "moltbot";
-
-const FILES = {
-  USER: "USER.md",
-  SOUL: "SOUL.md",
-  MEMORY: "MEMORY.md",
-} as const;
-
-const HONCHO_SECTION_HEADER = "## From Honcho";
 
 // ============================================================================
 // Plugin Definition
@@ -63,118 +53,6 @@ const honchoPlugin = {
       ownerPeer = await honcho.peer(OWNER_ID);
       moltbotPeer = await honcho.peer(MOLTBOT_ID);
       initialized = true;
-    }
-
-    // ========================================================================
-    // File Sync Utilities
-    // ========================================================================
-
-    async function syncFilesToWorkspace(workspaceDir: string): Promise<void> {
-      await ensureInitialized();
-      const timestamp = new Date().toISOString();
-
-      const [ownerRep, moltbotRep, ownerCard, moltbotCard] = await Promise.all([
-        ownerPeer!.representation().catch(() => null),
-        moltbotPeer!.representation().catch(() => null),
-        ownerPeer!.card().catch(() => null),
-        moltbotPeer!.card().catch(() => null),
-      ]);
-
-      // USER.md <- owner representation
-      if (ownerRep || ownerCard) {
-        await updateFileWithHonchoSection(
-          path.join(workspaceDir, FILES.USER),
-          formatPeerContent(ownerRep, ownerCard),
-          timestamp
-        );
-      }
-
-      // SOUL.md <- moltbot representation
-      if (moltbotRep || moltbotCard) {
-        await updateFileWithHonchoSection(
-          path.join(workspaceDir, FILES.SOUL),
-          formatPeerContent(moltbotRep, moltbotCard),
-          timestamp
-        );
-      }
-
-      // MEMORY.md <- combined
-      if (ownerRep || moltbotRep) {
-        const combined = [
-          ownerRep && `### About the User\n\n${ownerRep}`,
-          moltbotRep && `### About Moltbot\n\n${moltbotRep}`,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
-
-        await updateFileWithHonchoSection(
-          path.join(workspaceDir, FILES.MEMORY),
-          combined,
-          timestamp
-        );
-      }
-    }
-
-    function formatPeerContent(
-      rep: string | null,
-      card: string[] | null
-    ): string {
-      const parts: string[] = [];
-
-      if (card?.length) {
-        parts.push("### Key Facts\n");
-        parts.push(card.map((f) => `- ${f}`).join("\n"));
-      }
-
-      if (rep) {
-        if (parts.length) parts.push("\n");
-        parts.push("### Observations\n");
-        parts.push(rep);
-      }
-
-      return parts.join("\n");
-    }
-
-    async function updateFileWithHonchoSection(
-      filePath: string,
-      honchoContent: string,
-      timestamp: string
-    ): Promise<void> {
-      let existing = "";
-      try {
-        existing = await fs.readFile(filePath, "utf-8");
-      } catch {
-        // File doesn't exist
-      }
-
-      // Remove existing Honcho section
-      const regex = new RegExp(
-        `${escapeRegex(HONCHO_SECTION_HEADER)}[\\s\\S]*?(?=\\n## |$)`,
-        "g"
-      );
-      const staticContent = existing.replace(regex, "").trim();
-
-      const newSection = [
-        HONCHO_SECTION_HEADER,
-        "",
-        "*Auto-synced from Honcho. Do not edit this section manually.*",
-        "",
-        honchoContent,
-        "",
-        `---`,
-        `*Last synced: ${timestamp}*`,
-      ].join("\n");
-
-      const final = staticContent
-        ? `${staticContent}\n\n${newSection}`
-        : newSection;
-
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, final, "utf-8");
-    }
-
-    function escapeRegex(str: string): string {
-      return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     // ========================================================================
@@ -409,22 +287,6 @@ const honchoPlugin = {
           });
 
         cmd
-          .command("sync")
-          .description("Sync Honcho representations to workspace files")
-          .action(async () => {
-            if (!workspaceDir) {
-              console.error("No workspace directory available");
-              return;
-            }
-            try {
-              await syncFilesToWorkspace(workspaceDir);
-              console.log("Synced Honcho representations to workspace files");
-            } catch (error) {
-              console.error(`Failed to sync: ${error}`);
-            }
-          });
-
-        cmd
           .command("search <query>")
           .description("Semantic search over Honcho memory")
           .option("-k, --top-k <number>", "Number of results to return", "10")
@@ -451,54 +313,6 @@ const honchoPlugin = {
       },
       { commands: ["honcho"] }
     );
-
-    // ========================================================================
-    // Service: Periodic sync (configurable frequency)
-    // ========================================================================
-    if (cfg.dailySyncEnabled) {
-      let timeoutId: NodeJS.Timeout | null = null;
-      let intervalId: NodeJS.Timeout | null = null;
-
-      api.registerService({
-        id: "honcho-daily-sync",
-
-        start(svcCtx) {
-          const syncIntervalMs = cfg.syncFrequency * 60 * 1000;
-
-          const doSync = async () => {
-            try {
-              await ensureInitialized();
-              if (svcCtx.workspaceDir) {
-                await syncFilesToWorkspace(svcCtx.workspaceDir);
-                svcCtx.logger.info("Daily sync complete");
-              }
-            } catch (error) {
-              svcCtx.logger.error(`Daily sync failed: ${error}`);
-            }
-          };
-
-          // Startup sync if configured
-          if (cfg.syncOnStartup && svcCtx.workspaceDir) {
-            doSync();
-          }
-
-          timeoutId = setTimeout(() => {
-            doSync();
-
-            // Then repeat at configured interval
-            intervalId = setInterval(doSync, syncIntervalMs);
-          }, syncIntervalMs);
-
-          svcCtx.logger.info(`Periodic sync scheduled (every ${cfg.syncFrequency} min)`);
-        },
-
-        stop(svcCtx) {
-          if (timeoutId) clearTimeout(timeoutId);
-          if (intervalId) clearInterval(intervalId);
-          svcCtx.logger.info("Daily sync stopped");
-        },
-      });
-    }
 
     api.logger.info("Honcho memory plugin loaded");
   },
