@@ -228,24 +228,58 @@ const honchoPlugin = {
       try {
         await ensureInitialized();
 
-        const session = await honcho.session(sessionKey, {
-          metadata: {
-            moltbotSessionKey: sessionKey,
-            createdAt: new Date().toISOString(),
-          },
-        });
+        // Get session reference
+        let session = await honcho.session(sessionKey);
 
-        // Idempotent peer addition (using tuple format)
+        // Try to get metadata; if session doesn't exist, create it
+        let meta: Record<string, unknown>;
+        try {
+          meta = await session.getMetadata();
+        } catch (e: unknown) {
+          // Session doesn't exist - create it with initial metadata
+          const isNotFound =
+            e instanceof Error &&
+            (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
+          if (!isNotFound) throw e;
+
+          // Create session by calling honcho.session with metadata
+          session = await honcho.session(sessionKey, {
+            metadata: { lastSavedIndex: 0 },
+          });
+          meta = await session.getMetadata();
+        }
+
+        const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
+
+        // Add peers (session now guaranteed to exist)
         await session.addPeers([
           [OWNER_ID, { observeMe: true, observeOthers: false }],
           [MOLTBOT_ID, { observeMe: true, observeOthers: true }],
         ]);
 
-        const messages = extractMessages(event.messages, ownerPeer!, moltbotPeer!);
-        if (messages.length > 0) {
-          await session.addMessages(messages);
-          api.logger.info?.(`Saved ${messages.length} messages to Honcho`);
+        // Skip if nothing new
+        if (event.messages.length <= lastSavedIndex) {
+          api.logger.debug?.("No new messages to save");
+          return;
         }
+
+        // Extract only NEW messages (slice from lastSavedIndex)
+        const newRawMessages = event.messages.slice(lastSavedIndex);
+        const messages = extractMessages(newRawMessages, ownerPeer!, moltbotPeer!);
+
+        if (messages.length === 0) {
+          // Update index even if no saveable content (e.g., tool-only messages)
+          await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
+          return;
+        }
+
+        // Save new messages
+        await session.addMessages(messages);
+
+        // Update watermark in Honcho
+        await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
+
+        api.logger.info?.(`Saved ${messages.length} new messages to Honcho (index ${lastSavedIndex} → ${event.messages.length})`);
       } catch (error) {
         api.logger.error(`Failed to save messages to Honcho: ${error}`);
       }
