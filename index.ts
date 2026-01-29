@@ -140,49 +140,116 @@ const honchoPlugin = {
     });
 
     // ========================================================================
-    // TOOL: honcho_ask — Query memory mid-conversation
+    // DATA RETRIEVAL TOOLS (cheap, raw observations — agent interprets)
+    // ========================================================================
+
+    // ========================================================================
+    // TOOL: honcho_profile — Quick access to user's key facts
     // ========================================================================
     api.registerTool(
       {
-        name: "honcho_ask",
-        label: "Ask Honcho",
-        description:
-          "Query Honcho's memory about the user. Use when you need context about user preferences, history, or past decisions not in the current conversation.",
-        parameters: Type.Object({
-          query: Type.String({
-            description:
-              "Question about the user (e.g., 'What communication style do they prefer?')",
-          }),
-        }),
-        async execute(_toolCallId, params) {
-          const { query } = params as { query: string };
-          const answer = await moltbotPeer!.chat(query, { target: ownerPeer! });
+        name: "honcho_profile",
+        label: "Get User Profile",
+        description: `Retrieve the user's peer card — a curated list of their most important facts. Direct data access, no LLM reasoning.
+
+        ━━━ DATA TOOL ━━━
+        Returns: Raw fact list
+        Cost: Minimal (database query only)
+        Speed: Instant
+
+        Best for:
+        - Quick context at conversation start
+        - Checking core identity (name, role, company)
+        - Cost-efficient fact lookup
+        - When you want to see the facts and reason over them yourself
+
+        Returns facts like:
+        • Name, role, company
+        • Primary technologies and tools
+        • Communication preferences
+        • Key projects or constraints
+
+        ━━━ vs Q&A Tools ━━━
+        • honcho_recall: Asks Honcho's LLM a question → get an answer (costs more)
+        • honcho_profile: Get the raw facts → you interpret (cheaper)
+
+        Use honcho_recall if you need Honcho to answer a specific question.
+        Use honcho_profile if you want the key facts to reason over yourself.`,
+        parameters: Type.Object({}),
+        async execute(_toolCallId, _params) {
+          await ensureInitialized();
+
+          const card = await ownerPeer!.card().catch(() => null);
+
+          if (!card?.length) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "No profile facts available yet. The user's profile builds over time through conversations.",
+                },
+              ],
+            };
+          }
+
           return {
-            content: [{ type: "text", text: answer! }],
+            content: [
+              {
+                type: "text",
+                text: `## User Profile\n\n${card.map((f) => `• ${f}`).join("\n")}`,
+              },
+            ],
           };
         },
       },
-      { name: "honcho_ask" }
-    );
+      { name: "honcho_profile" }
+    ),
 
     // ========================================================================
-    // TOOL: honcho_search — Semantic search over memory context
+    // TOOL: honcho_search — Targeted semantic search over memory
     // ========================================================================
     api.registerTool(
       {
         name: "honcho_search",
         label: "Search Honcho Memory",
-        description:
-          "Semantic search over Honcho's stored knowledge about the user. Use when you need to find specific facts, preferences, or past context that matches a search query. Returns relevant conclusions from Honcho's memory.",
+        description: `Semantic vector search over Honcho's stored observations. Returns raw memories ranked by relevance — no LLM
+interpretation.
+
+━━━ DATA TOOL ━━━
+Returns: Raw observations/conclusions matching your query
+Cost: Low (vector search only, no LLM)
+Speed: Fast
+
+Best for:
+- Finding specific past context (projects, decisions, discussions)
+- Seeing the evidence before drawing conclusions
+- Cost-efficient exploration of memory
+- When you want to reason over the raw data yourself
+
+Examples:
+- "API design decisions" → raw observations about API discussions
+- "testing preferences" → raw memories about testing
+- "deployment concerns" → observations mentioning deployment issues
+
+Parameters:
+- topK: 3-5 for focused, 10-20 for exploratory (default: 10)
+- maxDistance: 0.3 = strict, 0.5 = balanced, 0.7 = loose (default: 0.5)
+
+━━━ vs Q&A Tools ━━━
+• honcho_analyze: Asks Honcho's LLM to synthesize → get an answer (costs more)
+• honcho_search: Get raw matching memories → you interpret (cheaper)
+
+Use honcho_analyze if you need Honcho to synthesize an answer.
+Use honcho_search if you want the raw evidence to reason over yourself.`,
         parameters: Type.Object({
           query: Type.String({
             description:
-              "Search query to find relevant memories (e.g., 'coding preferences', 'favorite tools', 'project goals')",
+              "Semantic search query — keywords, phrases, or natural language (e.g., 'debugging strategies', 'opinions on microservices')",
           }),
           topK: Type.Optional(
             Type.Number({
               description:
-                "Number of relevant results to return (1-100, default: 10)",
+                "Number of results. 3-5 for focused, 10-20 for exploratory (default: 10)",
               minimum: 1,
               maximum: 100,
             })
@@ -190,7 +257,7 @@ const honchoPlugin = {
           maxDistance: Type.Optional(
             Type.Number({
               description:
-                "Maximum semantic distance for results (0.0-1.0, lower = stricter matching, default: 0.5)",
+                "Semantic distance. 0.3 = strict, 0.5 = balanced (default), 0.7 = loose",
               minimum: 0,
               maximum: 1,
             })
@@ -205,48 +272,216 @@ const honchoPlugin = {
 
           await ensureInitialized();
 
-          // Use peer representation with semantic search
-          // This searches Honcho's conclusions about the user
-          const [representation, card] = await Promise.all([
-            ownerPeer!.representation({
-              searchQuery: query,
-              searchTopK: topK ?? 10,
-              searchMaxDistance: maxDistance ?? 1.0,
-              includeMostFrequent: true,
-            }),
-            ownerPeer!.card().catch(() => null),
-          ]);
+          const representation = await ownerPeer!.representation({
+            searchQuery: query,
+            searchTopK: topK ?? 10,
+            searchMaxDistance: maxDistance ?? 0.5,
+          });
 
-          const results: string[] = [];
-
-          if (representation) {
-            results.push("## Relevant Context\n");
-            results.push(representation);
-          }
-
-          if (card?.length) {
-            results.push("\n## Key Facts\n");
-            results.push(card.map((f) => `- ${f}`).join("\n"));
-          }
-
-          if (results.length === 0) {
+          if (!representation) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `No relevant memories found for query: "${query}"`,
+                  text: `No memories found matching: "${query}"\n\nTry broadening your search or increasing maxDistance.`,
                 },
               ],
             };
           }
 
           return {
-            content: [{ type: "text", text: results.join("\n") }],
+            content: [{ type: "text", text: `## Search Results: "${query}"\n\n${representation}` }],
           };
         },
       },
       { name: "honcho_search" }
-    );
+    ),
+
+    // ========================================================================
+    // TOOL: honcho_context — Broad representation without specific search
+    // ========================================================================
+    api.registerTool(
+      {
+        name: "honcho_context",
+        label: "Get Broad Context",
+        description: `Retrieve Honcho's full representation — a broad view of observations about the user. Direct data access, no LLM
+        reasoning.
+
+        ━━━ DATA TOOL ━━━
+        Returns: Raw synthesized representation with frequent observations
+        Cost: Low (database query only, no LLM)
+        Speed: Fast
+
+        Best for:
+        - Understanding the user holistically before a complex task
+        - Getting broad context when you're unsure what to search for
+        - Cost-efficient situational awareness
+        - When you want to see everything and reason over it yourself
+
+        ━━━ vs Other Tools ━━━
+        • honcho_profile: Just key facts (fastest, minimal)
+        • honcho_search: Targeted by query (specific)
+        • honcho_context: Broad representation (comprehensive, still cheap)
+        • honcho_analyze: LLM-synthesized answer (costs more, but interpreted for you)
+
+        Use honcho_analyze if you need Honcho to answer a complex question.
+        Use honcho_context if you want the broad data to reason over yourself.`,
+        parameters: Type.Object({
+          includeMostFrequent: Type.Optional(
+            Type.Boolean({
+              description:
+                "Include most frequently referenced observations (default: true)",
+            })
+          ),
+        }),
+        async execute(_toolCallId, params) {
+          const { includeMostFrequent } = params as {
+            includeMostFrequent?: boolean;
+          };
+
+          await ensureInitialized();
+
+          const representation = await ownerPeer!.representation({
+            includeMostFrequent: includeMostFrequent ?? true,
+          });
+
+          if (!representation) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "No context available yet. Context builds over time through conversations.",
+                },
+              ],
+            };
+          }
+
+          return {
+            content: [{ type: "text", text: `## User Context\n\n${representation}` }],
+          };
+        },
+      },
+      { name: "honcho_context" }
+    ),
+
+    // ========================================================================
+    // Q&A TOOLS (Honcho's LLM answers — costs more, direct answers)
+    // ========================================================================
+
+    // ========================================================================
+    // TOOL: honcho_recall — Quick factual Q&A (minimal reasoning)
+    // ========================================================================
+    api.registerTool(
+      {
+        name: "honcho_recall",
+        label: "Recall from Honcho",
+        description: `Ask Honcho a simple factual question and get a direct answer. Uses Honcho's LLM with minimal reasoning.
+
+        ━━━ Q&A TOOL ━━━
+          Returns: Direct answer to your question
+          Cost: ~$0.001 (LLM call with minimal reasoning)
+          Speed: Instant
+
+          Best for:
+          - Simple factual questions with direct answers
+          - Single data points (names, dates, preferences)
+          - When you need THE answer, not raw data
+
+          Examples:
+          - "What's the user's name?" → "Alex Chen"
+          - "What timezone is the user in?" → "Pacific Time (PT)"
+          - "What programming language do they prefer?" → "TypeScript"
+          - "What's their job title?" → "Senior Engineer"
+
+          NOT suitable for:
+          - Questions requiring synthesis across multiple facts
+          - Pattern recognition or analysis
+          - Complex multi-part questions
+
+          ━━━ vs Data Tools ━━━
+          • honcho_profile: Returns raw key facts → you interpret (cheaper)
+          • honcho_recall: Honcho answers your question → direct answer (costs more)
+
+          Use honcho_profile if you want to see the facts and reason yourself.
+          Use honcho_recall if you just need a quick answer to a simple question.`,
+        parameters: Type.Object({
+          query: Type.String({
+            description:
+              "Simple factual question (e.g., 'What's their name?', 'What timezone?', 'Preferred language?')",
+          }),
+        }),
+        async execute(_toolCallId, params) {
+          const { query } = params as { query: string };
+          const answer = await moltbotPeer!.chat(query, {
+            target: ownerPeer!,
+            reasoningLevel: "minimal",
+          });
+          return {
+            content: [{ type: "text", text: answer! }],
+          };
+        },
+      },
+      { name: "honcho_recall" }
+    ),
+
+    // ========================================================================
+    // TOOL: honcho_analyze — Complex Q&A with synthesis (medium reasoning)
+    // ========================================================================
+    api.registerTool(
+      {
+        name: "honcho_analyze",
+        label: "Analyze with Honcho",
+        description: `Ask Honcho a complex question requiring synthesis and get an analyzed answer. Uses Honcho's LLM with medium reasoning.
+
+━━━ Q&A TOOL ━━━
+Returns: Synthesized analysis answering your question
+Cost: ~$0.05 (LLM call with medium reasoning — multiple searches, directed synthesis)
+Speed: Fast
+
+Best for:
+- Questions requiring context from multiple interactions
+- Synthesizing patterns or preferences
+- Understanding communication style or working patterns
+- Briefings or summaries on specific topics
+- Questions about history or evolution
+
+Examples:
+- "What topics interest the user?" → Briefing with ranked interests
+- "Describe the user's communication style." → Style profile
+- "What key decisions came from our last sessions?" → Decision summary
+- "How does the user prefer to receive feedback?" → Preference analysis
+- "What concerns has the user raised about this project?" → Concern synthesis
+
+NOT suitable for:
+- Simple factual lookups (use honcho_recall — cheaper)
+- When you want to see raw evidence (use honcho_search — cheaper)
+
+━━━ vs Data Tools ━━━
+• honcho_search: Returns raw matching memories → you interpret (cheaper)
+• honcho_context: Returns broad representation → you interpret (cheaper)
+• honcho_analyze: Honcho synthesizes an answer → direct analysis (costs more)
+
+Use data tools if you want to see the evidence and reason yourself.
+Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
+        parameters: Type.Object({
+          query: Type.String({
+            description:
+              "Complex question requiring synthesis (e.g., 'Describe their communication style', 'What patterns in their concerns?')",
+          }),
+        }),
+        async execute(_toolCallId, params) {
+          const { query } = params as { query: string };
+          const answer = await moltbotPeer!.chat(query, {
+            target: ownerPeer!,
+            reasoningLevel: "medium",
+          });
+          return {
+            content: [{ type: "text", text: answer! }],
+          };
+        },
+      },
+      { name: "honcho_analyze" }
+    ),
 
     // ========================================================================
     // CLI Commands
