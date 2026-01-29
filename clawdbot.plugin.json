@@ -24,6 +24,13 @@
       "dailySyncEnabled": {
         "type": "boolean",
         "default": true
+      },
+      "syncFrequency": {
+        "type": "number",
+        "default": 60,
+        "minimum": 1,
+        "maximum": 1440,
+        "description": "Sync interval in minutes (1-1440, default 60)"
       }
     }
   },
@@ -49,8 +56,12 @@
       "help": "Sync representations to files when gateway starts"
     },
     "dailySyncEnabled": {
-      "label": "Daily Sync",
-      "help": "Refresh representations daily at midnight"
+      "label": "Periodic Sync",
+      "help": "Enable automatic sync at configured interval"
+    },
+    "syncFrequency": {
+      "label": "Sync Frequency (minutes)",
+      "help": "How often to sync Honcho representations to files (1-1440 minutes, default 60)"
     }
   }
 }

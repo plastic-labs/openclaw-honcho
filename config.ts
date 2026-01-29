@@ -8,6 +8,7 @@ export type HonchoConfig = {
   baseUrl: string;
   syncOnStartup: boolean;
   dailySyncEnabled: boolean;
+  syncFrequency: number; // Sync interval in minutes (1-1440)
 };
 
 /**
@@ -36,6 +37,12 @@ export const honchoConfigSchema = {
       apiKey = process.env.HONCHO_API_KEY;
     }
 
+    // Parse and clamp syncFrequency (default 60 minutes, range 1-1440)
+    let syncFrequency = 60;
+    if (typeof cfg.syncFrequency === "number" && !isNaN(cfg.syncFrequency)) {
+      syncFrequency = Math.max(1, Math.min(1440, Math.floor(cfg.syncFrequency)));
+    }
+
     return {
       apiKey,
       workspaceId:
@@ -48,6 +55,7 @@ export const honchoConfigSchema = {
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
       syncOnStartup: cfg.syncOnStartup !== false,
       dailySyncEnabled: cfg.dailySyncEnabled !== false,
+      syncFrequency,
     };
   },
 };

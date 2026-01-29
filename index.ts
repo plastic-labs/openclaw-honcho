@@ -302,29 +302,10 @@ const honchoPlugin = {
         }),
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
-
-          try {
-            await ensureInitialized();
-            const answer = await moltbotPeer!.chat(query, { target: ownerPeer! });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: answer ?? "No information available about this topic yet.",
-                },
-              ],
-            };
-          } catch (error) {
-            api.logger.error(`honcho_ask failed: ${error}`);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: "Failed to query memory. Service may be unavailable.",
-                },
-              ],
-            };
-          }
+          const answer = await moltbotPeer!.chat(query, { target: ownerPeer! });
+          return {
+            content: [{ type: "text", text: answer! }],
+          };
         },
       },
       { name: "honcho_ask" }
@@ -388,7 +369,7 @@ const honchoPlugin = {
     );
 
     // ========================================================================
-    // Service: Daily sync at midnight
+    // Service: Periodic sync (configurable frequency)
     // ========================================================================
     if (cfg.dailySyncEnabled) {
       let timeoutId: NodeJS.Timeout | null = null;
@@ -398,10 +379,7 @@ const honchoPlugin = {
         id: "honcho-daily-sync",
 
         start(svcCtx) {
-          const now = new Date();
-          const midnight = new Date(now);
-          midnight.setHours(24, 0, 0, 0);
-          const msUntilMidnight = midnight.getTime() - now.getTime();
+          const syncIntervalMs = cfg.syncFrequency * 60 * 1000;
 
           const doSync = async () => {
             try {
@@ -423,13 +401,11 @@ const honchoPlugin = {
           timeoutId = setTimeout(() => {
             doSync();
 
-            // Then every 24 hours
-            intervalId = setInterval(doSync, 24 * 60 * 60 * 1000);
-          }, msUntilMidnight);
+            // Then repeat at configured interval
+            intervalId = setInterval(doSync, syncIntervalMs);
+          }, syncIntervalMs);
 
-          svcCtx.logger.info(
-            `Daily sync scheduled (in ${Math.round(msUntilMidnight / 1000 / 60)} min)`
-          );
+          svcCtx.logger.info(`Periodic sync scheduled (every ${cfg.syncFrequency} min)`);
         },
 
         stop(svcCtx) {
