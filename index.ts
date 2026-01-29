@@ -746,10 +746,6 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 // Helper: Extract messages from agent_end event
 // ============================================================================
 
-// Strip <honcho-memory>...</honcho-memory> tags to prevent feedback loops
-// (injected context shouldn't be saved back to Honcho)
-const HONCHO_MEMORY_REGEX = /<honcho-memory>[\s\S]*?<\/honcho-memory>\s*/gi;
-
 function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
@@ -780,8 +776,7 @@ function extractMessages(
         .join("\n");
     }
 
-    // Strip honcho-memory tags to avoid re-ingesting injected context
-    content = content.replace(HONCHO_MEMORY_REGEX, "").trim();
+    content = content.trim();
 
     if (content) {
       const peer = role === "user" ? ownerPeer : moltbotPeer;
