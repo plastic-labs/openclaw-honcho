@@ -45,9 +45,6 @@ Or configure it directly in `moltbot.json`:
 |-----|------|---------|-------------|
 | `workspaceId` | `string` | `"moltbot"` | Honcho workspace ID for memory isolation. |
 | `baseUrl` | `string` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
-| `syncOnStartup` | `boolean` | `true` | Sync Honcho representations to workspace files on startup. |
-| `dailySyncEnabled` | `boolean` | `true` | Enable periodic sync of representations to files. |
-| `syncFrequency` | `number` | `60` | Sync interval in minutes (1-1440). |
 
 ## How it works
 
