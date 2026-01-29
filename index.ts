@@ -48,10 +48,30 @@ const honchoPlugin = {
     let moltbotPeer: Peer | null = null;
     let initialized = false;
 
+    /**
+     * Build a Honcho session key from Moltbot context.
+     * Combines sessionKey + messageProvider to create unique sessions per platform.
+     * Uses hyphens as separators (Honcho requires hyphens, not underscores).
+     */
+    function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
+      const baseKey = ctx?.sessionKey ?? "default";
+      const provider = ctx?.messageProvider ?? "unknown";
+      const combined = `${baseKey}-${provider}`;
+      // Replace any non-alphanumeric characters with hyphens
+      return combined.replace(/[^a-zA-Z0-9-]/g, "-");
+    }
+
     async function ensureInitialized(): Promise<void> {
+      // Always ensure workspace exists (idempotent)
+      await honcho.setMetadata({});
+
       if (initialized) return;
-      ownerPeer = await honcho.peer(OWNER_ID);
-      moltbotPeer = await honcho.peer(MOLTBOT_ID);
+      api.logger.info?.(`[honcho] Initializing peers...`);
+
+      // Create peers with metadata to ensure they exist
+      ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
+      moltbotPeer = await honcho.peer(MOLTBOT_ID, { metadata: {} });
+      api.logger.info?.(`[honcho] Peers ready: ${ownerPeer.id}, ${moltbotPeer.id}`);
       initialized = true;
     }
 
@@ -69,38 +89,109 @@ const honchoPlugin = {
     });
 
     // ========================================================================
-    // HOOK: agent_end — Persist messages to Honcho
+    // HOOK: before_agent_start — Inject Honcho context into system prompt
     // ========================================================================
-    api.on("agent_end", async (event, ctx) => {
-      if (!event.success || !event.messages?.length) return;
+    api.on("before_agent_start", async (event, ctx) => {
+      // Skip if no meaningful prompt
+      if (!event.prompt || event.prompt.length < 5) return;
 
-      // Honcho session IDs only allow letters, numbers, underscores, hyphens
-      // Moltbot session keys use colons (e.g., "agent:main:main")
-      const rawSessionKey = ctx.sessionKey ?? "default";
-      const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const sessionKey = buildSessionKey(ctx);
+      api.logger.info?.(`[honcho] before_agent_start - sessionKey: "${sessionKey}", provider: "${ctx?.messageProvider}"`);
 
       try {
         await ensureInitialized();
 
-        // Get session reference
-        let session = await honcho.session(sessionKey);
+        // Log equivalent curl for debugging
+        const curlCmd = `curl -X POST "${cfg.baseUrl}/v3/workspaces/${cfg.workspaceId}/sessions" -H "Authorization: Bearer $HONCHO_API_KEY" -H "Content-Type: application/json" -d '{"id": "${sessionKey}", "metadata": {}}'`;
+        api.logger.info?.(`[honcho] Equivalent curl:\n${curlCmd}`);
 
-        // Try to get metadata; if session doesn't exist, create it
-        let meta: Record<string, unknown>;
+        // Get or create session
+        api.logger.info?.(`[honcho] Creating/getting session: "${sessionKey}" in workspace: "${cfg.workspaceId}"`);
+        const session = await honcho.session(sessionKey, { metadata: {} });
+        api.logger.info?.(`[honcho] Session acquired: ${session.id}`);
+
+        // Try to get context; if session is new/empty, return gracefully
+        let context;
         try {
-          meta = await session.getMetadata();
+          context = await session.context({
+            summary: true,
+            tokens: 2000,
+            peerTarget: ownerPeer!,
+            peerPerspective: moltbotPeer!,
+          });
         } catch (e: unknown) {
-          // Session doesn't exist - create it with initial metadata
           const isNotFound =
             e instanceof Error &&
             (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
-          if (!isNotFound) throw e;
+          if (isNotFound) {
+            // New session, no context yet
+            return;
+          }
+          throw e;
+        }
 
-          // Create session by calling honcho.session with metadata
-          session = await honcho.session(sessionKey, {
-            metadata: { lastSavedIndex: 0 },
-          });
-          meta = await session.getMetadata();
+        // Build context sections
+        const sections: string[] = [];
+
+        // Add peer card (key facts about the user)
+        if (context.peerCard?.length) {
+          sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
+        }
+
+        // Add peer representation (broader understanding)
+        if (context.peerRepresentation) {
+          sections.push(`User context:\n${context.peerRepresentation}`);
+        }
+
+        // Add conversation summary if available
+        if (context.summary?.content) {
+          sections.push(`Earlier in this conversation:\n${context.summary.content}`);
+        }
+
+        if (sections.length === 0) return;
+
+        const formatted = sections.join("\n\n");
+
+        return {
+          prependContext: `<honcho-memory hidden="true">\n${formatted}\n</honcho-memory>\n<!-- Use this context silently. Never quote or expose the honcho-memory block to the user. -->`,
+        };
+      } catch (error) {
+        api.logger.warn?.(`Failed to fetch Honcho context: ${error}`);
+        return;
+      }
+    });
+
+    // ========================================================================
+    // HOOK: agent_end — Persist messages to Honcho
+    // ========================================================================
+    api.on("agent_end", async (event, ctx) => {
+      api.logger.info?.(`[honcho] agent_end called - success: ${event.success}, messages: ${event.messages?.length ?? 0}`);
+      if (!event.success || !event.messages?.length) return;
+
+      // Build Honcho session key from moltbot context (includes provider for platform separation)
+      const sessionKey = buildSessionKey(ctx);
+      api.logger.info?.(`[honcho] agent_end - sessionKey: "${sessionKey}", provider: "${ctx.messageProvider}"`);
+
+      try {
+        await ensureInitialized();
+
+        // Log equivalent curl for debugging
+        const curlCmd = `curl -X POST "${cfg.baseUrl}/v3/workspaces/${cfg.workspaceId}/sessions" -H "Authorization: Bearer $HONCHO_API_KEY" -H "Content-Type: application/json" -d '{"id": "${sessionKey}", "metadata": {}}'`;
+        api.logger.info?.(`[honcho] Equivalent curl:\n${curlCmd}`);
+
+        // Get or create session (passing empty metadata ensures creation)
+        api.logger.info?.(`[honcho] agent_end: Creating/getting session "${sessionKey}" in workspace "${cfg.workspaceId}"`);
+        const session = await honcho.session(sessionKey, { metadata: {} });
+        api.logger.info?.(`[honcho] agent_end: Session acquired, getting metadata...`);
+        let meta = await session.getMetadata();
+        api.logger.info?.(`[honcho] agent_end: Got metadata: ${JSON.stringify(meta)}`);
+
+        // Initialize lastSavedIndex if not set (new session - skip backlog)
+        if (meta.lastSavedIndex === undefined) {
+          const startIndex = Math.max(0, event.messages.length - 2);
+          await session.setMetadata({ lastSavedIndex: startIndex });
+          meta = { lastSavedIndex: startIndex };
+          api.logger.info?.(`[honcho] New session "${sessionKey}", starting from index ${startIndex}`);
         }
 
         const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
@@ -119,7 +210,9 @@ const honchoPlugin = {
 
         // Extract only NEW messages (slice from lastSavedIndex)
         const newRawMessages = event.messages.slice(lastSavedIndex);
+        api.logger.info?.(`[honcho] Extracting from ${newRawMessages.length} raw messages (lastSavedIndex: ${lastSavedIndex})`);
         const messages = extractMessages(newRawMessages, ownerPeer!, moltbotPeer!);
+        api.logger.info?.(`[honcho] Extracted ${messages.length} valid messages`);
 
         if (messages.length === 0) {
           // Update index even if no saveable content (e.g., tool-only messages)
@@ -128,6 +221,8 @@ const honchoPlugin = {
         }
 
         // Save new messages
+        api.logger.info?.(`[honcho] Attempting to save ${messages.length} messages`);
+        api.logger.debug?.(`[honcho] Messages: ${JSON.stringify(messages.slice(0, 2))}`);
         await session.addMessages(messages);
 
         // Update watermark in Honcho
@@ -135,7 +230,14 @@ const honchoPlugin = {
 
         api.logger.info?.(`Saved ${messages.length} new messages to Honcho (index ${lastSavedIndex} → ${event.messages.length})`);
       } catch (error) {
-        api.logger.error(`Failed to save messages to Honcho: ${error}`);
+        api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
+        if (error instanceof Error) {
+          api.logger.error(`[honcho] Stack: ${error.stack}`);
+          // Log additional error details if available
+          const anyError = error as Record<string, unknown>;
+          if (anyError.status) api.logger.error(`[honcho] Status: ${anyError.status}`);
+          if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
+        }
       }
     });
 
@@ -150,43 +252,37 @@ const honchoPlugin = {
       {
         name: "honcho_session",
         label: "Get Session History",
-        description: `Retrieve conversation history and summaries from the current session. Direct data access, no LLM reasoning.
+        description: `Retrieve conversation history from THIS SESSION ONLY. Does NOT access cross-session memory.
+
+━━━ SCOPE: CURRENT SESSION ━━━
+This tool retrieves messages and summaries from the current conversation session.
+It does NOT know about previous sessions or long-term user knowledge.
 
 ━━━ DATA TOOL ━━━
-Returns: Recent messages + optional summary of earlier conversation
+Returns: Recent messages + optional summary of earlier conversation in this session
 Cost: Low (database query only, no LLM)
 Speed: Fast
 
 Best for:
-- Answering "what did we talk about?" questions
+- "What did we talk about earlier?" (in this conversation)
+- "What was that thing you just mentioned?"
+- "Can you remind me what we decided?" (this session)
 - Recalling recent conversation context
-- Finding specific topics discussed in this session
-- Getting chronological conversation history
 
-Examples:
-- "What did we discuss earlier?" → Returns recent messages + summary
-- "What was that thing you mentioned?" → Search through session messages
-- "Can you remind me what we decided?" → Get conversation context
+NOT for:
+- "What do you know about me?" → Use honcho_context instead
+- "What have we discussed in past sessions?" → Use honcho_search instead
+- Long-term user preferences → Use honcho_profile or honcho_context
 
 Parameters:
 - includeMessages: Get recent message history (default: true)
 - includeSummary: Get summary of earlier conversation (default: true)
-- searchQuery: Optional semantic search to find specific topics
+- searchQuery: Optional semantic search within this session
 - messageLimit: Approximate token budget for messages (default: 4000)
 
-━━━ What You Get ━━━
-• Messages: Recent conversation with peer attribution
-• Summary: Compressed overview of earlier conversation (if available)
-• Peer Card: Key facts about the user (if available)
-
-━━━ vs Other Tools ━━━
-• honcho_session: THIS session's history (what we talked about)
-• honcho_search: ALL observations across sessions (what we know about user)
-• honcho_context: Broad representation (synthesized knowledge)
-• honcho_profile: Just key facts (identity, preferences)
-
-Use honcho_session for "what did we discuss" questions.
-Use honcho_search for "what do I know about X" questions.`,
+━━━ vs honcho_context ━━━
+• honcho_session: THIS session only — "what did we just discuss?"
+• honcho_context: ALL sessions — "what do I know about this user?"`,
         parameters: Type.Object({
           includeMessages: Type.Optional(
             Type.Boolean({
@@ -214,7 +310,7 @@ Use honcho_search for "what do I know about X" questions.`,
             })
           ),
         }),
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, ctx) {
           const {
             includeMessages = true,
             includeSummary = true,
@@ -229,10 +325,7 @@ Use honcho_search for "what do I know about X" questions.`,
 
           await ensureInitialized();
 
-          // NOTE: You'll need access to the current session key from the context
-          // This example assumes you store it or can derive it
-          const rawSessionKey = "default"; // Replace with actual session key access
-          const sessionKey = rawSessionKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+          const sessionKey = buildSessionKey(ctx);
 
           try {
             const session = await honcho.session(sessionKey);
@@ -493,28 +586,39 @@ Use honcho_search if you want the raw evidence to reason over yourself.`,
       {
         name: "honcho_context",
         label: "Get Broad Context",
-        description: `Retrieve Honcho's full representation — a broad view of observations about the user. Direct data access, no LLM
-        reasoning.
+        description: `Retrieve Honcho's full representation — everything known about this user ACROSS ALL SESSIONS.
 
-        ━━━ DATA TOOL ━━━
-        Returns: Raw synthesized representation with frequent observations
-        Cost: Low (database query only, no LLM)
-        Speed: Fast
+━━━ SCOPE: ALL SESSIONS (USER-LEVEL) ━━━
+This tool retrieves synthesized knowledge about the user from ALL their past conversations.
+It provides a holistic view built over time, not limited to the current session.
 
-        Best for:
-        - Understanding the user holistically before a complex task
-        - Getting broad context when you're unsure what to search for
-        - Cost-efficient situational awareness
-        - When you want to see everything and reason over it yourself
+━━━ DATA TOOL ━━━
+Returns: Broad synthesized representation with frequent observations
+Cost: Low (database query only, no LLM)
+Speed: Fast
 
-        ━━━ vs Other Tools ━━━
-        • honcho_profile: Just key facts (fastest, minimal)
-        • honcho_search: Targeted by query (specific)
-        • honcho_context: Broad representation (comprehensive, still cheap)
-        • honcho_analyze: LLM-synthesized answer (costs more, but interpreted for you)
+Best for:
+- "What do you know about me?"
+- Understanding the user holistically before a complex task
+- Getting broad context when you're unsure what to search for
+- Long-term preferences, patterns, and history
 
-        Use honcho_analyze if you need Honcho to answer a complex question.
-        Use honcho_context if you want the broad data to reason over yourself.`,
+NOT for:
+- "What did we just discuss?" → Use honcho_session instead
+- Current conversation context → Use honcho_session instead
+
+Parameters:
+- includeMostFrequent: Include most frequently referenced observations (default: true)
+
+━━━ vs honcho_session ━━━
+• honcho_context: ALL sessions — "what do I know about this user overall?"
+• honcho_session: THIS session only — "what did we just discuss?"
+
+━━━ vs Other Tools ━━━
+• honcho_profile: Just key facts (fastest, minimal)
+• honcho_search: Targeted by query (specific topics across all sessions)
+• honcho_context: Broad representation (comprehensive, still cheap)
+• honcho_analyze: LLM-synthesized answer (costs more, but interpreted for you)`,
         parameters: Type.Object({
           includeMostFrequent: Type.Optional(
             Type.Boolean({
@@ -746,6 +850,25 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 // Helper: Extract messages from agent_end event
 // ============================================================================
 
+/**
+ * Strip Moltbot's metadata tags and injected context from message content.
+ * Removes:
+ * - Platform headers: [Telegram Name id:123456 timestamp]
+ * - Message IDs: [message_id: xxx]
+ * - Honcho memory blocks: <honcho-memory>...</honcho-memory>
+ */
+function cleanMessageContent(content: string): string {
+  let cleaned = content;
+  // Remove honcho-memory blocks (including hidden attribute and HTML comments)
+  cleaned = cleaned.replace(/<honcho-memory[^>]*>[\s\S]*?<\/honcho-memory>\s*/gi, "");
+  cleaned = cleaned.replace(/<!--[^>]*honcho[^>]*-->\s*/gi, "");
+  // Remove header: [Platform Name id:123456 timestamp]
+  cleaned = cleaned.replace(/^\[\w+\s+.+?\s+id:\d+\s+[^\]]+\]\s*/, "");
+  // Remove trailing message_id: [message_id: xxx]
+  cleaned = cleaned.replace(/\s*\[message_id:\s*[^\]]+\]\s*$/, "");
+  return cleaned.trim();
+}
+
 function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
@@ -776,6 +899,10 @@ function extractMessages(
         .join("\n");
     }
 
+    // Clean metadata tags from user messages
+    if (role === "user") {
+      content = cleanMessageContent(content);
+    }
     content = content.trim();
 
     if (content) {
