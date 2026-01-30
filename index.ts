@@ -66,12 +66,10 @@ const honchoPlugin = {
       await honcho.setMetadata({});
 
       if (initialized) return;
-      api.logger.info?.(`[honcho] Initializing peers...`);
 
       // Create peers with metadata to ensure they exist
       ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
       moltbotPeer = await honcho.peer(MOLTBOT_ID, { metadata: {} });
-      api.logger.info?.(`[honcho] Peers ready: ${ownerPeer.id}, ${moltbotPeer.id}`);
       initialized = true;
     }
 
@@ -96,15 +94,12 @@ const honchoPlugin = {
       if (!event.prompt || event.prompt.length < 5) return;
 
       const sessionKey = buildSessionKey(ctx);
-      api.logger.info?.(`[honcho] before_agent_start - sessionKey: "${sessionKey}", provider: "${ctx?.messageProvider}"`);
 
       try {
         await ensureInitialized();
 
         // Get or create session
-        api.logger.info?.(`[honcho] Creating/getting session: "${sessionKey}"`);
         const session = await honcho.session(sessionKey, { metadata: {} });
-        api.logger.info?.(`[honcho] Session acquired: ${session.id}`);
 
         // Try to get context; if session is new/empty, return gracefully
         let context;
@@ -161,29 +156,23 @@ const honchoPlugin = {
     // HOOK: agent_end — Persist messages to Honcho
     // ========================================================================
     api.on("agent_end", async (event, ctx) => {
-      api.logger.info?.(`[honcho] agent_end called - success: ${event.success}, messages: ${event.messages?.length ?? 0}`);
       if (!event.success || !event.messages?.length) return;
 
       // Build Honcho session key from moltbot context (includes provider for platform separation)
       const sessionKey = buildSessionKey(ctx);
-      api.logger.info?.(`[honcho] agent_end - sessionKey: "${sessionKey}", provider: "${ctx.messageProvider}"`);
 
       try {
         await ensureInitialized();
 
         // Get or create session (passing empty metadata ensures creation)
-        api.logger.info?.(`[honcho] agent_end: Creating/getting session "${sessionKey}"`);
         const session = await honcho.session(sessionKey, { metadata: {} });
-        api.logger.info?.(`[honcho] agent_end: Session acquired, getting metadata...`);
         let meta = await session.getMetadata();
-        api.logger.info?.(`[honcho] agent_end: Got metadata: ${JSON.stringify(meta)}`);
 
         // Initialize lastSavedIndex if not set (new session - skip backlog)
         if (meta.lastSavedIndex === undefined) {
           const startIndex = Math.max(0, event.messages.length - 2);
           await session.setMetadata({ lastSavedIndex: startIndex });
           meta = { lastSavedIndex: startIndex };
-          api.logger.info?.(`[honcho] New session "${sessionKey}", starting from index ${startIndex}`);
         }
 
         const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
@@ -202,9 +191,7 @@ const honchoPlugin = {
 
         // Extract only NEW messages (slice from lastSavedIndex)
         const newRawMessages = event.messages.slice(lastSavedIndex);
-        api.logger.info?.(`[honcho] Extracting from ${newRawMessages.length} raw messages (lastSavedIndex: ${lastSavedIndex})`);
         const messages = extractMessages(newRawMessages, ownerPeer!, moltbotPeer!);
-        api.logger.info?.(`[honcho] Extracted ${messages.length} valid messages`);
 
         if (messages.length === 0) {
           // Update index even if no saveable content (e.g., tool-only messages)
@@ -213,14 +200,10 @@ const honchoPlugin = {
         }
 
         // Save new messages
-        api.logger.info?.(`[honcho] Attempting to save ${messages.length} messages`);
-        api.logger.debug?.(`[honcho] Messages: ${JSON.stringify(messages.slice(0, 2))}`);
         await session.addMessages(messages);
 
         // Update watermark in Honcho
         await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
-
-        api.logger.info?.(`Saved ${messages.length} new messages to Honcho (index ${lastSavedIndex} → ${event.messages.length})`);
       } catch (error) {
         api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
         if (error instanceof Error) {
@@ -786,8 +769,6 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 
               console.log("Connected to Honcho");
               console.log(`  Workspace: ${cfg.workspaceId}`);
-              console.log(`  Owner representation: ${ownerRep.length} chars`);
-              console.log(`  Moltbot representation: ${moltbotRep.length} chars`);
             } catch (error) {
               console.error(`Failed to connect: ${error}`);
             }
