@@ -17,33 +17,24 @@ The install script automatically:
 
 **Important:** Make sure any existing memory files are saved to version control before installing.
 
-Restart OpenClaw after installing.
+Restart the gateway after installing:
+
+```bash
+openclaw gateway restart
+```
+
+Start chatting and ask it questions to use its tools:
+- Chat in terminal: `openclaw tui`
+- Watch the logs: `openclaw logs --follow`
 
 ## Configuration
 
 The only required value is your Honcho API key. Get one at [honcho.dev](https://honcho.dev).
 
-Set it as an environment variable:
+Add it to OpenClaw's global env file:
 
 ```bash
-export HONCHO_API_KEY="hc_..."
-```
-
-Or configure it directly in `openclaw.json`:
-
-```json5
-{
-  "plugins": {
-    "entries": {
-      "openclaw-honcho": {
-        "enabled": true,
-        "config": {
-          "apiKey": "${HONCHO_API_KEY}"
-        }
-      }
-    }
-  }
-}
+echo "HONCHO_API_KEY=your_honcho_api_key_here" >> ~/.openclaw/.env
 ```
 
 ### Advanced options

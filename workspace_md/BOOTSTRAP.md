@@ -21,7 +21,7 @@ Offer suggestions if they're stuck. Have fun with it.
 
 ## After You Know Who You Are
 
-Update identity-only files as needed (not memory). All memory is automatically saved to Honcho, and Moltbot should use Honcho to retrieve answers.
+Update identity-only files as needed (not memory). All memory is automatically saved to Honcho — use Honcho tools to retrieve answers.
 - `IDENTITY.md` — your name, creature, vibe, emoji
 - call `honcho_profile` to figure out their name, how to address them, timezone, notes
 
