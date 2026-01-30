@@ -1,14 +1,14 @@
 /**
- * Moltbot Memory (Honcho) Plugin
+ * OpenClaw Memory (Honcho) Plugin
  *
- * AI-native memory with dialectic reasoning for Moltbot.
+ * AI-native memory with dialectic reasoning for OpenClaw.
  * Uses Honcho's peer paradigm for multi-party conversation memory.
  */
 
 import { Type } from "@sinclair/typebox";
 import { Honcho, type Peer, type Session, type MessageInput } from "@honcho-ai/sdk";
-// @ts-ignore - resolved by moltbot runtime
-import type { MoltbotPluginApi } from "clawdbot/plugin-sdk";
+// @ts-ignore - resolved by openclaw runtime
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { honchoConfigSchema, type HonchoConfig } from "./config.js";
 
 // ============================================================================
@@ -16,25 +16,25 @@ import { honchoConfigSchema, type HonchoConfig } from "./config.js";
 // ============================================================================
 
 const OWNER_ID = "owner";
-const MOLTBOT_ID = "moltbot";
+const OPENCLAW_ID = "openclaw";
 
 // ============================================================================
 // Plugin Definition
 // ============================================================================
 
 const honchoPlugin = {
-  id: "moltbot-honcho",
+  id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
   kind: "memory" as const,
   configSchema: honchoConfigSchema,
 
-  register(api: MoltbotPluginApi) {
+  register(api: OpenClawPluginApi) {
     const cfg = honchoConfigSchema.parse(api.pluginConfig);
 
     if (!cfg.apiKey) {
       api.logger.warn(
-        "moltbot-honcho: No API key configured. Set HONCHO_API_KEY or configure apiKey in plugin config."
+        "openclaw-honcho: No API key configured. Set HONCHO_API_KEY or configure apiKey in plugin config."
       );
     }
 
@@ -45,11 +45,11 @@ const honchoPlugin = {
     });
 
     let ownerPeer: Peer | null = null;
-    let moltbotPeer: Peer | null = null;
+    let openclawPeer: Peer | null = null;
     let initialized = false;
 
     /**
-     * Build a Honcho session key from Moltbot context.
+     * Build a Honcho session key from OpenClaw context.
      * Combines sessionKey + messageProvider to create unique sessions per platform.
      * Uses hyphens as separators (Honcho requires hyphens, not underscores).
      */
@@ -69,7 +69,7 @@ const honchoPlugin = {
 
       // Create peers with metadata to ensure they exist
       ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
-      moltbotPeer = await honcho.peer(MOLTBOT_ID, { metadata: {} });
+      openclawPeer = await honcho.peer(OPENCLAW_ID, { metadata: {} });
       initialized = true;
     }
 
@@ -108,7 +108,7 @@ const honchoPlugin = {
             summary: true,
             tokens: 2000,
             peerTarget: ownerPeer!,
-            peerPerspective: moltbotPeer!,
+            peerPerspective: openclawPeer!,
           });
         } catch (e: unknown) {
           const isNotFound =
@@ -158,7 +158,7 @@ const honchoPlugin = {
     api.on("agent_end", async (event, ctx) => {
       if (!event.success || !event.messages?.length) return;
 
-      // Build Honcho session key from moltbot context (includes provider for platform separation)
+      // Build Honcho session key from openclaw context (includes provider for platform separation)
       const sessionKey = buildSessionKey(ctx);
 
       try {
@@ -180,7 +180,7 @@ const honchoPlugin = {
         // Add peers (session now guaranteed to exist)
         await session.addPeers([
           [OWNER_ID, { observeMe: true, observeOthers: false }],
-          [MOLTBOT_ID, { observeMe: true, observeOthers: true }],
+          [OPENCLAW_ID, { observeMe: true, observeOthers: true }],
         ]);
 
         // Skip if nothing new
@@ -191,7 +191,7 @@ const honchoPlugin = {
 
         // Extract only NEW messages (slice from lastSavedIndex)
         const newRawMessages = event.messages.slice(lastSavedIndex);
-        const messages = extractMessages(newRawMessages, ownerPeer!, moltbotPeer!);
+        const messages = extractMessages(newRawMessages, ownerPeer!, openclawPeer!);
 
         if (messages.length === 0) {
           // Update index even if no saveable content (e.g., tool-only messages)
@@ -310,7 +310,7 @@ Parameters:
               summary: includeSummary,
               tokens: messageLimit,
               peerTarget: ownerPeer!,
-              peerPerspective: moltbotPeer!,
+              peerPerspective: openclawPeer!,
               searchQuery: searchQuery,
             });
 
@@ -340,7 +340,7 @@ Parameters:
             // Add messages if requested
             if (includeMessages && context.messages.length > 0) {
               const messageLines = context.messages.map((msg) => {
-                const speaker = msg.peerId === ownerPeer!.id ? "User" : "Moltbot";
+                const speaker = msg.peerId === ownerPeer!.id ? "User" : "OpenClaw";
                 const timestamp = msg.createdAt
                   ? new Date(msg.createdAt).toLocaleString()
                   : "";
@@ -680,7 +680,7 @@ Parameters:
         }),
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
-          const answer = await moltbotPeer!.chat(query, {
+          const answer = await openclawPeer!.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "minimal",
           });
@@ -739,7 +739,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
         }),
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
-          const answer = await moltbotPeer!.chat(query, {
+          const answer = await openclawPeer!.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "medium",
           });
@@ -765,7 +765,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
             try {
               await ensureInitialized();
               const ownerRep = await ownerPeer!.representation();
-              const moltbotRep = await moltbotPeer!.representation();
+              const openclawRep = await openclawPeer!.representation();
 
               console.log("Connected to Honcho");
               console.log(`  Workspace: ${cfg.workspaceId}`);
@@ -780,7 +780,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
           .action(async (question: string) => {
             try {
               await ensureInitialized();
-              const answer = await moltbotPeer!.chat(question, { target: ownerPeer! });
+              const answer = await openclawPeer!.chat(question, { target: ownerPeer! });
               console.log(answer ?? "No information available.");
             } catch (error) {
               console.error(`Failed to query: ${error}`);
@@ -824,7 +824,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 // ============================================================================
 
 /**
- * Strip Moltbot's metadata tags and injected context from message content.
+ * Strip OpenClaw's metadata tags and injected context from message content.
  * Removes:
  * - Platform headers: [Telegram Name id:123456 timestamp]
  * - Message IDs: [message_id: xxx]
@@ -845,7 +845,7 @@ function cleanMessageContent(content: string): string {
 function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
-  moltbotPeer: Peer
+  openclawPeer: Peer
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -879,7 +879,7 @@ function extractMessages(
     content = content.trim();
 
     if (content) {
-      const peer = role === "user" ? ownerPeer : moltbotPeer;
+      const peer = role === "user" ? ownerPeer : openclawPeer;
       result.push(peer.message(content));
     }
   }

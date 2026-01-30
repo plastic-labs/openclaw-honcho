@@ -1,8 +1,8 @@
 {
-  "name": "@plastic-labs/moltbot-honcho",
+  "name": "@plastic-labs/openclaw-honcho",
   "version": "1.0.0",
   "type": "module",
-  "description": "Honcho AI-native memory integration for Moltbot",
+  "description": "Honcho AI-native memory integration for OpenClaw",
   "main": "index.ts",
   "dependencies": {
     "@honcho-ai/sdk": "^2.0.0",
@@ -14,17 +14,10 @@
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "moltbot": "*"
-  },
-  "moltbot": {
-    "extensions": ["./index.ts"]
+    "openclaw": "*"
   },
   "openclaw": {
     "plugin": "./openclaw.plugin.json",
-    "extensions": ["./index.ts"]
-  },
-  "clawdbot": {
-    "plugin": "./clawdbot.plugin.json",
     "extensions": ["./index.ts"]
   },
   "scripts": {

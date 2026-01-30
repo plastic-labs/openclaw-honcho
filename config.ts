@@ -39,7 +39,7 @@ export const honchoConfigSchema = {
       workspaceId:
         typeof cfg.workspaceId === "string" && cfg.workspaceId.length > 0
           ? cfg.workspaceId
-          : process.env.HONCHO_WORKSPACE_ID ?? "moltbot",
+          : process.env.HONCHO_WORKSPACE_ID ?? "openclaw",
       baseUrl:
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl

@@ -1,5 +1,5 @@
 {
-  "id": "moltbot-honcho",
+  "id": "openclaw-honcho",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -11,7 +11,7 @@
       },
       "workspaceId": {
         "type": "string",
-        "description": "Honcho workspace ID (defaults to 'moltbot')"
+        "description": "Honcho workspace ID (defaults to 'openclaw')"
       },
       "baseUrl": {
         "type": "string",
@@ -28,7 +28,7 @@
     },
     "workspaceId": {
       "label": "Workspace ID",
-      "placeholder": "moltbot",
+      "placeholder": "openclaw",
       "help": "Honcho workspace ID"
     },
     "baseUrl": {
