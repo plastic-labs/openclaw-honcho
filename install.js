@@ -239,8 +239,8 @@ async function migrateAndCleanup() {
       });
 
       // Get or create peers
-      const moltbotPeer = await honcho.peers.getOrCreate("moltbot");
-      const ownerPeer = await honcho.peers.getOrCreate("owner");
+      const moltbotPeer = await honcho.peer("moltbot");
+      const ownerPeer = await honcho.peer("owner");
 
       if (ownerConclusions.length > 0) {
         await moltbotPeer.conclusionsOf(ownerPeer).create(
