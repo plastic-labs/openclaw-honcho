@@ -49,7 +49,7 @@ async function fileExists(filePath) {
 }
 
 async function loadWorkspaceFromConfig() {
-  const configPath = path.join(os.homedir(), ".clawdbot", "moltbot.json");
+  const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
   try {
     const raw = await fs.promises.readFile(configPath, "utf8");
     const parsed = JSON.parse(raw);
@@ -72,16 +72,7 @@ async function resolveWorkspaceRoot() {
   const configured = await loadWorkspaceFromConfig();
   if (configured) candidates.push(configured);
 
-  const profile = process.env.CLAWDBOT_PROFILE;
-  if (profile && profile !== "default") {
-    candidates.push(path.join(os.homedir(), `clawd-${profile}`));
-  }
-
-  candidates.push(
-    path.join(os.homedir(), "clawd"),
-    path.join(os.homedir(), "moltbot"),
-    path.join(os.homedir(), ".openclaw", "workspace")
-  );
+  candidates.push(path.join(os.homedir(), ".openclaw", "workspace"));
 
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -130,10 +121,10 @@ async function resolveDocSource(repoRoot, sources) {
 // Migration: Move legacy memory files to Honcho and delete them
 // ============================================================================
 
-// Files that contain information ABOUT the owner (observed by moltbot)
+// Files that contain information ABOUT the owner (observed by openclaw)
 const ownerFiles = new Set(["USER.md", "IDENTITY.md", "MEMORY.md"]);
-// Files that contain information ABOUT moltbot itself (self-conclusions)
-const moltbotFiles = new Set(["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md", "HEARTBEAT.md"]);
+// Files that contain information ABOUT openclaw itself (self-conclusions)
+const openclawFiles = new Set(["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md", "HEARTBEAT.md"]);
 
 const filesToMigrate = [
   "AGENTS.md", "IDENTITY.md", "MEMORY.md", "TOOLS.md",
@@ -148,7 +139,7 @@ const dirsToDelete = ["memory"];
 function isAboutOwner(relativePath) {
   const baseName = path.basename(relativePath);
   if (ownerFiles.has(baseName)) return true;
-  if (moltbotFiles.has(baseName)) return false;
+  if (openclawFiles.has(baseName)) return false;
   return true; // Default: files in memory/canvas dirs are about the owner
 }
 
@@ -219,7 +210,7 @@ async function migrateAndCleanup() {
     console.log("");
     console.log(`Found ${conclusions.length} files to migrate:`);
     console.log(`  - ${ownerConclusions.length} about the user (USER.md, IDENTITY.md, etc.)`);
-    console.log(`  - ${selfConclusions.length} about moltbot (SOUL.md, AGENTS.md, etc.)`);
+    console.log(`  - ${selfConclusions.length} about openclaw (SOUL.md, AGENTS.md, etc.)`);
   }
 
   // Try to migrate to Honcho if API key is available
@@ -235,25 +226,25 @@ async function migrateAndCleanup() {
       const honcho = new Honcho({
         apiKey,
         baseURL: process.env.HONCHO_BASE_URL || "https://api.honcho.dev",
-        workspaceId: process.env.HONCHO_WORKSPACE_ID || "moltbot",
+        workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
       });
 
       // Get or create peers
-      const moltbotPeer = await honcho.peer("moltbot");
+      const openclawPeer = await honcho.peer("openclaw");
       const ownerPeer = await honcho.peer("owner");
 
       if (ownerConclusions.length > 0) {
-        await moltbotPeer.conclusionsOf(ownerPeer).create(
+        await openclawPeer.conclusionsOf(ownerPeer).create(
           ownerConclusions.map((c) => ({ content: c.content }))
         );
         console.log(`  ✓ Created ${ownerConclusions.length} conclusions about user`);
       }
 
       if (selfConclusions.length > 0) {
-        await moltbotPeer.conclusions.create(
+        await openclawPeer.conclusions.create(
           selfConclusions.map((c) => ({ content: c.content }))
         );
-        console.log(`  ✓ Created ${selfConclusions.length} moltbot self-conclusions`);
+        console.log(`  ✓ Created ${selfConclusions.length} openclaw self-conclusions`);
       }
 
       migrationSucceeded = true;
@@ -305,7 +296,7 @@ async function migrateAndCleanup() {
 // ============================================================================
 
 async function main() {
-  console.log("Installing moltbot-honcho plugin...");
+  console.log("Installing openclaw-honcho plugin...");
   console.log(`Workspace root: ${workspaceRoot}`);
 
   await updateWorkspaceDocs();
@@ -313,8 +304,6 @@ async function main() {
 
   console.log("");
   console.log("✓ Plugin installed successfully!");
-  console.log("");
-  console.log("Restart moltbot for changes to take effect.");
   console.log("");
 }
 
