@@ -1,0 +1,40 @@
+{
+  "id": "moltbot-honcho",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Honcho API key (or set HONCHO_API_KEY env var)"
+      },
+      "workspaceId": {
+        "type": "string",
+        "description": "Honcho workspace ID (defaults to 'moltbot')"
+      },
+      "baseUrl": {
+        "type": "string",
+        "default": "https://api.honcho.dev"
+      }
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "Honcho API Key",
+      "sensitive": true,
+      "placeholder": "hc_...",
+      "help": "API key for Honcho (or use ${HONCHO_API_KEY})"
+    },
+    "workspaceId": {
+      "label": "Workspace ID",
+      "placeholder": "moltbot",
+      "help": "Honcho workspace ID"
+    },
+    "baseUrl": {
+      "label": "API Base URL",
+      "advanced": true,
+      "placeholder": "https://api.honcho.dev"
+    }
+  }
+}
