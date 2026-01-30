@@ -79,7 +79,11 @@ async function resolveWorkspaceRoot() {
     candidates.push(path.join(os.homedir(), `clawd-${profile}`));
   }
 
-  candidates.push(path.join(os.homedir(), "clawd"), path.join(os.homedir(), "moltbot"));
+  candidates.push(
+    path.join(os.homedir(), "clawd"),
+    path.join(os.homedir(), "moltbot"),
+    path.join(os.homedir(), ".openclaw", "workspace")
+  );
 
   for (const candidate of candidates) {
     if (!candidate) continue;
