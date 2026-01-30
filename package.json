@@ -19,6 +19,14 @@
   "moltbot": {
     "extensions": ["./index.ts"]
   },
+  "openclaw": {
+    "plugin": "./openclaw.plugin.json",
+    "extensions": ["./index.ts"]
+  },
+  "clawdbot": {
+    "plugin": "./clawdbot.plugin.json",
+    "extensions": ["./index.ts"]
+  },
   "scripts": {
     "build": "tsc",
     "install": "node install.js",
