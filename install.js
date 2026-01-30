@@ -229,9 +229,12 @@ async function migrateAndCleanup() {
         workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
       });
 
-      // Get or create peers
-      const openclawPeer = await honcho.peer("openclaw");
-      const ownerPeer = await honcho.peer("owner");
+      // Ensure workspace exists (idempotent)
+      await honcho.setMetadata({});
+
+      // Get or create peers (passing metadata triggers creation)
+      const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
+      const ownerPeer = await honcho.peer("owner", { metadata: {} });
 
       if (ownerConclusions.length > 0) {
         await openclawPeer.conclusionsOf(ownerPeer).create(
