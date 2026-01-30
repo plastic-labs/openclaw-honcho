@@ -215,8 +215,9 @@ async function backupToHoncho() {
   }
 
   const honcho = new Honcho({ apiKey, baseURL, workspaceId });
-  const moltbotPeer = await honcho.peer(MOLTBOT_ID);
-  const ownerPeer = await honcho.peer(OWNER_ID);
+  // Pass metadata to trigger get-or-create behavior on the server
+  const moltbotPeer = await honcho.peer(MOLTBOT_ID, { metadata: {} });
+  const ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
 
   const conclusions = [];
 
