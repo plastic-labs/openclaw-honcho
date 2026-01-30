@@ -224,7 +224,9 @@ async function migrateAndCleanup() {
 
   // Try to migrate to Honcho if API key is available
   const apiKey = process.env.HONCHO_API_KEY;
-  if (conclusions.length > 0 && apiKey) {
+  let migrationSucceeded = false;
+
+  if (apiKey) {
     try {
       console.log("");
       console.log("Migrating to Honcho...");
@@ -253,18 +255,28 @@ async function migrateAndCleanup() {
         );
         console.log(`  ✓ Created ${selfConclusions.length} moltbot self-conclusions`);
       }
+
+      migrationSucceeded = true;
     } catch (error) {
-      console.warn("");
-      console.warn(`Warning: Could not migrate to Honcho: ${error.message}`);
-      console.warn("Legacy files will still be removed. Data may be lost.");
+      console.error("");
+      console.error(`Error: Could not migrate to Honcho: ${error.message}`);
+      console.error("Legacy files will NOT be removed to prevent data loss.");
+      console.error("Fix the issue above and re-run the install.");
+      return;
     }
-  } else if (conclusions.length > 0 && !apiKey) {
+  } else {
     console.log("");
-    console.log("Note: HONCHO_API_KEY not set. Skipping data migration to Honcho.");
-    console.log("Legacy files will still be removed.");
+    console.error("Error: HONCHO_API_KEY not set.");
+    console.error("Legacy files will NOT be removed to prevent data loss.");
+    console.error("");
+    console.error("Set your API key first:");
+    console.error("  echo 'HONCHO_API_KEY=hc_...' >> ~/.openclaw/.env");
+    console.error("");
+    console.error("Then re-run: npm install");
+    return;
   }
 
-  // Always clean up legacy files (required for plugin to work correctly)
+  // Only clean up legacy files if migration succeeded
   console.log("");
   console.log("Cleaning up legacy files...");
 
@@ -302,10 +314,7 @@ async function main() {
   console.log("");
   console.log("✓ Plugin installed successfully!");
   console.log("");
-  console.log("Next step: Configure your Honcho API key (if not already set):");
-  console.log("  export HONCHO_API_KEY=\"hc_...\"");
-  console.log("");
-  console.log("Then restart moltbot.");
+  console.log("Restart moltbot for changes to take effect.");
   console.log("");
 }
 
