@@ -6,6 +6,30 @@ import path from "path";
 // Install script: Sync workspace docs, migrate data to Honcho, clean up legacy files
 // ============================================================================
 
+// Load API key from ~/.openclaw/.env if not already in environment
+async function loadEnvFile() {
+  const envPath = path.join(os.homedir(), ".openclaw", ".env");
+  try {
+    const content = await fs.promises.readFile(envPath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const match = trimmed.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const key = match[1].trim();
+        const value = match[2].trim().replace(/^["']|["']$/g, ""); // strip quotes
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    }
+  } catch {
+    // .env file doesn't exist, that's fine
+  }
+}
+
+await loadEnvFile();
+
 const explicitWorkspace = process.env.WORKSPACE_ROOT;
 const workspaceRoot = await resolveWorkspaceRoot();
 
