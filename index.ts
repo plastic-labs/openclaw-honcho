@@ -101,12 +101,8 @@ const honchoPlugin = {
       try {
         await ensureInitialized();
 
-        // Log equivalent curl for debugging
-        const curlCmd = `curl -X POST "${cfg.baseUrl}/v3/workspaces/${cfg.workspaceId}/sessions" -H "Authorization: Bearer $HONCHO_API_KEY" -H "Content-Type: application/json" -d '{"id": "${sessionKey}", "metadata": {}}'`;
-        api.logger.info?.(`[honcho] Equivalent curl:\n${curlCmd}`);
-
         // Get or create session
-        api.logger.info?.(`[honcho] Creating/getting session: "${sessionKey}" in workspace: "${cfg.workspaceId}"`);
+        api.logger.info?.(`[honcho] Creating/getting session: "${sessionKey}"`);
         const session = await honcho.session(sessionKey, { metadata: {} });
         api.logger.info?.(`[honcho] Session acquired: ${session.id}`);
 
@@ -175,12 +171,8 @@ const honchoPlugin = {
       try {
         await ensureInitialized();
 
-        // Log equivalent curl for debugging
-        const curlCmd = `curl -X POST "${cfg.baseUrl}/v3/workspaces/${cfg.workspaceId}/sessions" -H "Authorization: Bearer $HONCHO_API_KEY" -H "Content-Type: application/json" -d '{"id": "${sessionKey}", "metadata": {}}'`;
-        api.logger.info?.(`[honcho] Equivalent curl:\n${curlCmd}`);
-
         // Get or create session (passing empty metadata ensures creation)
-        api.logger.info?.(`[honcho] agent_end: Creating/getting session "${sessionKey}" in workspace "${cfg.workspaceId}"`);
+        api.logger.info?.(`[honcho] agent_end: Creating/getting session "${sessionKey}"`);
         const session = await honcho.session(sessionKey, { metadata: {} });
         api.logger.info?.(`[honcho] agent_end: Session acquired, getting metadata...`);
         let meta = await session.getMetadata();
