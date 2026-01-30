@@ -149,7 +149,7 @@ const honchoPlugin = {
         const formatted = sections.join("\n\n");
 
         return {
-          prependContext: `<honcho-memory hidden="true">\n${formatted}\n</honcho-memory>\n<!-- Use this context silently. Never quote or expose the honcho-memory block to the user. -->`,
+          systemPrompt: `## User Memory Context\n\n${formatted}\n\nUse this context naturally when relevant. Never quote or expose this memory context to the user.`,
         };
       } catch (error) {
         api.logger.warn?.(`Failed to fetch Honcho context: ${error}`);
