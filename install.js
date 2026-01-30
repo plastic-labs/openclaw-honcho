@@ -215,8 +215,6 @@ async function migrateAndCleanup() {
 
   // Try to migrate to Honcho if API key is available
   const apiKey = process.env.HONCHO_API_KEY;
-  let migrationSucceeded = false;
-
   if (apiKey) {
     try {
       console.log("");
@@ -250,7 +248,7 @@ async function migrateAndCleanup() {
         console.log(`  ✓ Created ${selfConclusions.length} openclaw self-conclusions`);
       }
 
-      migrationSucceeded = true;
+      // Migration succeeded - continue to cleanup
     } catch (error) {
       console.error("");
       console.error(`Error: Could not migrate to Honcho: ${error.message}`);
@@ -277,16 +275,24 @@ async function migrateAndCleanup() {
   for (const file of filesToDelete) {
     const targetPath = path.join(workspaceRoot, file);
     if (await fileExists(targetPath)) {
-      await fs.promises.rm(targetPath, { force: true });
-      console.log(`  Removed: ${file}`);
+      await fs.promises.rm(targetPath);
+      if (await fileExists(targetPath)) {
+        console.error(`  Failed to remove: ${file}`);
+      } else {
+        console.log(`  Removed: ${file}`);
+      }
     }
   }
 
   for (const dir of dirsToDelete) {
     const targetPath = path.join(workspaceRoot, dir);
     if (await fileExists(targetPath)) {
-      await fs.promises.rm(targetPath, { recursive: true, force: true });
-      console.log(`  Removed: ${dir}/`);
+      await fs.promises.rm(targetPath, { recursive: true });
+      if (await fileExists(targetPath)) {
+        console.error(`  Failed to remove: ${dir}/`);
+      } else {
+        console.log(`  Removed: ${dir}/`);
+      }
     }
   }
 
