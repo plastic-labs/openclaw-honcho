@@ -21,9 +21,9 @@ openclaw plugins install @honcho-ai/openclaw
 ```
 
 The install script automatically:
-1. Syncs workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`)
-2. Migrates any existing memory to Honcho (if `HONCHO_API_KEY` is set)
-3. Archives legacy memory files to `archive/` (`USER.md`, `MEMORY.md`, `memory/` directory)
+1. Migrates any existing memory to Honcho (if `HONCHO_API_KEY` is set)
+2. Archives legacy memory files to `archive/` (`USER.md`, `MEMORY.md`, `AGENTS.md`, `BOOTSTRAP.md`, `SOUL.md`, `memory/` directory)
+3. Syncs workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) from plugin templates
 
 **Important:** Make sure any existing memory files are saved to version control before installing.
 
@@ -135,3 +135,7 @@ openclaw honcho status                          # Show connection status and rep
 openclaw honcho ask <question>                  # Query Honcho about the user
 openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
 ```
+
+## Development
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building from source, and contribution guidelines.

@@ -209,7 +209,7 @@ const honchoPlugin = {
         if (error instanceof Error) {
           api.logger.error(`[honcho] Stack: ${error.stack}`);
           // Log additional error details if available
-          const anyError = error as Record<string, unknown>;
+          const anyError = error as unknown as Record<string, unknown>;
           if (anyError.status) api.logger.error(`[honcho] Status: ${anyError.status}`);
           if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
         }
@@ -285,22 +285,24 @@ Parameters:
             })
           ),
         }),
-        async execute(_toolCallId, params, ctx) {
+        async execute(_toolCallId, params, _signal) {
           const {
             includeMessages = true,
             includeSummary = true,
             searchQuery,
             messageLimit = 4000,
+            sessionKey: sessionKeyParam,
           } = params as {
             includeMessages?: boolean;
             includeSummary?: boolean;
             searchQuery?: string;
             messageLimit?: number;
+            sessionKey?: string;
           };
 
           await ensureInitialized();
 
-          const sessionKey = buildSessionKey(ctx);
+          const sessionKey = sessionKeyParam ?? "default";
 
           try {
             const session = await honcho.session(sessionKey);
@@ -359,6 +361,7 @@ Parameters:
                     text: "No conversation history available for this session yet.",
                   },
                 ],
+                details: undefined,
               };
             }
 
@@ -373,6 +376,7 @@ Parameters:
                   text: sections.join("\n\n---\n\n") + searchNote,
                 },
               ],
+              details: undefined,
             };
           } catch (error) {
             // Session might not exist yet
@@ -389,6 +393,7 @@ Parameters:
                     text: "No conversation history found. This appears to be a new session.",
                   },
                 ],
+                details: undefined,
               };
             }
 
@@ -446,6 +451,7 @@ Parameters:
                   text: "No profile facts available yet. The user's profile builds over time through conversations.",
                 },
               ],
+              details: undefined,
             };
           }
 
@@ -456,11 +462,12 @@ Parameters:
                 text: `## User Profile\n\n${card.map((f) => `• ${f}`).join("\n")}`,
               },
             ],
+            details: undefined,
           };
         },
       },
       { name: "honcho_profile" }
-    ),
+    );
 
     // ========================================================================
     // TOOL: honcho_search — Targeted semantic search over memory
@@ -543,16 +550,18 @@ Use honcho_search if you want the raw evidence to reason over yourself.`,
                   text: `No memories found matching: "${query}"\n\nTry broadening your search or increasing maxDistance.`,
                 },
               ],
+              details: undefined,
             };
           }
 
           return {
             content: [{ type: "text", text: `## Search Results: "${query}"\n\n${representation}` }],
+            details: undefined,
           };
         },
       },
       { name: "honcho_search" }
-    ),
+    );
 
     // ========================================================================
     // TOOL: honcho_context — Broad representation without specific search
@@ -621,16 +630,18 @@ Parameters:
                   text: "No context available yet. Context builds over time through conversations.",
                 },
               ],
+              details: undefined,
             };
           }
 
           return {
             content: [{ type: "text", text: `## User Context\n\n${representation}` }],
+            details: undefined,
           };
         },
       },
       { name: "honcho_context" }
-    ),
+    );
 
     // ========================================================================
     // Q&A TOOLS (Honcho's LLM answers — costs more, direct answers)
@@ -680,17 +691,19 @@ Parameters:
         }),
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
+          await ensureInitialized();
           const answer = await openclawPeer!.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "minimal",
           });
           return {
             content: [{ type: "text", text: answer! }],
+            details: undefined,
           };
         },
       },
       { name: "honcho_recall" }
-    ),
+    );
 
     // ========================================================================
     // TOOL: honcho_analyze — Complex Q&A with synthesis (medium reasoning)
@@ -739,17 +752,19 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
         }),
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
+          await ensureInitialized();
           const answer = await openclawPeer!.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "medium",
           });
           return {
             content: [{ type: "text", text: answer! }],
+            details: undefined,
           };
         },
       },
       { name: "honcho_analyze" }
-    ),
+    );
 
     // ========================================================================
     // CLI Commands
