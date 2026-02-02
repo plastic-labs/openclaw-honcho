@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 
 // ============================================================================
-// Install script: Sync workspace docs, migrate data to Honcho, clean up legacy files
+// Install script: Sync workspace docs, migrate data to Honcho, archive legacy files
 // ============================================================================
 
 // Load API key from ~/.openclaw/.env if not already in environment
@@ -118,7 +118,7 @@ async function resolveDocSource(repoRoot, sources) {
 }
 
 // ============================================================================
-// Migration: Move legacy memory files to Honcho and delete them
+// Migration: Move legacy memory files to Honcho and archive them
 // ============================================================================
 
 // Files that contain information ABOUT the owner (observed by openclaw)
@@ -132,9 +132,10 @@ const filesToMigrate = [
 ];
 const dirsToMigrate = ["memory", "canvas"];
 
-// Files/dirs to delete after migration (legacy files that interfere with plugin)
-const filesToDelete = ["USER.md", "MEMORY.md"];
-const dirsToDelete = ["memory"];
+// Files/dirs to archive after migration (legacy files that interfere with plugin)
+const filesToArchive = ["USER.md", "MEMORY.md"];
+const dirsToArchive = ["memory"];
+const archiveDirName = "archive";
 
 function isAboutOwner(relativePath) {
   const baseName = path.basename(relativePath);
@@ -252,14 +253,14 @@ async function migrateAndCleanup() {
     } catch (error) {
       console.error("");
       console.error(`Error: Could not migrate to Honcho: ${error.message}`);
-      console.error("Legacy files will NOT be removed to prevent data loss.");
+      console.error("Legacy files will NOT be archived to prevent data loss.");
       console.error("Fix the issue above and re-run the install.");
       return;
     }
   } else {
     console.log("");
     console.error("Error: HONCHO_API_KEY not set.");
-    console.error("Legacy files will NOT be removed to prevent data loss.");
+    console.error("Legacy files will NOT be archived to prevent data loss.");
     console.error("");
     console.error("Set your API key first:");
     console.error("  echo 'HONCHO_API_KEY=hc_...' >> ~/.openclaw/.env");
@@ -268,36 +269,68 @@ async function migrateAndCleanup() {
     return;
   }
 
-  // Only clean up legacy files if migration succeeded
+  // Only archive legacy files if migration succeeded
   console.log("");
-  console.log("Cleaning up legacy files...");
+  console.log("Archiving legacy files...");
 
-  for (const file of filesToDelete) {
+  const archiveDir = path.join(workspaceRoot, archiveDirName);
+  await ensureDir(archiveDir);
+
+  for (const file of filesToArchive) {
     const targetPath = path.join(workspaceRoot, file);
     if (await fileExists(targetPath)) {
-      await fs.promises.rm(targetPath);
+      const destination = await uniqueArchivePath(archiveDir, file);
+      const archivedName = path.basename(destination);
+      await fs.promises.rename(targetPath, destination);
       if (await fileExists(targetPath)) {
-        console.error(`  Failed to remove: ${file}`);
+        console.error(`  Failed to archive: ${file}`);
       } else {
-        console.log(`  Removed: ${file}`);
+        console.log(`  Archived: ${file} -> ${path.join(archiveDirName, archivedName)}`);
       }
     }
   }
 
-  for (const dir of dirsToDelete) {
+  for (const dir of dirsToArchive) {
     const targetPath = path.join(workspaceRoot, dir);
     if (await fileExists(targetPath)) {
-      await fs.promises.rm(targetPath, { recursive: true });
+      const destination = await uniqueArchivePath(archiveDir, dir);
+      const archivedName = path.basename(destination);
+      await fs.promises.rename(targetPath, destination);
       if (await fileExists(targetPath)) {
-        console.error(`  Failed to remove: ${dir}/`);
+        console.error(`  Failed to archive: ${dir}/`);
       } else {
-        console.log(`  Removed: ${dir}/`);
+        console.log(`  Archived: ${dir}/ -> ${path.join(archiveDirName, archivedName)}/`);
       }
     }
   }
 
   console.log("");
   console.log("✓ Migration complete!");
+}
+
+async function ensureDir(dirPath) {
+  try {
+    await fs.promises.mkdir(dirPath, { recursive: true });
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      throw error;
+    }
+  }
+}
+
+async function uniqueArchivePath(archiveDir, name) {
+  let candidate = path.join(archiveDir, name);
+  if (!(await fileExists(candidate))) return candidate;
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  let attempt = 0;
+  while (true) {
+    const suffix = attempt === 0 ? timestamp : `${timestamp}-${attempt}`;
+    const nextName = `${name}-${suffix}`;
+    candidate = path.join(archiveDir, nextName);
+    if (!(await fileExists(candidate))) return candidate;
+    attempt += 1;
+  }
 }
 
 // ============================================================================
