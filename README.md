@@ -17,7 +17,7 @@ echo "HONCHO_API_KEY=your_honcho_api_key_here" >> ~/.openclaw/.env
 ## Install
 
 ```bash
-openclaw plugins install @plastic-labs/openclaw-honcho
+openclaw plugins install @honcho-ai/open-claw
 ```
 
 The install script automatically:

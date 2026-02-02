@@ -1,5 +1,5 @@
 {
-  "name": "@plastic-labs/openclaw-honcho",
+  "name": "@honcho-ai/open-claw",
   "version": "1.0.0",
   "type": "module",
   "description": "Honcho AI-native memory integration for OpenClaw",
