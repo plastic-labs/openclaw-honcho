@@ -90,21 +90,12 @@ async function updateWorkspaceDocs() {
 
   for (const doc of docsToSync) {
     const sourcePath = await resolveDocSource(repoRoot, doc.sources);
-    if (!sourcePath) {
-      console.warn(`Source doc missing, skipping: ${doc.sources.join(", ")}`);
-      continue;
-    }
-
     const sourceContents = await fs.promises.readFile(sourcePath, "utf8");
 
     for (const target of doc.targets) {
       const targetPath = path.join(workspaceRoot, target);
-      if (!(await fileExists(targetPath))) {
-        console.log(`Workspace doc not found, skipping: ${target}`);
-        continue;
-      }
       await fs.promises.writeFile(targetPath, sourceContents, "utf8");
-      console.log(`Updated workspace doc: ${target}`);
+      console.log(`Wrote workspace doc: ${target}`);
     }
   }
 }
