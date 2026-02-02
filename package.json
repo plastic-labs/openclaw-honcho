@@ -18,7 +18,9 @@
   },
   "openclaw": {
     "plugin": "./openclaw.plugin.json",
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "scripts": {
     "build": "tsc",
