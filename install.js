@@ -124,16 +124,34 @@ async function resolveDocSource(repoRoot, sources) {
 // Files that contain information ABOUT the owner (observed by openclaw)
 const ownerFiles = new Set(["USER.md", "IDENTITY.md", "MEMORY.md"]);
 // Files that contain information ABOUT openclaw itself (self-conclusions)
-const openclawFiles = new Set(["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md", "HEARTBEAT.md"]);
+const openclawFiles = new Set([
+  "SOUL.md",
+  "AGENTS.md",
+  "TOOLS.md",
+  "BOOTSTRAP.md",
+  "HEARTBEAT.md",
+]);
 
 const filesToMigrate = [
-  "AGENTS.md", "IDENTITY.md", "MEMORY.md", "TOOLS.md",
-  "BOOTSTRAP.md", "HEARTBEAT.md", "SOUL.md", "USER.md",
+  "AGENTS.md",
+  "IDENTITY.md",
+  "MEMORY.md",
+  "TOOLS.md",
+  "BOOTSTRAP.md",
+  "HEARTBEAT.md",
+  "SOUL.md",
+  "USER.md",
 ];
 const dirsToMigrate = ["memory", "canvas"];
 
 // Files/dirs to archive after migration (legacy files that interfere with plugin)
-const filesToArchive = ["USER.md", "MEMORY.md"];
+const filesToArchive = [
+  "USER.md",
+  "MEMORY.md",
+  "AGENTS.md",
+  "BOOTSTRAP.md",
+  "SOUL.md",
+];
 const dirsToArchive = ["memory"];
 const archiveDirName = "archive";
 
@@ -210,8 +228,12 @@ async function migrateAndCleanup() {
   if (conclusions.length > 0) {
     console.log("");
     console.log(`Found ${conclusions.length} files to migrate:`);
-    console.log(`  - ${ownerConclusions.length} about the user (USER.md, IDENTITY.md, etc.)`);
-    console.log(`  - ${selfConclusions.length} about openclaw (SOUL.md, AGENTS.md, etc.)`);
+    console.log(
+      `  - ${ownerConclusions.length} about the user (USER.md, IDENTITY.md, etc.)`,
+    );
+    console.log(
+      `  - ${selfConclusions.length} about openclaw (SOUL.md, AGENTS.md, etc.)`,
+    );
   }
 
   // Try to migrate to Honcho if API key is available
@@ -236,17 +258,21 @@ async function migrateAndCleanup() {
       const ownerPeer = await honcho.peer("owner", { metadata: {} });
 
       if (ownerConclusions.length > 0) {
-        await openclawPeer.conclusionsOf(ownerPeer).create(
-          ownerConclusions.map((c) => ({ content: c.content }))
+        await openclawPeer
+          .conclusionsOf(ownerPeer)
+          .create(ownerConclusions.map((c) => ({ content: c.content })));
+        console.log(
+          `  ✓ Created ${ownerConclusions.length} conclusions about user`,
         );
-        console.log(`  ✓ Created ${ownerConclusions.length} conclusions about user`);
       }
 
       if (selfConclusions.length > 0) {
         await openclawPeer.conclusions.create(
-          selfConclusions.map((c) => ({ content: c.content }))
+          selfConclusions.map((c) => ({ content: c.content })),
         );
-        console.log(`  ✓ Created ${selfConclusions.length} openclaw self-conclusions`);
+        console.log(
+          `  ✓ Created ${selfConclusions.length} openclaw self-conclusions`,
+        );
       }
 
       // Migration succeeded - continue to cleanup
@@ -285,7 +311,9 @@ async function migrateAndCleanup() {
       if (await fileExists(targetPath)) {
         console.error(`  Failed to archive: ${file}`);
       } else {
-        console.log(`  Archived: ${file} -> ${path.join(archiveDirName, archivedName)}`);
+        console.log(
+          `  Archived: ${file} -> ${path.join(archiveDirName, archivedName)}`,
+        );
       }
     }
   }
@@ -299,7 +327,9 @@ async function migrateAndCleanup() {
       if (await fileExists(targetPath)) {
         console.error(`  Failed to archive: ${dir}/`);
       } else {
-        console.log(`  Archived: ${dir}/ -> ${path.join(archiveDirName, archivedName)}/`);
+        console.log(
+          `  Archived: ${dir}/ -> ${path.join(archiveDirName, archivedName)}/`,
+        );
       }
     }
   }
@@ -341,8 +371,8 @@ async function main() {
   console.log("Installing openclaw-honcho plugin...");
   console.log(`Workspace root: ${workspaceRoot}`);
 
-  await updateWorkspaceDocs();
   await migrateAndCleanup();
+  await updateWorkspaceDocs();
 
   console.log("");
   console.log("✓ Plugin installed successfully!");
