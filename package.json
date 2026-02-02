@@ -3,7 +3,24 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Honcho AI-native memory integration for OpenClaw",
-  "main": "index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    }
+  },
+  "files": [
+    "dist",
+    "workspace_md",
+    "install.js",
+    "openclaw.plugin.json"
+  ],
   "dependencies": {
     "@honcho-ai/sdk": "^2.0.0",
     "@sinclair/typebox": "^0.32.0"
@@ -19,12 +36,13 @@
   "openclaw": {
     "plugin": "./openclaw.plugin.json",
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ]
   },
   "scripts": {
     "build": "tsc",
-    "install": "node install.js",
+    "prepublishOnly": "pnpm build",
+    "postinstall": "node install.js",
     "test": "vitest"
   }
 }
