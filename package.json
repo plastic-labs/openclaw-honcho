@@ -1,6 +1,6 @@
 {
   "name": "@honcho-ai/openclaw-honcho",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Honcho AI-native memory integration for OpenClaw",
   "main": "dist/index.js",
