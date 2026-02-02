@@ -17,10 +17,11 @@ echo "HONCHO_API_KEY=your_honcho_api_key_here" >> ~/.openclaw/.env
 ## Install
 
 ```bash
-openclaw plugins install @honcho-ai/openclaw
+openclaw plugins install @honcho-ai/openclaw-honcho
 ```
 
 The install script automatically:
+
 1. Migrates any existing memory to Honcho (if `HONCHO_API_KEY` is set)
 2. Archives legacy memory files to `archive/` (`USER.md`, `MEMORY.md`, `AGENTS.md`, `BOOTSTRAP.md`, `SOUL.md`, `memory/` directory)
 3. Syncs workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) from plugin templates
@@ -34,6 +35,7 @@ openclaw gateway restart
 ```
 
 Start chatting and ask it questions to use its tools:
+
 - Chat in terminal: `openclaw tui`
 - Watch the logs: `openclaw logs --follow`
 
@@ -68,10 +70,10 @@ Add to `~/.openclaw/openclaw.json`:
 
 ### Honcho Options
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `workspaceId` | `string` | `"openclaw"` | Honcho workspace ID for memory isolation. |
-| `baseUrl` | `string` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+| Key           | Type     | Default                    | Description                               |
+| ------------- | -------- | -------------------------- | ----------------------------------------- |
+| `workspaceId` | `string` | `"openclaw"`               | Honcho workspace ID for memory isolation. |
+| `baseUrl`     | `string` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 
 ### Self-Hosted / Local Honcho
 
@@ -99,12 +101,12 @@ Honcho handles all reasoning and synthesis in the cloud.
 
 The plugin manages markdown files in your workspace:
 
-| File | Contents |
-|------|----------|
-| `SOUL.md` | Agent profile — OpenClaw's self-model and personality. |
-| `AGENTS.md` | Agent capabilities and tool descriptions. |
-| `BOOTSTRAP.md` | Initial context and instructions for the agent. |
-| `IDENTITY.md` | Static agent identity (unchanged by Honcho). |
+| File           | Contents                                               |
+| -------------- | ------------------------------------------------------ |
+| `SOUL.md`      | Agent profile — OpenClaw's self-model and personality. |
+| `AGENTS.md`    | Agent capabilities and tool descriptions.              |
+| `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
+| `IDENTITY.md`  | Static agent identity (unchanged by Honcho).           |
 
 **Important:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are migrated to Honcho and archived to `archive/` during installation. Commit them to version control before installing.
 
@@ -114,18 +116,18 @@ The plugin provides both **data retrieval tools** (cheap, fast, raw data) and **
 
 ### Data Retrieval Tools
 
-| Tool | Description |
-|------|-------------|
+| Tool             | Description                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
 | `honcho_session` | Retrieve conversation history and summaries from the current session. Supports semantic search. |
-| `honcho_profile` | Get the user's peer card — a curated list of their most important facts. |
-| `honcho_search` | Semantic vector search over stored observations. Returns raw memories ranked by relevance. |
-| `honcho_context` | Retrieve Honcho's full representation — a broad view of observations about the user. |
+| `honcho_profile` | Get the user's peer card — a curated list of their most important facts.                        |
+| `honcho_search`  | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
+| `honcho_context` | Retrieve Honcho's full representation — a broad view of observations about the user.            |
 
 ### Q&A Tools
 
-| Tool | Description |
-|------|-------------|
-| `honcho_recall` | Ask a simple factual question (e.g., "What's their name?"). Minimal LLM reasoning. |
+| Tool             | Description                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| `honcho_recall`  | Ask a simple factual question (e.g., "What's their name?"). Minimal LLM reasoning.                         |
 | `honcho_analyze` | Ask a complex question requiring synthesis (e.g., "Describe their communication style"). Medium reasoning. |
 
 ## CLI Commands
