@@ -133,7 +133,7 @@ const filesToMigrate = [
 const dirsToMigrate = ["memory", "canvas"];
 
 // Files/dirs to archive after migration (legacy files that interfere with plugin)
-const filesToArchive = ["USER.md", "MEMORY.md"];
+const filesToArchive = ["USER.md", "MEMORY.md", "AGENTS.md", "BOOTSTRAP.md", "SOUL.md"];
 const dirsToArchive = ["memory"];
 const archiveDirName = "archive";
 
