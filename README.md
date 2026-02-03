@@ -1,5 +1,5 @@
-
 # Honcho Memory Plugin for OpenClaw
+
 [![Honcho Banner](./assets/honcho_claw.png)](https://honcho.dev)
 
 AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
@@ -143,3 +143,14 @@ openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (t
 ## Development
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building from source, and contribution guidelines.
+
+## License
+
+[MIT License](./LICENSE)
+
+## Community
+
+- GitHub Issues: [Open an Issue](https://github.com/plastic-labs/honcho/issues)
+- Discord: [Join the Community](https://discord.gg/honcho)
+- X (Twitter): [Follow @honchodotdev](https://x.com/honchodotdev)
+- Blog: [Read about Honcho and Agents](https://blog.plasticlabs.ai)
