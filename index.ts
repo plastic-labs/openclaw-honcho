@@ -767,6 +767,30 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
     );
 
     // ========================================================================
+    // OPTIONAL: Memory Search Passthrough (for QMD/local file integration)
+    // ========================================================================
+    if (cfg.memorySearch?.enabled) {
+      api.registerTool(
+        (ctx) => {
+          const memorySearchTool = api.runtime.tools.createMemorySearchTool({
+            config: ctx.config,
+            agentSessionKey: ctx.sessionKey,
+          });
+          const memoryGetTool = api.runtime.tools.createMemoryGetTool({
+            config: ctx.config,
+            agentSessionKey: ctx.sessionKey,
+          });
+          if (!memorySearchTool || !memoryGetTool) {
+            return null;
+          }
+          return [memorySearchTool, memoryGetTool];
+        },
+        { names: ["memory_search", "memory_get"] }
+      );
+      api.logger.info("openclaw-honcho: Memory search passthrough enabled");
+    }
+
+    // ========================================================================
     // CLI Commands
     // ========================================================================
     api.registerCli(

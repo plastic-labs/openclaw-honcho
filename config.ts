@@ -6,6 +6,9 @@ export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
   baseUrl: string;
+  memorySearch?: {
+    enabled?: boolean;
+  };
 };
 
 /**
@@ -44,6 +47,12 @@ export const honchoConfigSchema = {
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
+      memorySearch: {
+        enabled:
+          typeof cfg.memorySearch === "object" && cfg.memorySearch !== null
+            ? (cfg.memorySearch as Record<string, unknown>).enabled === true
+            : false,
+      },
     };
   },
 };
