@@ -16,17 +16,6 @@
       "baseUrl": {
         "type": "string",
         "default": "https://api.honcho.dev"
-      },
-      "memorySearch": {
-        "type": "object",
-        "description": "Enable memory_search/memory_get tools (for QMD/local file search)",
-        "properties": {
-          "enabled": {
-            "type": "boolean",
-            "description": "Enable passthrough to OpenClaw memory backend",
-            "default": false
-          }
-        }
       }
     }
   },
@@ -46,11 +35,6 @@
       "label": "API Base URL",
       "advanced": true,
       "placeholder": "https://api.honcho.dev"
-    },
-    "memorySearch": {
-      "label": "Local File Search",
-      "advanced": true,
-      "help": "Enable memory_search/memory_get tools that search local files via OpenClaw's memory backend (e.g., QMD)"
     }
   }
 }
