@@ -153,7 +153,12 @@ This plugin automatically exposes OpenClaw's `memory_search` and `memory_get` to
 ```json
 {
   "memory": {
-    "backend": "qmd"
+    "backend": "qmd",
+    "qmd": {
+      "limits": {
+        "timeoutMs": 120000
+      }
+    }
   }
 }
 ```
@@ -193,7 +198,28 @@ sudo ln -s ~/.bun/bin/qmd /usr/local/bin/qmd
 
 #### Search times out
 
-OpenClaw uses `qmd query` which includes LLM reranking. First-time queries download ~2GB of models. Pre-warm QMD:
+QMD operations can take a while, especially first-time queries that download ~2GB of models. Increase the timeout in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "memory": {
+    "qmd": {
+      "limits": {
+        "timeoutMs": 120000
+      }
+    }
+  }
+}
+```
+
+The default timeout is 4000ms which is too short for most QMD operations. Setting it to 120000ms (2 minutes) gives QMD enough time. You can verify it's working in the logs:
+
+```
+19:09:02 tool start: memory_search
+19:09:14 tool end: memory_search   # 12 seconds — within the 120s limit
+```
+
+You can also pre-warm QMD to avoid first-run delays:
 
 ```bash
 qmd query "test"
