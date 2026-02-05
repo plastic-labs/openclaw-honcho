@@ -140,6 +140,91 @@ openclaw honcho ask <question>                  # Query Honcho about the user
 openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
 ```
 
+## Local File Search (QMD Integration)
+
+This plugin automatically exposes OpenClaw's `memory_search` and `memory_get` tools when a memory backend is configured. This allows you to use both Honcho's cloud-based memory AND local file search together.
+
+### Setup
+
+1. **Install QMD** on your server ([QMD documentation](https://github.com/tobi/qmd))
+
+2. **Configure OpenClaw** to use QMD as the memory backend in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "memory": {
+    "backend": "qmd",
+    "qmd": {
+      "limits": {
+        "timeoutMs": 120000
+      }
+    }
+  }
+}
+```
+
+3. **Set up QMD collections** for your files:
+
+```bash
+qmd collection add ~/Documents/notes --name notes
+qmd update
+```
+
+4. **Restart OpenClaw**:
+
+```bash
+openclaw gateway restart
+```
+
+### Available Tools
+
+When QMD is configured, you get both Honcho and local file tools:
+
+| Tool            | Source | Description                                              |
+| --------------- | ------ | -------------------------------------------------------- |
+| `honcho_*`      | Honcho | Cross-session memory, user modeling, dialectic reasoning |
+| `memory_search` | QMD    | Search local markdown files                              |
+| `memory_get`    | QMD    | Retrieve file content                                    |
+
+### Troubleshooting
+
+#### QMD not found by OpenClaw
+
+OpenClaw runs as a systemd service with a different PATH. Create a symlink:
+
+```bash
+sudo ln -s ~/.bun/bin/qmd /usr/local/bin/qmd
+```
+
+#### Search times out
+
+QMD operations can take a while, especially first-time queries that download ~2GB of models. Increase the timeout in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "memory": {
+    "qmd": {
+      "limits": {
+        "timeoutMs": 120000
+      }
+    }
+  }
+}
+```
+
+The default timeout is 4000ms which depending on your hardware may be too short and cause errors. Setting it to 120000ms (2 minutes) gives QMD enough time. You can verify it's working in the logs:
+
+```
+19:09:02 tool start: memory_search
+19:09:14 tool end: memory_search   # 12 seconds — within the 120s limit
+```
+
+You can also pre-warm QMD to avoid first-run delays:
+
+```bash
+qmd query "test"
+```
+
 ## Development
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building from source, and contribution guidelines.
