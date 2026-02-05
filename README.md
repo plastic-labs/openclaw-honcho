@@ -212,7 +212,7 @@ QMD operations can take a while, especially first-time queries that download ~2G
 }
 ```
 
-The default timeout is 4000ms which is too short for most QMD operations. Setting it to 120000ms (2 minutes) gives QMD enough time. You can verify it's working in the logs:
+The default timeout is 4000ms which depending is too short for most QMD operations depending on your hardware. Setting it to 120000ms (2 minutes) gives QMD enough time. You can verify it's working in the logs:
 
 ```
 19:09:02 tool start: memory_search
