@@ -1,8 +1,8 @@
 {
-  "name": "@honcho-ai/openclaw-honcho",
-  "version": "1.0.2",
+  "name": "@runtimecorp/openclaw-honcho",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Honcho AI-native memory integration for OpenClaw",
+  "description": "Honcho supplementary memory layer for OpenClaw (Runtime fork — runs alongside memory-core)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

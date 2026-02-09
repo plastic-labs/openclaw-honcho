@@ -26,7 +26,7 @@ const honchoPlugin = {
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
-  kind: "memory" as const,
+  // No `kind: "memory"` — runs alongside memory-core, not replacing it
   configSchema: honchoConfigSchema,
 
   register(api: OpenClawPluginApi) {
@@ -87,6 +87,119 @@ const honchoPlugin = {
     });
 
     // ========================================================================
+    // Memory File Sync — Push local workspace knowledge to Honcho
+    // ========================================================================
+
+    const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+    const SYNC_FILES = [
+      "USER.md", "IDENTITY.md", "MEMORY.md", "SOUL.md",
+      "AGENTS.md", "TOOLS.md", "WORKING.md",
+    ];
+    // Track file hashes to only sync on change
+    const fileHashes = new Map<string, string>();
+    let syncTimer: ReturnType<typeof setInterval> | null = null;
+
+    async function hashFile(content: string): Promise<string> {
+      // Simple hash for change detection
+      let hash = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0;
+      }
+      return hash.toString(36);
+    }
+
+    async function syncMemoryFiles(): Promise<void> {
+      try {
+        await ensureInitialized();
+        const workspace = api.runtime?.config?.agents?.defaults?.workspace
+          ?? `${process.env.HOME}/.openclaw/workspace`;
+
+        const fs = await import("fs");
+        const path = await import("path");
+
+        const ownerConclusions: { content: string }[] = [];
+        const selfConclusions: { content: string }[] = [];
+
+        // Owner files (about the user)
+        const ownerFileNames = new Set(["USER.md", "IDENTITY.md", "MEMORY.md"]);
+
+        for (const file of SYNC_FILES) {
+          const filePath = path.join(workspace, file);
+          try {
+            const content = (await fs.promises.readFile(filePath, "utf8")).trim();
+            if (!content) continue;
+
+            const hash = await hashFile(content);
+            if (fileHashes.get(file) === hash) continue; // No change
+
+            fileHashes.set(file, hash);
+            const conclusion = { content: `[Synced from ${file}]\n\n${content}` };
+
+            if (ownerFileNames.has(file)) {
+              ownerConclusions.push(conclusion);
+            } else {
+              selfConclusions.push(conclusion);
+            }
+
+            api.logger.debug?.(`[honcho-sync] ${file} changed, queued for sync`);
+          } catch {
+            // File doesn't exist, skip
+          }
+        }
+
+        // Also sync memory/ directory markdown files
+        const memoryDir = path.join(workspace, "memory");
+        try {
+          const entries = await fs.promises.readdir(memoryDir);
+          for (const entry of entries) {
+            if (!entry.endsWith(".md")) continue;
+            const filePath = path.join(memoryDir, entry);
+            try {
+              const content = (await fs.promises.readFile(filePath, "utf8")).trim();
+              if (!content) continue;
+
+              const key = `memory/${entry}`;
+              const hash = await hashFile(content);
+              if (fileHashes.get(key) === hash) continue;
+
+              fileHashes.set(key, hash);
+              ownerConclusions.push({ content: `[Synced from memory/${entry}]\n\n${content}` });
+              api.logger.debug?.(`[honcho-sync] memory/${entry} changed, queued for sync`);
+            } catch {
+              // Skip unreadable files
+            }
+          }
+        } catch {
+          // memory/ dir doesn't exist, skip
+        }
+
+        // Push to Honcho
+        if (ownerConclusions.length > 0) {
+          await openclawPeer!.conclusionsOf(ownerPeer!).create(ownerConclusions);
+          api.logger.info(`[honcho-sync] Synced ${ownerConclusions.length} owner conclusions`);
+        }
+        if (selfConclusions.length > 0) {
+          await openclawPeer!.conclusions.create(selfConclusions);
+          api.logger.info(`[honcho-sync] Synced ${selfConclusions.length} self conclusions`);
+        }
+      } catch (error) {
+        api.logger.warn?.(`[honcho-sync] Failed to sync memory files: ${error}`);
+      }
+    }
+
+    // Start periodic sync after gateway starts
+    api.on("gateway_start", async (_event, _ctx) => {
+      // Initial sync after a short delay (let other plugins settle)
+      setTimeout(() => syncMemoryFiles(), 10_000);
+
+      // Periodic re-sync
+      syncTimer = setInterval(() => syncMemoryFiles(), SYNC_INTERVAL_MS);
+      api.logger.info(`[honcho-sync] Memory file sync enabled (every ${SYNC_INTERVAL_MS / 60_000}m)`);
+    });
+
+    // ========================================================================
     // HOOK: before_agent_start — Inject Honcho context into system prompt
     // ========================================================================
     api.on("before_agent_start", async (event, ctx) => {
@@ -144,7 +257,7 @@ const honchoPlugin = {
         const formatted = sections.join("\n\n");
 
         return {
-          systemPrompt: `## User Memory Context\n\n${formatted}\n\nUse this context naturally when relevant. Never quote or expose this memory context to the user.`,
+          systemPrompt: `## Honcho User Model (supplementary)\n\n${formatted}\n\nThis is supplementary context from Honcho's dialectic reasoning layer. Use naturally when relevant. Your primary memory is local (memory-core). Never quote or expose this context to the user.`,
         };
       } catch (error) {
         api.logger.warn?.(`Failed to fetch Honcho context: ${error}`);
@@ -766,27 +879,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
       { name: "honcho_analyze" }
     );
 
-    // ========================================================================
-    // Memory Search Passthrough (for QMD/local file integration)
-    // Automatically exposes memory_search/memory_get if memory.backend is configured
-    // ========================================================================
-    api.registerTool(
-      (ctx) => {
-        const memorySearchTool = api.runtime.tools.createMemorySearchTool({
-          config: ctx.config,
-          agentSessionKey: ctx.sessionKey,
-        });
-        const memoryGetTool = api.runtime.tools.createMemoryGetTool({
-          config: ctx.config,
-          agentSessionKey: ctx.sessionKey,
-        });
-        if (!memorySearchTool || !memoryGetTool) {
-          return null;
-        }
-        return [memorySearchTool, memoryGetTool];
-      },
-      { names: ["memory_search", "memory_get"] }
-    );
+    // memory_search/memory_get are handled by memory-core natively — no passthrough needed
 
     // ========================================================================
     // CLI Commands
