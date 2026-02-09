@@ -1,241 +1,191 @@
-# Honcho Memory Plugin for OpenClaw
+# Honcho Supplementary Memory Plugin for OpenClaw
 
-[![Honcho Banner](./assets/honcho_claw.png)](https://honcho.dev)
+> **Runtime fork** of [@honcho-ai/openclaw-honcho](https://github.com/plastic-labs/openclaw-honcho)
 
-AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
+Adds [Honcho's](https://honcho.dev) dialectic reasoning as a **supplementary memory layer** on top of OpenClaw's built-in memory system. Your local memory stays untouched — Honcho runs alongside it, not instead of it.
 
-This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During installation, existing memory files are migrated to Honcho as conclusions, and workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) are synced from plugin templates.
+## Why fork?
 
-## Configuration
+The upstream plugin replaces OpenClaw's memory system entirely — it takes the `kind: "memory"` slot, archives your workspace files (SOUL.md, USER.md, MEMORY.md, etc.), and becomes the sole memory backend. All your data moves to Honcho's cloud.
 
-The only required value is your Honcho API key. Get one at [honcho.dev](https://honcho.dev).
+We wanted something different:
 
-Add it to OpenClaw's global env file:
+- **Keep local memory working** — `memory-core` handles fast vector search over workspace files and sessions. It's free, private, and instant.
+- **Add Honcho on top** — Honcho's dialectic reasoning builds a deeper user model over time, synthesizing patterns across conversations that local vector search can't surface.
+- **No data migration** — Your workspace files stay where they are. Nothing gets archived or replaced.
 
-```bash
-echo "HONCHO_API_KEY=your_honcho_api_key_here" >> ~/.openclaw/.env
+## What changed from upstream
+
+| Area | Upstream | This fork |
+|------|----------|-----------|
+| **Plugin kind** | `"memory"` (replaces memory-core) | No kind (runs alongside memory-core) |
+| **Install script** | Migrates files to Honcho, archives originals | No-op — nothing touched |
+| **Workspace docs** | Overwrites SOUL.md, AGENTS.md, BOOTSTRAP.md | No overwriting |
+| **`before_agent_start` hook** | Primary memory context source | Supplementary — appends Honcho's user model alongside local memory |
+| **`agent_end` hook** | Ships conversations to Honcho | Same (unchanged) |
+| **Memory file sync** | None (migrates once at install) | Periodic sync — pushes workspace .md changes to Honcho as conclusions every 30 min |
+| **`memory_search`/`memory_get` tools** | Passthrough (re-exposes local search) | Removed — memory-core provides these natively |
+| **Tools** | 6 Honcho tools | Same 6 tools (unchanged) |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    OpenClaw Gateway                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  memory-core (built-in)          openclaw-honcho (this fork)│
+│  ├─ Local vector search          ├─ Dialectic user model    │
+│  ├─ Workspace file indexing      ├─ Cross-session synthesis │
+│  ├─ Session memory               ├─ Peer reasoning (Q&A)   │
+│  └─ Fast, free, private          └─ Cloud-based, richer     │
+│                                                             │
+│  ┌─────────────────┐  ┌──────────────────────────────────┐ │
+│  │ Local Memory     │  │ Honcho Cloud                     │ │
+│  │ (.md files,      │  │ (conversations + synced files    │ │
+│  │  session JSONL)  │  │  → dialectic peer models)        │ │
+│  └─────────────────┘  └──────────────────────────────────┘ │
+│                                                             │
+│  Data flows:                                                │
+│  1. agent_end → conversations ship to Honcho (passive)      │
+│  2. Periodic sync → workspace .md files push to Honcho      │
+│  3. before_agent_start → Honcho context injected as         │
+│     supplementary system prompt (additive, not replacing)   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Install
+**Local memory** handles everyday recall — "what's in MEMORY.md?", "search my sessions for X".
+
+**Honcho** handles the meta layer — "what does this user care about?", "how has their thinking on X evolved?", "describe their communication style". It builds this from observing conversations + ingesting your curated workspace files.
+
+## Setup
+
+### 1. Get a Honcho API key
+
+Sign up at [honcho.dev](https://honcho.dev) and grab an API key.
 
 ```bash
-openclaw plugins install @honcho-ai/openclaw-honcho
+echo "HONCHO_API_KEY=hc_your_key_here" >> ~/.openclaw/.env
 ```
 
-The install script automatically:
+### 2. Install the plugin
 
-1. Migrates any existing memory to Honcho (if `HONCHO_API_KEY` is set)
-2. Archives legacy memory files to `archive/` (`USER.md`, `MEMORY.md`, `AGENTS.md`, `BOOTSTRAP.md`, `SOUL.md`, `memory/` directory)
-3. Syncs workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) from plugin templates
+Point OpenClaw to the plugin directory via `plugins.load.paths` in your config:
 
-**Important:** Make sure any existing memory files are saved to version control before installing.
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": ["/path/to/this/repo"]
+    },
+    "allow": ["openclaw-honcho"],
+    "entries": {
+      "openclaw-honcho": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
 
-Restart the gateway after installing:
+### 3. Restart OpenClaw
 
 ```bash
 openclaw gateway restart
 ```
 
-Start chatting and ask it questions to use its tools:
-
-- Chat in terminal: `openclaw tui`
-- Watch the logs: `openclaw logs --follow`
-
-### Workspace Path
-
-The plugin needs to know where your OpenClaw workspace files are stored. By default, this is `~/.openclaw/workspace`, but you can customize it.
-
-**Resolution order (first match wins):**
-
-1. `WORKSPACE_ROOT` environment variable
-2. `~/.openclaw/openclaw.json` config file (checks `agent.workspace`, `agents.defaults.workspace`, or `agents.defaults.workspaceDir`)
-3. `~/.openclaw/workspace` (if it exists)
-4. Current working directory (fallback)
-
-**Option 1: Environment variable**
+Verify it loaded:
 
 ```bash
-echo "WORKSPACE_ROOT=/path/to/custom/workspace" >> ~/.openclaw/.env
+openclaw logs --follow | grep honcho
+# Should see: "Honcho memory plugin loaded"
 ```
 
-**Option 2: Config file**
+### Self-Hosted Honcho
 
-Add to `~/.openclaw/openclaw.json`:
-
-```json
-{
-  "agent": {
-    "workspace": "/path/to/custom/workspace"
-  }
-}
-```
-
-### Honcho Options
-
-| Key           | Type     | Default                    | Description                               |
-| ------------- | -------- | -------------------------- | ----------------------------------------- |
-| `workspaceId` | `string` | `"openclaw"`               | Honcho workspace ID for memory isolation. |
-| `baseUrl`     | `string` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
-
-### Self-Hosted / Local Honcho
-
-If you're running your own Honcho server locally or self-hosted, just point the plugin to your instance by setting the base URL:
+Point to your own instance:
 
 ```bash
 echo "HONCHO_BASE_URL=http://localhost:8000" >> ~/.openclaw/.env
 ```
 
-No other client-side changes are needed. The plugin will connect to your local server instead of the hosted API.
-
-For setting up a local Honcho server, see the [Honcho code](https://github.com/plastic-labs/honcho?tab=readme-ov-file#local-development).
-
 ## How it works
 
-Once installed, the plugin works automatically:
+### Passive observation (automatic)
 
-- **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models.
-- **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context about the user.
-- **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors).
+After every AI turn, the `agent_end` hook ships the conversation to Honcho. Both user and agent messages are observed. Honcho builds and refines its dual peer model (one for the user, one for the agent) from these observations over time.
 
-Honcho handles all reasoning and synthesis in the cloud.
+### Memory file sync (automatic)
 
-## Workspace Files
+Every 30 minutes, the plugin checks your workspace files for changes and pushes updates to Honcho as conclusions:
 
-The plugin manages markdown files in your workspace:
+- **User files** (about the owner): `USER.md`, `IDENTITY.md`, `MEMORY.md`
+- **Agent files** (about the agent): `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `WORKING.md`
+- **Daily notes**: Everything in `memory/*.md`
 
-| File           | Contents                                               |
-| -------------- | ------------------------------------------------------ |
-| `SOUL.md`      | Agent profile — OpenClaw's self-model and personality. |
-| `AGENTS.md`    | Agent capabilities and tool descriptions.              |
-| `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
-| `IDENTITY.md`  | Static agent identity (unchanged by Honcho).           |
+Only changed files are synced (hash-based change detection). This ensures Honcho's reasoning draws from your curated knowledge, not just raw conversations.
 
-**Important:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are migrated to Honcho and archived to `archive/` during installation. Commit them to version control before installing.
+### Context injection (automatic)
 
-## AI Tools
+Before each agent turn, the `before_agent_start` hook fetches Honcho's user model and injects it as supplementary context in the system prompt. This runs alongside memory-core's local context — both contribute, neither replaces the other.
 
-The plugin provides both **data retrieval tools** (cheap, fast, raw data) and **Q&A tools** (LLM-powered, direct answers).
+### Tools (on-demand)
 
-### Data Retrieval Tools
+Six tools are available for explicit queries:
 
-| Tool             | Description                                                                                     |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| `honcho_session` | Retrieve conversation history and summaries from the current session. Supports semantic search. |
-| `honcho_profile` | Get the user's peer card — a curated list of their most important facts.                        |
-| `honcho_search`  | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
-| `honcho_context` | Retrieve Honcho's full representation — a broad view of observations about the user.            |
+#### Data retrieval (cheap, fast)
 
-### Q&A Tools
+| Tool | What it does |
+|------|-------------|
+| `honcho_session` | Current session history + summary |
+| `honcho_profile` | User's key facts (peer card) |
+| `honcho_search` | Semantic search over all observations |
+| `honcho_context` | Broad user representation across all sessions |
 
-| Tool             | Description                                                                                                |
-| ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `honcho_recall`  | Ask a simple factual question (e.g., "What's their name?"). Minimal LLM reasoning.                         |
-| `honcho_analyze` | Ask a complex question requiring synthesis (e.g., "Describe their communication style"). Medium reasoning. |
+#### Q&A (Honcho's LLM reasons over your data)
+
+| Tool | What it does | Cost |
+|------|-------------|------|
+| `honcho_recall` | Simple factual Q&A | ~$0.001 |
+| `honcho_analyze` | Complex synthesis | ~$0.05 |
 
 ## CLI Commands
 
 ```bash
-openclaw honcho status                          # Show connection status and representation sizes
-openclaw honcho ask <question>                  # Query Honcho about the user
-openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
+openclaw honcho status                          # Connection status
+openclaw honcho ask "What does this user care about?"  # Query Honcho
+openclaw honcho search "project decisions" -k 10       # Semantic search
 ```
 
-## Local File Search (QMD Integration)
+## When to use which memory system
 
-This plugin automatically exposes OpenClaw's `memory_search` and `memory_get` tools when a memory backend is configured. This allows you to use both Honcho's cloud-based memory AND local file search together.
-
-### Setup
-
-1. **Install QMD** on your server ([QMD documentation](https://github.com/tobi/qmd))
-
-2. **Configure OpenClaw** to use QMD as the memory backend in `~/.openclaw/openclaw.json`:
-
-```json
-{
-  "memory": {
-    "backend": "qmd",
-    "qmd": {
-      "limits": {
-        "timeoutMs": 120000
-      }
-    }
-  }
-}
-```
-
-3. **Set up QMD collections** for your files:
-
-```bash
-qmd collection add ~/Documents/notes --name notes
-qmd update
-```
-
-4. **Restart OpenClaw**:
-
-```bash
-openclaw gateway restart
-```
-
-### Available Tools
-
-When QMD is configured, you get both Honcho and local file tools:
-
-| Tool            | Source | Description                                              |
-| --------------- | ------ | -------------------------------------------------------- |
-| `honcho_*`      | Honcho | Cross-session memory, user modeling, dialectic reasoning |
-| `memory_search` | QMD    | Search local markdown files                              |
-| `memory_get`    | QMD    | Retrieve file content                                    |
-
-### Troubleshooting
-
-#### QMD not found by OpenClaw
-
-OpenClaw runs as a systemd service with a different PATH. Create a symlink:
-
-```bash
-sudo ln -s ~/.bun/bin/qmd /usr/local/bin/qmd
-```
-
-#### Search times out
-
-QMD operations can take a while, especially first-time queries that download ~2GB of models. Increase the timeout in `~/.openclaw/openclaw.json`:
-
-```json
-{
-  "memory": {
-    "qmd": {
-      "limits": {
-        "timeoutMs": 120000
-      }
-    }
-  }
-}
-```
-
-The default timeout is 4000ms which depending on your hardware may be too short and cause errors. Setting it to 120000ms (2 minutes) gives QMD enough time. You can verify it's working in the logs:
-
-```
-19:09:02 tool start: memory_search
-19:09:14 tool end: memory_search   # 12 seconds — within the 120s limit
-```
-
-You can also pre-warm QMD to avoid first-run delays:
-
-```bash
-qmd query "test"
-```
+| Question | Use |
+|----------|-----|
+| "What's in MEMORY.md?" | Local memory (memory-core) |
+| "Search my sessions for X" | Local memory (memory-core) |
+| "What does Alex care about?" | Honcho (`honcho_analyze`) |
+| "How has their thinking evolved?" | Honcho (`honcho_analyze`) |
+| "What's their communication style?" | Honcho (`honcho_context`) |
+| "Quick fact lookup" | Honcho (`honcho_recall`) |
 
 ## Development
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building from source, and contribution guidelines.
+```bash
+# Install dependencies
+npm install --legacy-peer-deps
+
+# Build
+npx tsc
+
+# Type check
+npx tsc --noEmit
+```
+
+## Upstream
+
+This is a fork of [plastic-labs/openclaw-honcho](https://github.com/plastic-labs/openclaw-honcho). See upstream for the original "full replacement" approach.
 
 ## License
 
 [MIT License](./LICENSE)
-
-## Community
-
-- GitHub Issues: [Open an Issue](https://github.com/plastic-labs/honcho/issues)
-- Discord: [Join the Community](https://discord.gg/honcho)
-- X (Twitter): [Follow @honchodotdev](https://x.com/honchodotdev)
-- Blog: [Read about Honcho and Agents](https://blog.plasticlabs.ai)
