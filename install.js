@@ -3,10 +3,10 @@ import os from "os";
 import path from "path";
 
 // ============================================================================
-// Install script: Sync workspace docs, migrate data to Honcho, archive legacy files
+// Install script: Migrate legacy memory data to Honcho
+// Workspace doc updates are handled by the honcho_setup skill.
 // ============================================================================
 
-// Load API key from ~/.openclaw/.env if not already in environment
 async function loadEnvFile() {
   const envPath = path.join(os.homedir(), ".openclaw", ".env");
   try {
@@ -17,7 +17,7 @@ async function loadEnvFile() {
       const match = trimmed.match(/^([^=]+)=(.*)$/);
       if (match) {
         const key = match[1].trim();
-        const value = match[2].trim().replace(/^["']|["']$/g, ""); // strip quotes
+        const value = match[2].trim().replace(/^["']|["']$/g, "");
         if (!process.env[key]) {
           process.env[key] = value;
         }
@@ -32,12 +32,6 @@ await loadEnvFile();
 
 const explicitWorkspace = process.env.WORKSPACE_ROOT;
 const workspaceRoot = await resolveWorkspaceRoot();
-
-const docsToSync = [
-  { sources: ["workspace_md/BOOTSTRAP.md"], targets: ["BOOTSTRAP.md"] },
-  { sources: ["workspace_md/SOUL.md"], targets: ["SOUL.md"] },
-  { sources: ["workspace_md/AGENTS.md"], targets: ["AGENTS.md"] },
-];
 
 async function fileExists(filePath) {
   try {
@@ -85,36 +79,11 @@ async function resolveWorkspaceRoot() {
   return process.cwd();
 }
 
-async function updateWorkspaceDocs() {
-  const repoRoot = process.cwd();
-
-  for (const doc of docsToSync) {
-    const sourcePath = await resolveDocSource(repoRoot, doc.sources);
-    const sourceContents = await fs.promises.readFile(sourcePath, "utf8");
-
-    for (const target of doc.targets) {
-      const targetPath = path.join(workspaceRoot, target);
-      await fs.promises.writeFile(targetPath, sourceContents, "utf8");
-      console.log(`Wrote workspace doc: ${target}`);
-    }
-  }
-}
-
-async function resolveDocSource(repoRoot, sources) {
-  for (const source of sources) {
-    const sourcePath = path.join(repoRoot, source);
-    if (await fileExists(sourcePath)) return sourcePath;
-  }
-  return null;
-}
-
 // ============================================================================
 // Migration: Move legacy memory files to Honcho and archive them
 // ============================================================================
 
-// Files that contain information ABOUT the owner (observed by openclaw)
 const ownerFiles = new Set(["USER.md", "IDENTITY.md", "MEMORY.md"]);
-// Files that contain information ABOUT openclaw itself (self-conclusions)
 const openclawFiles = new Set([
   "SOUL.md",
   "AGENTS.md",
@@ -135,22 +104,28 @@ const filesToMigrate = [
 ];
 const dirsToMigrate = ["memory", "canvas"];
 
-// Files/dirs to archive after migration (legacy files that interfere with plugin)
+// All files get copied to archive/ as backup.
+// Legacy-only files are then removed from the workspace.
+// Workspace docs are left in place for the skill to update.
 const filesToArchive = [
   "USER.md",
   "MEMORY.md",
+  "IDENTITY.md",
+  "HEARTBEAT.md",
   "AGENTS.md",
   "BOOTSTRAP.md",
   "SOUL.md",
+  "TOOLS.md",
 ];
-const dirsToArchive = ["memory"];
+const dirsToArchive = ["memory", "canvas"];
+const legacyOnlyFiles = new Set(["USER.md", "MEMORY.md", "IDENTITY.md", "HEARTBEAT.md"]);
 const archiveDirName = "archive";
 
 function isAboutOwner(relativePath) {
   const baseName = path.basename(relativePath);
   if (ownerFiles.has(baseName)) return true;
   if (openclawFiles.has(baseName)) return false;
-  return true; // Default: files in memory/canvas dirs are about the owner
+  return true;
 }
 
 async function collectFromDir(dirPath, relativePath, conclusions) {
@@ -175,158 +150,6 @@ async function collectFromDir(dirPath, relativePath, conclusions) {
       }
     }
   }
-}
-
-async function migrateAndCleanup() {
-  console.log("");
-  console.log("Migrating legacy memory files...");
-  console.log(`Workspace: ${workspaceRoot}`);
-  console.log("");
-
-  const conclusions = [];
-
-  // Collect from individual files
-  for (const file of filesToMigrate) {
-    const filePath = path.join(workspaceRoot, file);
-    try {
-      const content = (await fs.promises.readFile(filePath, "utf8")).trim();
-      if (content) {
-        conclusions.push({
-          content: `Memory file: ${file}\n\n${content}`,
-          isAboutOwner: isAboutOwner(file),
-        });
-        console.log(`  Found: ${file}`);
-      }
-    } catch {
-      // File doesn't exist, skip
-    }
-  }
-
-  // Collect from directories
-  for (const dir of dirsToMigrate) {
-    const dirPath = path.join(workspaceRoot, dir);
-    try {
-      await fs.promises.stat(dirPath);
-      await collectFromDir(dirPath, dir, conclusions);
-    } catch {
-      // Directory doesn't exist, skip
-    }
-  }
-
-  const ownerConclusions = conclusions.filter((c) => c.isAboutOwner);
-  const selfConclusions = conclusions.filter((c) => !c.isAboutOwner);
-
-  if (conclusions.length > 0) {
-    console.log("");
-    console.log(`Found ${conclusions.length} files to migrate:`);
-    console.log(
-      `  - ${ownerConclusions.length} about the user (USER.md, IDENTITY.md, etc.)`,
-    );
-    console.log(
-      `  - ${selfConclusions.length} about openclaw (SOUL.md, AGENTS.md, etc.)`,
-    );
-  }
-
-  // Try to migrate to Honcho if API key is available
-  const apiKey = process.env.HONCHO_API_KEY;
-  if (apiKey) {
-    try {
-      console.log("");
-      console.log("Migrating to Honcho...");
-
-      const { Honcho } = await import("@honcho-ai/sdk");
-      const honcho = new Honcho({
-        apiKey,
-        baseURL: process.env.HONCHO_BASE_URL || "https://api.honcho.dev",
-        workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
-      });
-
-      // Ensure workspace exists (idempotent)
-      await honcho.setMetadata({});
-
-      // Get or create peers (passing metadata triggers creation)
-      const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
-      const ownerPeer = await honcho.peer("owner", { metadata: {} });
-
-      if (ownerConclusions.length > 0) {
-        await openclawPeer
-          .conclusionsOf(ownerPeer)
-          .create(ownerConclusions.map((c) => ({ content: c.content })));
-        console.log(
-          `  ✓ Created ${ownerConclusions.length} conclusions about user`,
-        );
-      }
-
-      if (selfConclusions.length > 0) {
-        await openclawPeer.conclusions.create(
-          selfConclusions.map((c) => ({ content: c.content })),
-        );
-        console.log(
-          `  ✓ Created ${selfConclusions.length} openclaw self-conclusions`,
-        );
-      }
-
-      // Migration succeeded - continue to cleanup
-    } catch (error) {
-      console.error("");
-      console.error(`Error: Could not migrate to Honcho: ${error.message}`);
-      console.error("Legacy files will NOT be archived to prevent data loss.");
-      console.error("Fix the issue above and re-run the install.");
-      return;
-    }
-  } else {
-    console.log("");
-    console.error("Error: HONCHO_API_KEY not set.");
-    console.error("Legacy files will NOT be archived to prevent data loss.");
-    console.error("");
-    console.error("Set your API key first:");
-    console.error("  echo 'HONCHO_API_KEY=hc_...' >> ~/.openclaw/.env");
-    console.error("");
-    console.error("Then re-run: npm install");
-    return;
-  }
-
-  // Only archive legacy files if migration succeeded
-  console.log("");
-  console.log("Archiving legacy files...");
-
-  const archiveDir = path.join(workspaceRoot, archiveDirName);
-  await ensureDir(archiveDir);
-
-  for (const file of filesToArchive) {
-    const targetPath = path.join(workspaceRoot, file);
-    if (await fileExists(targetPath)) {
-      const destination = await uniqueArchivePath(archiveDir, file);
-      const archivedName = path.basename(destination);
-      await fs.promises.rename(targetPath, destination);
-      if (await fileExists(targetPath)) {
-        console.error(`  Failed to archive: ${file}`);
-      } else {
-        console.log(
-          `  Archived: ${file} -> ${path.join(archiveDirName, archivedName)}`,
-        );
-      }
-    }
-  }
-
-  for (const dir of dirsToArchive) {
-    const targetPath = path.join(workspaceRoot, dir);
-    if (await fileExists(targetPath)) {
-      const destination = await uniqueArchivePath(archiveDir, dir);
-      const archivedName = path.basename(destination);
-      await fs.promises.rename(targetPath, destination);
-      if (await fileExists(targetPath)) {
-        console.error(`  Failed to archive: ${dir}/`);
-      } else {
-        console.log(
-          `  Archived: ${dir}/ -> ${path.join(archiveDirName, archivedName)}/`,
-        );
-      }
-    }
-  }
-
-  console.log("");
-  console.log("✓ Migration complete!");
 }
 
 async function ensureDir(dirPath) {
@@ -354,6 +177,151 @@ async function uniqueArchivePath(archiveDir, name) {
   }
 }
 
+async function migrateAndCleanup() {
+  console.log("");
+  console.log("Checking for legacy memory files to migrate...");
+  console.log(`Workspace: ${workspaceRoot}`);
+  console.log("");
+
+  const conclusions = [];
+
+  for (const file of filesToMigrate) {
+    const filePath = path.join(workspaceRoot, file);
+    try {
+      const content = (await fs.promises.readFile(filePath, "utf8")).trim();
+      if (content) {
+        conclusions.push({
+          content: `Memory file: ${file}\n\n${content}`,
+          isAboutOwner: isAboutOwner(file),
+        });
+        console.log(`  Found: ${file}`);
+      }
+    } catch {
+      // File doesn't exist, skip
+    }
+  }
+
+  for (const dir of dirsToMigrate) {
+    const dirPath = path.join(workspaceRoot, dir);
+    try {
+      await fs.promises.stat(dirPath);
+      await collectFromDir(dirPath, dir, conclusions);
+    } catch {
+      // Directory doesn't exist, skip
+    }
+  }
+
+  if (conclusions.length === 0) {
+    console.log("No legacy memory files found. Nothing to migrate.");
+    return;
+  }
+
+  const ownerConclusions = conclusions.filter((c) => c.isAboutOwner);
+  const selfConclusions = conclusions.filter((c) => !c.isAboutOwner);
+
+  console.log("");
+  console.log(`Found ${conclusions.length} files to migrate:`);
+  console.log(
+    `  - ${ownerConclusions.length} about the user (USER.md, IDENTITY.md, etc.)`,
+  );
+  console.log(
+    `  - ${selfConclusions.length} about openclaw (SOUL.md, AGENTS.md, etc.)`,
+  );
+
+  const apiKey = process.env.HONCHO_API_KEY;
+  if (apiKey) {
+    try {
+      console.log("");
+      console.log("Migrating to Honcho...");
+
+      const { Honcho } = await import("@honcho-ai/sdk");
+      const honcho = new Honcho({
+        apiKey,
+        baseURL: process.env.HONCHO_BASE_URL || "https://api.honcho.dev",
+        workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
+      });
+
+      await honcho.setMetadata({});
+
+      const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
+      const ownerPeer = await honcho.peer("owner", { metadata: {} });
+
+      if (ownerConclusions.length > 0) {
+        await openclawPeer
+          .conclusionsOf(ownerPeer)
+          .create(ownerConclusions.map((c) => ({ content: c.content })));
+        console.log(
+          `  Created ${ownerConclusions.length} conclusions about user`,
+        );
+      }
+
+      if (selfConclusions.length > 0) {
+        await openclawPeer.conclusions.create(
+          selfConclusions.map((c) => ({ content: c.content })),
+        );
+        console.log(
+          `  Created ${selfConclusions.length} openclaw self-conclusions`,
+        );
+      }
+    } catch (error) {
+      console.error("");
+      console.error(`Error: Could not migrate to Honcho: ${error.message}`);
+      console.error("Legacy files will NOT be archived to prevent data loss.");
+      console.error("Fix the issue above and re-run the install.");
+      return;
+    }
+  } else {
+    console.log("");
+    console.warn("HONCHO_API_KEY not set — skipping Honcho migration.");
+    console.warn("Legacy files will NOT be archived to prevent data loss.");
+    console.warn("");
+    console.warn("Set your API key first:");
+    console.warn("  echo 'HONCHO_API_KEY=hc_...' >> ~/.openclaw/.env");
+    console.warn("");
+    console.warn("Then re-run: npm install");
+    return;
+  }
+
+  // Copy all files to archive/ as backup
+  console.log("");
+  console.log("Backing up files to archive/...");
+
+  const archiveDir = path.join(workspaceRoot, archiveDirName);
+  await ensureDir(archiveDir);
+
+  for (const file of filesToArchive) {
+    const targetPath = path.join(workspaceRoot, file);
+    if (await fileExists(targetPath)) {
+      const destination = await uniqueArchivePath(archiveDir, file);
+      const archivedName = path.basename(destination);
+      await fs.promises.copyFile(targetPath, destination);
+      console.log(
+        `  Backed up: ${file} -> ${path.join(archiveDirName, archivedName)}`,
+      );
+      // Remove legacy-only files; workspace docs stay for the skill to update
+      if (legacyOnlyFiles.has(file)) {
+        await fs.promises.unlink(targetPath);
+        console.log(`  Removed: ${file}`);
+      }
+    }
+  }
+
+  for (const dir of dirsToArchive) {
+    const targetPath = path.join(workspaceRoot, dir);
+    if (await fileExists(targetPath)) {
+      const destination = await uniqueArchivePath(archiveDir, dir);
+      const archivedName = path.basename(destination);
+      await fs.promises.rename(targetPath, destination);
+      console.log(
+        `  Backed up: ${dir}/ -> ${path.join(archiveDirName, archivedName)}/`,
+      );
+    }
+  }
+
+  console.log("");
+  console.log("Migration complete!");
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -363,10 +331,10 @@ async function main() {
   console.log(`Workspace root: ${workspaceRoot}`);
 
   await migrateAndCleanup();
-  await updateWorkspaceDocs();
 
   console.log("");
-  console.log("✓ Plugin installed successfully!");
+  console.log("Plugin installed successfully!");
+  console.log("Run the honcho_setup skill from your OpenClaw agent to update workspace docs.");
   console.log("");
 }
 

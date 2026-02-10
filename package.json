@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "workspace_md",
+    "skills",
     "install.js",
     "openclaw.plugin.json"
   ],

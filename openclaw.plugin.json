@@ -19,6 +19,7 @@
       }
     }
   },
+  "skills": ["skills/honcho-setup"],
   "uiHints": {
     "apiKey": {
       "label": "Honcho API Key",
