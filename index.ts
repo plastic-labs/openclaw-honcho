@@ -177,12 +177,6 @@ const honchoPlugin = {
 
         const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
 
-        // Add peers (session now guaranteed to exist)
-        await session.addPeers([
-          [OWNER_ID, { observeMe: true, observeOthers: false }],
-          [OPENCLAW_ID, { observeMe: true, observeOthers: true }],
-        ]);
-
         // Skip if nothing new
         if (event.messages.length <= lastSavedIndex) {
           api.logger.debug?.("No new messages to save");
@@ -204,6 +198,16 @@ const honchoPlugin = {
 
         // Update watermark in Honcho
         await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
+
+        // Add peers after messages exist (addPeers can hang on empty sessions)
+        try {
+          await session.addPeers([
+            [OWNER_ID, { observeMe: true, observeOthers: false }],
+            [OPENCLAW_ID, { observeMe: true, observeOthers: true }],
+          ]);
+        } catch (peerError) {
+          api.logger.warn?.(`[honcho] Failed to add peers (non-fatal): ${peerError}`);
+        }
       } catch (error) {
         api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
         if (error instanceof Error) {
