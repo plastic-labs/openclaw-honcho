@@ -1,15 +1,22 @@
+---
+name: honcho-setup
+description: Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
+metadata: { "openclaw": { "emoji": "🧠" } }
+---
 # Honcho Setup
 
 Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
 
----
-
-## Step 1: Install the Plugin
+## Step 1: Install and Enable the Plugin
 
 If not already installed, run:
 
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
+```
+Then enable the plugin:
+```bash
+openclaw plugins enable openclaw-honcho
 ```
 
 ## Step 2: Detect and Migrate Legacy Memory Files to Honcho
