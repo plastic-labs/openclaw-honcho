@@ -99,29 +99,28 @@ Files inside `memory/` and `canvas/` are treated as user/owner content.
 
 Report what was found to the user before proceeding. Ask for confirmation to continue.
 
-When asking for confirmation, briefly state what will happen next: **uploading** the content of those files to Honcho as conclusions (user/owner and agent/self), then (after further confirmations) **archiving** legacy files and **updating** workspace docs. This way the user knows exactly what they are agreeing to.
+When asking for confirmation, briefly state what will happen next: **uploading** those files to Honcho via the messages upload endpoint (user/owner and agent/self), then (after further confirmations) **archiving** legacy files and **updating** workspace docs. This way the user knows exactly what they are agreeing to.
 
 ## Step 4: Upload to Honcho
 
-Upload each detected file's content to Honcho using `honcho_analyze` or the Honcho SDK:
+Upload each detected file to Honcho using the **messages upload** endpoint (or `honcho_analyze` if available):
 
-- **User/owner content** → create conclusions about the user (the "owner" peer). Format: `Memory file: <filename>\n\n<file content>`
-- **Agent/self content** → create self-conclusions (the "openclaw" peer). Same format.
+- **User/owner files** → upload as messages in a session, using the **owner** peer (`peer_id` = owner peer id).
+- **Agent/self files** → upload as messages in a session, using the **openclaw** peer (`peer_id` = openclaw peer id).
 
-Report how many conclusions were created for each category (user vs. agent).
+Ensure the workspace and both peers exist (e.g. via SDK or API) before uploading. Get or create a session for the uploads. Report how many files were uploaded for each category (user vs. agent).
 
 If any upload fails, stop and warn the user. Do not proceed to archiving.
 
-### SDK setup example
+### SDK setup example (messages upload with file)
 
-When using the Honcho SDK instead of `honcho_analyze`, set up the client and peers then create conclusions in bulk. Use the workspace root and env from Step 2 and Step 3.
+Use the Honcho SDK to create messages from each file via the session upload API (the same operation as the REST `.../messages/upload` endpoint with `file` and `peer_id`). Set up the client and peers, get or create a session, add both peers to the session, then upload each detected file with the appropriate peer.
 
 ```javascript
 import fs from "fs";
 import path from "path";
 import { Honcho } from "@honcho-ai/sdk";
 
-// Load HONCHO_API_KEY from ~/.openclaw/.env or environment
 const apiKey = process.env.HONCHO_API_KEY;
 const workspaceRoot = process.env.WORKSPACE_ROOT || "~/.openclaw/workspace";
 
@@ -135,25 +134,35 @@ await honcho.setMetadata({});
 const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
 const ownerPeer = await honcho.peer("owner", { metadata: {} });
 
-// conclusions = array of { content: string, isAboutOwner: boolean }
-// content format: "Memory file: <relativePath>\n\n<file content>"
+const session = await honcho.session("migration-upload", { metadata: {} });
+await session.addPeers([ownerPeer, openclawPeer]);
 
-const ownerConclusions = conclusions.filter((c) => c.isAboutOwner);
-const selfConclusions = conclusions.filter((c) => !c.isAboutOwner);
+// For each detected file: read file and call session.uploadFile(file, peer)
+// User/owner files → ownerPeer; agent/self files → openclawPeer
+const filesToUpload = [
+  { path: path.join(workspaceRoot, "USER.md"), peer: ownerPeer },
+  { path: path.join(workspaceRoot, "SOUL.md"), peer: openclawPeer },
+  // ... add every detected file and files under memory/ and canvas/
+];
 
-if (ownerConclusions.length > 0) {
-  await openclawPeer
-    .conclusionsOf(ownerPeer)
-    .create(ownerConclusions.map((c) => ({ content: c.content })));
-}
-if (selfConclusions.length > 0) {
-  await openclawPeer.conclusions.create(
-    selfConclusions.map((c) => ({ content: c.content })),
+for (const { path: filePath, peer } of filesToUpload) {
+  const stat = await fs.promises.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) continue;
+  const filename = path.basename(filePath);
+  const content = await fs.promises.readFile(filePath);
+  const content_type = "text/markdown"; // or "text/plain", "application/pdf", "application/json"
+  const messages = await session.uploadFile(
+    { filename, content, content_type },
+    peer,
+    {}
   );
+  console.log(`Uploaded ${filePath}: ${messages.length} messages`);
 }
 ```
 
-Collect `conclusions` by reading each detected file (and files under `memory/` and `canvas/`), setting `isAboutOwner: true` for user/owner files (`USER.md`, `IDENTITY.md`, `MEMORY.md`, and everything under `memory/` and `canvas/`), and `isAboutOwner: false` for agent/self files (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`).
+- **Required:** `session.uploadFile(file, peer, options?)` — second argument is the peer (object or id). Use the owner peer for user/owner files (`USER.md`, `IDENTITY.md`, `MEMORY.md`, and everything under `memory/` and `canvas/`), and the openclaw peer for agent/self files (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`).
+- **Session:** Add both peers to the session with `session.addPeers([ownerPeer, openclawPeer])` before uploading.
+- **File (Node):** Pass `{ filename, content: Buffer | Uint8Array, content_type }`. See [Honcho file uploads](https://docs.honcho.dev/v2/documentation/core-concepts/features/file-uploads) for supported types (PDF, text, JSON). A runnable test script is in `scripts/test-upload-file.mjs` (requires `HONCHO_API_KEY`).
 
 ## Step 5: Archive Legacy Files
 
@@ -203,7 +212,7 @@ The Honcho tools are: `honcho_profile`, `honcho_context`, `honcho_search`, `honc
 Summarize what happened:
 
 - Which legacy files were found
-- How many conclusions were created (user and agent counts)
+- How many files were uploaded (user and agent counts)
 - Which files were archived and where
 - Which workspace docs were created or updated
 - That Honcho is now the memory system — no more manual file management needed
