@@ -18,7 +18,7 @@ Install the Honcho plugin and migrate legacy workspace memory files to Honcho.
 
 ## Step 1: Install and Enable the Plugin
 
-Install the Honcho plugin using the standard OpenClaw plugin system:
+Install the Honcho plugin using the OpenClaw plugin system. **Use this exact command — do not install `@honcho-ai/sdk` directly or use `npm install` in the workspace.**
 
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
@@ -29,6 +29,14 @@ Then enable it:
 ```bash
 openclaw plugins enable openclaw-honcho
 ```
+
+After enabling, verify the plugin loaded without errors. If the gateway logs show `Cannot find module '@honcho-ai/sdk'`, the plugin's dependencies need to be installed manually:
+
+```bash
+cd ~/.openclaw/extensions/openclaw-honcho && npm install
+```
+
+Then restart the gateway. This is a known issue with the OpenClaw plugin installer not running dependency resolution for plugin packages.
 
 If the plugin is already installed and enabled, skip to Step 2.
 
