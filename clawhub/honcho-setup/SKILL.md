@@ -112,6 +112,49 @@ Report how many conclusions were created for each category (user vs. agent).
 
 If any upload fails, stop and warn the user. Do not proceed to archiving.
 
+### SDK setup example
+
+When using the Honcho SDK instead of `honcho_analyze`, set up the client and peers then create conclusions in bulk. Use the workspace root and env from Step 2 and Step 3.
+
+```javascript
+import fs from "fs";
+import path from "path";
+import { Honcho } from "@honcho-ai/sdk";
+
+// Load HONCHO_API_KEY from ~/.openclaw/.env or environment
+const apiKey = process.env.HONCHO_API_KEY;
+const workspaceRoot = process.env.WORKSPACE_ROOT || "~/.openclaw/workspace";
+
+const honcho = new Honcho({
+  apiKey,
+  baseURL: process.env.HONCHO_BASE_URL || "https://api.honcho.dev",
+  workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
+});
+
+await honcho.setMetadata({});
+const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
+const ownerPeer = await honcho.peer("owner", { metadata: {} });
+
+// conclusions = array of { content: string, isAboutOwner: boolean }
+// content format: "Memory file: <relativePath>\n\n<file content>"
+
+const ownerConclusions = conclusions.filter((c) => c.isAboutOwner);
+const selfConclusions = conclusions.filter((c) => !c.isAboutOwner);
+
+if (ownerConclusions.length > 0) {
+  await openclawPeer
+    .conclusionsOf(ownerPeer)
+    .create(ownerConclusions.map((c) => ({ content: c.content })));
+}
+if (selfConclusions.length > 0) {
+  await openclawPeer.conclusions.create(
+    selfConclusions.map((c) => ({ content: c.content })),
+  );
+}
+```
+
+Collect `conclusions` by reading each detected file (and files under `memory/` and `canvas/`), setting `isAboutOwner: true` for user/owner files (`USER.md`, `IDENTITY.md`, `MEMORY.md`, and everything under `memory/` and `canvas/`), and `isAboutOwner: false` for agent/self files (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`).
+
 ## Step 5: Archive Legacy Files
 
 **Ask the user for confirmation before archiving.** Suggest `archive/` inside the workspace root as the default location. The user may choose a different directory.
