@@ -110,6 +110,41 @@ const honchoPlugin = {
       return hash.toString(36);
     }
 
+    /**
+     * Delete existing file-synced conclusions before re-creating them.
+     * Searches for conclusions matching the "[Synced from <file>]" prefix
+     * and deletes them so we don't accumulate duplicates over time.
+     */
+    async function deleteStaleSyncConclusions(
+      scope: ReturnType<Peer["conclusionsOf"]>,
+      newConclusions: { content: string }[]
+    ): Promise<void> {
+      // Extract the file names from new conclusions to know what to clean up
+      const fileNames = newConclusions
+        .map((c) => {
+          const match = c.content.match(/^\[Synced from ([^\]]+)\]/);
+          return match ? match[1] : null;
+        })
+        .filter((n): n is string => n !== null);
+
+      if (fileNames.length === 0) return;
+
+      for (const fileName of fileNames) {
+        try {
+          // Search for existing conclusions with this file's sync prefix
+          const existing = await scope.query(`[Synced from ${fileName}]`, 5, 0.3);
+          for (const conclusion of existing) {
+            if (conclusion.content.startsWith(`[Synced from ${fileName}]`)) {
+              await scope.delete(conclusion.id);
+              api.logger.debug?.(`[honcho-sync] Deleted stale conclusion for ${fileName}`);
+            }
+          }
+        } catch {
+          // Best-effort cleanup — don't block sync if delete fails
+        }
+      }
+    }
+
     async function syncMemoryFiles(): Promise<void> {
       try {
         await ensureInitialized();
@@ -175,14 +210,16 @@ const honchoPlugin = {
           // memory/ dir doesn't exist, skip
         }
 
-        // Push to Honcho
+        // Push to Honcho — delete stale file-synced conclusions first to avoid duplicates
         if (ownerConclusions.length > 0) {
+          await deleteStaleSyncConclusions(openclawPeer!.conclusionsOf(ownerPeer!), ownerConclusions);
           await openclawPeer!.conclusionsOf(ownerPeer!).create(ownerConclusions);
-          api.logger.info(`[honcho-sync] Synced ${ownerConclusions.length} owner conclusions`);
+          api.logger.info(`[honcho-sync] Synced ${ownerConclusions.length} owner conclusions (deduped)`);
         }
         if (selfConclusions.length > 0) {
+          await deleteStaleSyncConclusions(openclawPeer!.conclusions, selfConclusions);
           await openclawPeer!.conclusions.create(selfConclusions);
-          api.logger.info(`[honcho-sync] Synced ${selfConclusions.length} self conclusions`);
+          api.logger.info(`[honcho-sync] Synced ${selfConclusions.length} self conclusions (deduped)`);
         }
       } catch (error) {
         api.logger.warn?.(`[honcho-sync] Failed to sync memory files: ${error}`);
@@ -219,9 +256,12 @@ const honchoPlugin = {
         try {
           context = await session.context({
             summary: true,
-            tokens: 2000,
+            tokens: 5000,
             peerTarget: ownerPeer!,
             peerPerspective: openclawPeer!,
+            // Use the user's prompt as a semantic search query to surface
+            // relevant conclusions rather than just frequent/recent ones
+            searchQuery: event.prompt.slice(0, 500),
           });
         } catch (e: unknown) {
           const isNotFound =
