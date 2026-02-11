@@ -1,14 +1,25 @@
 ---
 name: honcho-setup
-description: Setup the Honcho plugin and migrate legacy workspace files to Honcho memory.
+description: Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
 metadata: { "openclaw": { "emoji": "🧠" } }
 ---
 # Honcho Setup
 
-Finish setting up the Honcho plugin and migrate legacy workspace files to Honcho memory.
+Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
 
+## Step 1: Install and Enable the Plugin
 
-## Step 1: Detect and Migrate Legacy Memory Files to Honcho
+If not already installed, run:
+
+```bash
+openclaw plugins install @honcho-ai/openclaw-honcho
+```
+Then enable the plugin:
+```bash
+openclaw plugins enable openclaw-honcho
+```
+
+## Step 2: Detect and Migrate Legacy Memory Files to Honcho
 
 Check the workspace root for legacy memory files and directories. The workspace root is determined by (in order of priority):
 1. The `WORKSPACE_ROOT` environment variable
@@ -74,7 +85,7 @@ For each file and directory listed above that exists in the workspace:
 
 If the Honcho upload failed or was skipped, do NOT archive or remove any files. Warn the user that files are preserved to prevent data loss.
 
-## Step 2: Update Workspace Docs
+## Step 3: Update Workspace Docs
 
 The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Read these templates as the source of truth for Honcho-aware workspace docs.
 
@@ -85,7 +96,7 @@ For each of `AGENTS.md`, `SOUL.md`, and `BOOTSTRAP.md`:
 
 The Honcho tools are: `honcho_profile`, `honcho_context`, `honcho_search`, `honcho_recall`, `honcho_analyze`.
 
-## Step 3: Confirm
+## Step 4: Confirm
 
 Tell the user:
 - Which legacy files were found and migrated to Honcho (with counts)
