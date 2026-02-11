@@ -1,105 +1,137 @@
 ---
 name: honcho-setup
-description: Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
-metadata: { "openclaw": { "emoji": "🧠" } }
+description: Install the @honcho-ai/openclaw-honcho plugin and migrate legacy file-based memory (USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/) to Honcho. Archives originals with user confirmation, updates SOUL.md/AGENTS.md/BOOTSTRAP.md to reference Honcho tools. Requires HONCHO_API_KEY.
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      env:
+        - HONCHO_API_KEY
+  homepage: "https://honcho.dev"
 ---
+
 # Honcho Setup
 
-Install the Honcho plugin and migrate legacy workspace files to Honcho memory.
+Install the Honcho plugin and migrate legacy workspace memory files to Honcho.
+
+> **This skill modifies workspace files.** It will ask for confirmation before archiving or deleting any files. If the Honcho upload fails or is skipped, no files are moved or removed.
 
 ## Step 1: Install and Enable the Plugin
 
-If not already installed, run:
+Install the Honcho plugin using the standard OpenClaw plugin system:
 
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
 ```
-Then enable the plugin:
+
+Then enable it:
+
 ```bash
 openclaw plugins enable openclaw-honcho
 ```
 
-## Step 2: Detect and Migrate Legacy Memory Files to Honcho
+If the plugin is already installed and enabled, skip to Step 2.
 
-Check the workspace root for legacy memory files and directories. The workspace root is determined by (in order of priority):
+## Step 2: Verify HONCHO_API_KEY
+
+Before migrating any files, confirm that `HONCHO_API_KEY` is set. Check the environment and `~/.openclaw/.env`.
+
+If the key is **not** set, stop and tell the user:
+
+> `HONCHO_API_KEY` is not set. Add it to your environment or `~/.openclaw/.env`, then re-run this skill. You can get a key at https://honcho.dev
+
+**Do not proceed with migration until the key is verified.** No files will be read, uploaded, archived, or removed without a valid key.
+
+## Step 3: Detect Legacy Memory Files
+
+Scan the workspace root for legacy memory files. The workspace root is determined by (in priority order):
+
 1. The `WORKSPACE_ROOT` environment variable
 2. The `agent.workspace` or `agents.defaults.workspace` field in `~/.openclaw/openclaw.json`
 3. `~/.openclaw/workspace`
 
-### Files to look for
+### Files to detect
 
-**User/owner files** (content is *about the user*):
+**User/owner files** (content describes the user):
 - `USER.md`
 - `IDENTITY.md`
 - `MEMORY.md`
 
-**OpenClaw self files** (content is *about the agent*):
+**Agent/self files** (content describes the agent):
 - `SOUL.md`
 - `AGENTS.md`
 - `TOOLS.md`
 - `BOOTSTRAP.md`
 - `HEARTBEAT.md`
 
-**Directories to check:**
-- `memory/` — recursively read all files inside
-- `canvas/` — recursively read all files inside
+**Directories:**
+- `memory/` — recursively read all files
+- `canvas/` — recursively read all files
 
-Files found inside `memory/` and `canvas/` are treated as user/owner content.
+Files inside `memory/` and `canvas/` are treated as user/owner content.
 
-### Upload to Honcho
+Report what was found to the user before proceeding. Ask for confirmation to continue.
 
-Check that `HONCHO_API_KEY` is set (it may be in `~/.openclaw/.env`). If it's not set, warn the user:
+## Step 4: Upload to Honcho
 
-> HONCHO_API_KEY is not set. Set it with:
-> ```
-> echo 'HONCHO_API_KEY=hc_...' >> ~/.openclaw/.env
-> ```
-> Then re-run this skill.
+Upload each detected file's content to Honcho using `honcho_analyze` or the Honcho SDK:
 
-If the key is available, upload each file's content to Honcho using `honcho_analyze` or the Honcho SDK:
-
-- **User/owner content** → create conclusions *about the user* (the "owner" peer). For each file, the conclusion content should be: `Memory file: <filename>\n\n<file content>`
+- **User/owner content** → create conclusions about the user (the "owner" peer). Format: `Memory file: <filename>\n\n<file content>`
 - **Agent/self content** → create self-conclusions (the "openclaw" peer). Same format.
 
-Report how many conclusions were created for each category.
+Report how many conclusions were created for each category (user vs. agent).
 
-### Archive old files
+If any upload fails, stop and warn the user. Do not proceed to archiving.
 
-After successful upload to Honcho, back up all legacy files to an `archive/` directory inside the workspace root. Suggest `archive/` as the default location — the user can choose a different directory if they prefer.
+## Step 5: Archive Legacy Files
 
-For each file and directory listed above that exists in the workspace:
+**Ask the user for confirmation before archiving.** Suggest `archive/` inside the workspace root as the default location. The user may choose a different directory.
 
-1. Create the `archive/` directory if it doesn't exist.
-2. Copy the file to `archive/`. If a file with the same name already exists in `archive/`, append a timestamp (e.g., `USER.md-2026-02-10T22-55-12`).
-3. **Legacy-only files** — remove the original after archiving:
-   - `USER.md`
-   - `MEMORY.md`
-   - `IDENTITY.md`
-   - `HEARTBEAT.md`
-4. **Workspace docs** — keep the original in place (they'll be updated in Step 3):
-   - `AGENTS.md`
-   - `TOOLS.md`
-   - `SOUL.md`
-   - `BOOTSTRAP.md`
-5. **Directories** (`memory/`, `canvas/`) — move the entire directory into `archive/`.
+For each detected file:
 
-If the Honcho upload failed or was skipped, do NOT archive or remove any files. Warn the user that files are preserved to prevent data loss.
+1. Create the archive directory if it does not exist.
+2. Copy the file into the archive directory. If a file with the same name already exists there, append a timestamp (e.g., `USER.md-2026-02-10T22-55-12`).
 
-## Step 3: Update Workspace Docs
+Then apply these rules:
 
-The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Read these templates as the source of truth for Honcho-aware workspace docs.
+**Remove originals after archiving** (legacy-only files no longer needed in workspace):
+- `USER.md`
+- `MEMORY.md`
+- `IDENTITY.md`
+- `HEARTBEAT.md`
+
+**Keep originals in place** (will be updated in Step 6):
+- `AGENTS.md`
+- `TOOLS.md`
+- `SOUL.md`
+- `BOOTSTRAP.md`
+
+**Move directories** into the archive:
+- `memory/`
+- `canvas/`
+
+If the upload in Step 4 failed or was skipped, **do not archive or remove any files**. Warn the user that all files are preserved to prevent data loss.
+
+## Step 6: Update Workspace Docs
+
+The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Use these templates as the source of truth for Honcho-aware workspace docs.
 
 For each of `AGENTS.md`, `SOUL.md`, and `BOOTSTRAP.md`:
-- If the file already exists in the workspace, update it — replace references to the old file-based memory system (`USER.md`, `MEMORY.md`, `memory/` directory, manual file reads/writes for memory) with Honcho tool references.
-- If the file does not exist, copy the template into the workspace.
-- Preserve any custom content the user has added — only update memory-related sections.
+
+- If the file exists in the workspace: update it — replace references to the old file-based memory system (`USER.md`, `MEMORY.md`, `memory/` directory, manual file reads/writes for memory) with Honcho tool references.
+- If the file does not exist: copy the template into the workspace.
+- Preserve any custom content the user has added. Only update memory-related sections.
 
 The Honcho tools are: `honcho_profile`, `honcho_context`, `honcho_search`, `honcho_recall`, `honcho_analyze`.
 
-## Step 4: Confirm
+## Step 7: Confirm
 
-Tell the user:
-- Which legacy files were found and migrated to Honcho (with counts)
+Summarize what happened:
+
+- Which legacy files were found
+- How many conclusions were created (user and agent counts)
 - Which files were archived and where
 - Which workspace docs were created or updated
-- That Honcho is now their memory system — no more manual file management needed
+- That Honcho is now the memory system — no more manual file management needed
+
+Provide a link to the Honcho docs for reference: https://docs.honcho.dev
