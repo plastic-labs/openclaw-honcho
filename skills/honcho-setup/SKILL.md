@@ -4,9 +4,6 @@ description: Install the @honcho-ai/openclaw-honcho plugin and migrate legacy fi
 metadata:
   openclaw:
     emoji: "🧠"
-    requires:
-      env:
-        - HONCHO_API_KEY
   homepage: "https://honcho.dev"
 ---
 
