@@ -65,7 +65,7 @@ docker compose up
 
 For local instances, `HONCHO_API_KEY` may not be required depending on the user's configuration. Verify connectivity before proceeding.
 
-See https://docs.honcho.dev/contributing/self-hosting for full self-hosting instructions.
+See https://github.com/plastic-labs/honcho?tab=readme-ov-file#local-development for full self-hosting instructions.
 
 **Do not proceed with migration until the connection is verified.** No files will be read, uploaded, archived, or removed without a working Honcho connection.
 
@@ -98,6 +98,8 @@ Scan the workspace root for legacy memory files. The workspace root is determine
 Files inside `memory/` and `canvas/` are treated as user/owner content.
 
 Report what was found to the user before proceeding. Ask for confirmation to continue.
+
+When asking for confirmation, briefly state what will happen next: **uploading** the content of those files to Honcho as conclusions (user/owner and agent/self), then (after further confirmations) **archiving** legacy files and **updating** workspace docs. This way the user knows exactly what they are agreeing to.
 
 ## Step 4: Upload to Honcho
 

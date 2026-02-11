@@ -18,28 +18,96 @@ echo "HONCHO_API_KEY=your_honcho_api_key_here" >> ~/.openclaw/.env
 
 ## Install
 
+### Option A: ClawHub Skill (Recommended)
+
+The `honcho-setup` skill on [ClawHub](https://clawhub.com) handles installation, migration, and workspace setup interactively:
+
+```bash
+clawhub install honcho-setup
+```
+
+Then run the skill from a chat session. It will walk you through everything below.
+
+### Option B: Manual Install
+
+Install the plugin using the OpenClaw plugin system. **Do not install `@honcho-ai/sdk` directly or use `npm install` in the workspace.**
+
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
 ```
 
-The install script automatically:
+Then enable it:
 
-1. Migrates any existing memory to Honcho (if `HONCHO_API_KEY` is set)
-2. Archives legacy memory files to `archive/` (`USER.md`, `MEMORY.md`, `AGENTS.md`, `BOOTSTRAP.md`, `SOUL.md`, `memory/` directory)
-3. Syncs workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) from plugin templates
+```bash
+openclaw plugins enable openclaw-honcho
+```
 
-**Important:** Make sure any existing memory files are saved to version control before installing.
+If the gateway logs show `Cannot find module '@honcho-ai/sdk'`, install the plugin's dependencies manually:
 
-Restart the gateway after installing:
+```bash
+cd ~/.openclaw/extensions/openclaw-honcho && npm install
+```
+
+Restart the gateway:
 
 ```bash
 openclaw gateway restart
+```
+
+Verify the plugin loaded:
+
+```bash
+openclaw logs --follow
 ```
 
 Start chatting and ask it questions to use its tools:
 
 - Chat in terminal: `openclaw tui`
 - Watch the logs: `openclaw logs --follow`
+
+## Migrating Legacy Memory
+
+If you have existing workspace memory files, the install script migrates them automatically when `HONCHO_API_KEY` is set. If automatic migration didn't run (e.g., API key wasn't set at install time), you can migrate manually.
+
+**Important:** Commit any existing memory files to version control before migrating.
+
+### Legacy files
+
+**User/owner files** (content describes the user):
+- `USER.md`
+- `IDENTITY.md`
+- `MEMORY.md`
+
+**Agent/self files** (content describes the agent):
+- `SOUL.md`
+- `AGENTS.md`
+- `TOOLS.md`
+- `BOOTSTRAP.md`
+- `HEARTBEAT.md`
+
+**Directories:**
+- `memory/` — all files recursively (treated as user content)
+- `canvas/` — all files recursively (treated as user content)
+
+### Upload to Honcho
+
+Upload each file's content to Honcho using the `honcho_analyze` tool in a chat session:
+
+- **User/owner content** — create conclusions about the user. Format: `Memory file: <filename>\n\n<file content>`
+- **Agent/self content** — create conclusions about the agent. Same format.
+
+### Archive originals
+
+After uploading, archive the originals to prevent duplication:
+
+1. Copy all detected files to an `archive/` directory in the workspace root.
+2. **Remove originals** for legacy-only files: `USER.md`, `MEMORY.md`, `IDENTITY.md`, `HEARTBEAT.md`
+3. **Keep originals** for active workspace docs: `AGENTS.md`, `TOOLS.md`, `SOUL.md`, `BOOTSTRAP.md`
+4. **Move directories** (`memory/`, `canvas/`) into the archive.
+
+### Update workspace docs
+
+The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Copy or merge these templates into your workspace for `AGENTS.md`, `SOUL.md`, and `BOOTSTRAP.md`. These templates reference the Honcho tools (`honcho_profile`, `honcho_context`, `honcho_search`, `honcho_recall`, `honcho_analyze`) instead of the old file-based memory system.
 
 ### Workspace Path
 
