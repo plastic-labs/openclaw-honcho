@@ -1,6 +1,6 @@
 ---
 name: honcho-setup
-description: Migrate legacy file-based memory (USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/) to Honcho. Archives originals with user confirmation, updates SOUL.md/AGENTS.md/BOOTSTRAP.md to reference Honcho tools. Requires HONCHO_API_KEY. (Plugin is already installed.)
+description: Install the @honcho-ai/openclaw-honcho plugin and migrate legacy file-based memory (USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/) to Honcho. Works with managed Honcho (API key) or self-hosted local instances. Archives originals with user confirmation, updates SOUL.md/AGENTS.md/BOOTSTRAP.md to reference Honcho tools.
 metadata:
   openclaw:
     emoji: "🧠"
@@ -16,15 +16,37 @@ Migrate legacy workspace memory files to Honcho. The Honcho plugin is already in
 
 > **This skill modifies workspace files.** It will ask for confirmation before archiving or deleting any files. If the Honcho upload fails or is skipped, no files are moved or removed.
 
-## Step 1: Verify HONCHO_API_KEY
+## Step 1: Verify Honcho Connection
 
-Before migrating any files, confirm that `HONCHO_API_KEY` is set. Check the environment and `~/.openclaw/.env`.
+Honcho can run as a **managed cloud service** or as a **self-hosted local instance**. Determine which the user is using.
+
+### Option A: Managed Honcho (default)
+
+Confirm that `HONCHO_API_KEY` is set. Check the environment and `~/.openclaw/.env`.
 
 If the key is **not** set, stop and tell the user:
 
-> `HONCHO_API_KEY` is not set. Add it to your environment or `~/.openclaw/.env`, then re-run this skill. You can get a key at https://honcho.dev
+> `HONCHO_API_KEY` is not set. Add it to your environment or `~/.openclaw/.env`, then re-run this skill. You can get a key at https://app.honcho.dev
 
-**Do not proceed with migration until the key is verified.** No files will be read, uploaded, archived, or removed without a valid key.
+### Option B: Self-hosted / local Honcho
+
+Honcho is open source and can be run locally. If the user is running their own instance, they need to set `HONCHO_BASE_URL` to point to it (e.g., `http://localhost:8000`). The SDK `environment` should be set to `"local"`.
+
+A local instance can be started with docker-compose from the Honcho repo:
+
+```bash
+git clone https://github.com/plastic-labs/honcho
+cd honcho
+cp .env.template .env
+cp docker-compose.yml.example docker-compose.yml
+docker compose up
+```
+
+For local instances, `HONCHO_API_KEY` may not be required depending on the user's configuration. Verify connectivity before proceeding.
+
+See https://docs.honcho.dev/contributing/self-hosting for full self-hosting instructions.
+
+**Do not proceed with migration until the connection is verified.** No files will be read, uploaded, archived, or removed without a working Honcho connection.
 
 ## Step 2: Detect Legacy Memory Files
 
