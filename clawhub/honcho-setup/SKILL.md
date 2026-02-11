@@ -94,21 +94,23 @@ For each detected file:
 
 Then apply these rules:
 
-**Remove originals after archiving** (legacy-only files no longer needed in workspace):
+**Remove originals after archiving** (legacy-only files, no longer needed once migrated to Honcho):
 - `USER.md`
 - `MEMORY.md`
 - `IDENTITY.md`
 - `HEARTBEAT.md`
 
-**Keep originals in place** (will be updated in Step 6):
+**Keep originals in place** (these are active workspace docs updated in Step 6):
 - `AGENTS.md`
 - `TOOLS.md`
 - `SOUL.md`
 - `BOOTSTRAP.md`
 
-**Move directories** into the archive:
+**Move directories** into the archive (contents already uploaded to Honcho):
 - `memory/`
 - `canvas/`
+
+No files are deleted without a backup existing in the archive directory first. Every removal is preceded by a confirmed copy.
 
 If the upload in Step 4 failed or was skipped, **do not archive or remove any files**. Warn the user that all files are preserved to prevent data loss.
 
