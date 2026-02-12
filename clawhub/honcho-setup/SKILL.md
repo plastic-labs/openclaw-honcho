@@ -1,10 +1,40 @@
 ---
 name: honcho-setup
-description: Install the @honcho-ai/openclaw-honcho plugin and migrate legacy file-based memory (USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/) to Honcho. Works with managed Honcho (API key) or self-hosted local instances. Archives originals with user confirmation, updates SOUL.md/AGENTS.md/BOOTSTRAP.md to reference Honcho tools.
+description: >
+  Install the @honcho-ai/openclaw-honcho plugin and migrate legacy file-based
+  memory (USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/) to Honcho. Works
+  with managed Honcho (API key) or self-hosted local instances. Archives
+  originals with user confirmation, updates SOUL.md/AGENTS.md/BOOTSTRAP.md to
+  reference Honcho tools. Uploaded content is sent to api.honcho.dev (managed)
+  or your self-hosted Honcho instance.
 metadata:
   openclaw:
     emoji: "🧠"
+    required_env:
+      - name: HONCHO_API_KEY
+        description: "API key for managed Honcho (https://app.honcho.dev). Not required for self-hosted instances."
+        required: false
+    optional_env:
+      - name: HONCHO_BASE_URL
+        description: "Base URL for a self-hosted Honcho instance (e.g. http://localhost:8000). Defaults to https://api.honcho.dev."
+      - name: HONCHO_WORKSPACE_ID
+        description: "Honcho workspace ID. Defaults to 'openclaw'."
+      - name: WORKSPACE_ROOT
+        description: "Path to the OpenClaw workspace root. Auto-detected if not set."
+    required_binaries:
+      - node
+      - npm
+    optional_binaries:
+      - git
+      - docker
+      - docker-compose
+    writes_to_disk: true
+    archive_directory: "{workspace_root}/archive/"
+    network_access:
+      - "api.honcho.dev (managed mode)"
+      - "User-configured HONCHO_BASE_URL (self-hosted mode)"
   homepage: "https://honcho.dev"
+  source: "https://github.com/plastic-labs/honcho"
 ---
 
 # Honcho Setup
@@ -13,6 +43,7 @@ Install the Honcho plugin and migrate legacy workspace memory files to Honcho.
 
 > **This skill modifies workspace files.** It will ask for confirmation before archiving or deleting any files. If the Honcho upload fails or is skipped, no files are moved or removed.
 
+> **Network access:** This skill uploads workspace content (memory files, canvas files) to your Honcho instance. For managed Honcho this means `api.honcho.dev`; for self-hosted instances this means your configured `HONCHO_BASE_URL`.
 ## Step 1: Install and Enable the Plugin
 
 Install the Honcho plugin using the OpenClaw plugin system. **Use this exact command — do not install `@honcho-ai/sdk` directly or use `npm install` in the workspace.**
@@ -53,7 +84,7 @@ If the key is **not** set, stop and tell the user:
 
 Honcho is open source and can be run locally. If the user is running their own instance, they need to set `HONCHO_BASE_URL` to point to it (e.g., `http://localhost:8000`). The SDK `environment` should be set to `"local"`.
 
-A local instance can be started with docker-compose from the Honcho repo:
+A local instance can be started with docker-compose from the Honcho repo (requires `git`, `docker`, and `docker-compose`):
 
 ```bash
 git clone https://github.com/plastic-labs/honcho
@@ -116,6 +147,8 @@ If any upload fails, stop and warn the user. Do not proceed to archiving.
 
 Use the Honcho SDK to create messages from each file via the session upload API (the same operation as the REST `.../messages/upload` endpoint with `file` and `peer_id`). Set up the client and peers, get or create a session, add both peers to the session, then upload each detected file with the appropriate peer.
 
+> **Note:** The `workspaceId` and session name below are defaults. Customize them via the `HONCHO_WORKSPACE_ID` env var or pass your own session name if you manage multiple migrations.
+
 ```javascript
 import fs from "fs";
 import path from "path";
@@ -127,6 +160,7 @@ const workspaceRoot = process.env.WORKSPACE_ROOT || "~/.openclaw/workspace";
 const honcho = new Honcho({
   apiKey,
   baseURL: process.env.HONCHO_BASE_URL || "https://api.honcho.dev",
+  // Customize via HONCHO_WORKSPACE_ID or leave as default
   workspaceId: process.env.HONCHO_WORKSPACE_ID || "openclaw",
 });
 
@@ -134,6 +168,7 @@ await honcho.setMetadata({});
 const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
 const ownerPeer = await honcho.peer("owner", { metadata: {} });
 
+// Session name can be customized for multiple migration runs
 const session = await honcho.session("migration-upload", { metadata: {} });
 await session.addPeers([ownerPeer, openclawPeer]);
 
@@ -166,7 +201,7 @@ for (const { path: filePath, peer } of filesToUpload) {
 
 ## Step 5: Archive Legacy Files
 
-**Ask the user for confirmation before archiving.** Suggest `archive/` inside the workspace root as the default location. The user may choose a different directory.
+**Ask the user for confirmation before archiving.** The default archive location is `{workspace_root}/archive/`. The user may choose a different directory.
 
 For each detected file:
 
