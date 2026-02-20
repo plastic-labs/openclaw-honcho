@@ -16,7 +16,7 @@ import { honchoConfigSchema, type HonchoConfig } from "./config.js";
 // ============================================================================
 
 const OWNER_ID = "owner";
-const OPENCLAW_ID = "openclaw";
+const LEGACY_PEER_ID = "openclaw";
 
 // ============================================================================
 // Plugin Definition
@@ -45,7 +45,8 @@ const honchoPlugin = {
     });
 
     let ownerPeer: Peer | null = null;
-    let openclawPeer: Peer | null = null;
+    const agentPeers = new Map<string, Peer>();     // agentId → Peer (in-memory cache)
+    let agentPeerMap: Record<string, string> = {};  // agentId → peerId (from workspace metadata)
     let initialized = false;
 
     /**
@@ -61,16 +62,91 @@ const honchoPlugin = {
       return combined.replace(/[^a-zA-Z0-9-]/g, "-");
     }
 
-    async function ensureInitialized(): Promise<void> {
-      // Always ensure workspace exists (idempotent)
-      await honcho.setMetadata({});
+    function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
+      return (ctx?.sessionKey ?? "").includes(":subagent:");
+    }
 
+    function extractParentAgentKey(sessionKey?: string): string | undefined {
+      const match = sessionKey?.match(/^(agent:[^:]+):subagent:/);
+      return match?.[1] ?? undefined;
+    }
+
+    function resolveDefaultAgentId(): string {
+      const agents = api.config?.agents?.list;
+      if (!Array.isArray(agents) || agents.length === 0) return "main";
+      const defaultAgent = agents.find((a: { default?: boolean }) => a?.default) ?? agents[0];
+      return (defaultAgent?.id ?? "main").toLowerCase().trim() || "main";
+    }
+
+    async function ensureInitialized(): Promise<void> {
       if (initialized) return;
 
-      // Create peers with metadata to ensure they exist
+      // Ensure workspace exists (idempotent)
+      await honcho.setMetadata({});
+
+      // Load existing agent-peer mapping from workspace metadata
+      const wsMeta = await honcho.getMetadata();
+      agentPeerMap = (wsMeta.agentPeerMap as Record<string, string>) ?? {};
+
+      // Ensure legacy "openclaw" peer is mapped to the default agent
+      const defaultId = resolveDefaultAgentId();
+      if (!Object.values(agentPeerMap).includes(LEGACY_PEER_ID)) {
+        agentPeerMap[defaultId] = LEGACY_PEER_ID;
+        await honcho.setMetadata({ ...wsMeta, agentPeerMap });
+      }
+
+      // Owner peer is always singular (lazy — no API call without metadata)
       ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
-      openclawPeer = await honcho.peer(OPENCLAW_ID, { metadata: {} });
       initialized = true;
+    }
+
+    async function getAgentPeer(agentId?: string): Promise<Peer> {
+      const id = (agentId || resolveDefaultAgentId()).toLowerCase().trim() || "main";
+
+      // 1. In-memory cache (hot path, no API calls)
+      let peer = agentPeers.get(id);
+      if (peer) return peer;
+
+      // 2. Workspace metadata mapping (loaded once on init)
+      let peerId = agentPeerMap[id];
+
+      // 3. Not mapped → scan existing peers for metadata.agentId match (rename recovery)
+      if (!peerId) {
+        const allPeers = await honcho.peers();
+        for await (const p of allPeers) {
+          if (p.id === OWNER_ID) continue;
+          const meta = await p.getMetadata();
+          if (meta?.agentId === id) {
+            peerId = p.id;
+            api.logger.info(`[honcho] Recovered peer "${peerId}" for renamed agent "${id}"`);
+            break;
+          }
+        }
+      }
+
+      // 4. Still not found → create new peer
+      if (!peerId) {
+        peerId = `agent-${id}`;
+      }
+
+      // Update workspace mapping if it changed
+      if (agentPeerMap[id] !== peerId) {
+        agentPeerMap[id] = peerId;
+        const wsMeta = await honcho.getMetadata();
+        await honcho.setMetadata({ ...wsMeta, agentPeerMap });
+      }
+
+      // Get or create the peer (lazy — no API call yet)
+      peer = await honcho.peer(peerId);
+      agentPeers.set(id, peer);
+
+      // Ensure agentId is in peer metadata (read-merge-write to avoid clobbering)
+      const existingMeta = await peer.getMetadata();
+      if (existingMeta.agentId !== id) {
+        await peer.setMetadata({ ...existingMeta, agentId: id });
+      }
+
+      return peer;
     }
 
     // ========================================================================
@@ -94,49 +170,62 @@ const honchoPlugin = {
       if (!event.prompt || event.prompt.length < 5) return;
 
       const sessionKey = buildSessionKey(ctx);
+      const agentId = ctx.agentId ?? resolveDefaultAgentId();
+      const isSubagent = isSubagentSession(ctx);
 
       try {
         await ensureInitialized();
+        const agentPeer = await getAgentPeer(agentId);
 
-        // Get or create session
-        const session = await honcho.session(sessionKey, { metadata: {} });
-
-        // Try to get context; if session is new/empty, return gracefully
-        let context;
-        try {
-          context = await session.context({
-            summary: true,
-            tokens: 2000,
-            peerTarget: ownerPeer!,
-            peerPerspective: openclawPeer!,
-          });
-        } catch (e: unknown) {
-          const isNotFound =
-            e instanceof Error &&
-            (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
-          if (isNotFound) {
-            // New session, no context yet
-            return;
-          }
-          throw e;
-        }
-
-        // Build context sections
         const sections: string[] = [];
 
-        // Add peer card (key facts about the user)
-        if (context.peerCard?.length) {
-          sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
-        }
+        if (isSubagent) {
+          // Sub-agent: use cross-session peer API directly (no session history)
+          // peer.context() returns peerCard + representation across all sessions
+          try {
+            const peerCtx = await agentPeer.context({ target: ownerPeer! });
+            if (peerCtx.peerCard?.length) {
+              sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
+            }
+            if (peerCtx.representation) {
+              sections.push(`User context:\n${peerCtx.representation}`);
+            }
+          } catch (e: unknown) {
+            const isNotFound =
+              e instanceof Error &&
+              (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
+            if (isNotFound) return;
+            throw e;
+          }
+        } else {
+          // Main agent: use session.context() with per-agent peer
+          const session = await honcho.session(sessionKey, { metadata: { agentId } });
 
-        // Add peer representation (broader understanding)
-        if (context.peerRepresentation) {
-          sections.push(`User context:\n${context.peerRepresentation}`);
-        }
+          let context;
+          try {
+            context = await session.context({
+              summary: true,
+              tokens: 2000,
+              peerTarget: ownerPeer!,
+              peerPerspective: agentPeer,
+            });
+          } catch (e: unknown) {
+            const isNotFound =
+              e instanceof Error &&
+              (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
+            if (isNotFound) return;
+            throw e;
+          }
 
-        // Add conversation summary if available
-        if (context.summary?.content) {
-          sections.push(`Earlier in this conversation:\n${context.summary.content}`);
+          if (context.peerCard?.length) {
+            sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
+          }
+          if (context.peerRepresentation) {
+            sections.push(`User context:\n${context.peerRepresentation}`);
+          }
+          if (context.summary?.content) {
+            sections.push(`Earlier in this conversation:\n${context.summary.content}`);
+          }
         }
 
         if (sections.length === 0) return;
@@ -160,27 +249,39 @@ const honchoPlugin = {
 
       // Build Honcho session key from openclaw context (includes provider for platform separation)
       const sessionKey = buildSessionKey(ctx);
+      const agentId = ctx.agentId ?? resolveDefaultAgentId();
+      const isSubagent = isSubagentSession(ctx);
 
       try {
         await ensureInitialized();
+        const agentPeer = await getAgentPeer(agentId);
 
-        // Get or create session (passing empty metadata ensures creation)
-        const session = await honcho.session(sessionKey, { metadata: {} });
+        // Build structured session metadata
+        const sessionMeta: Record<string, unknown> = {
+          agentId,
+          ...(isSubagent ? {
+            isSubagent: true,
+            parentAgentKey: extractParentAgentKey(ctx.sessionKey),
+          } : {}),
+        };
+
+        // Get or create session with structured metadata
+        const session = await honcho.session(sessionKey, { metadata: sessionMeta });
         let meta = await session.getMetadata();
 
         // Initialize lastSavedIndex if not set (new session - skip backlog)
         if (meta.lastSavedIndex === undefined) {
           const startIndex = Math.max(0, event.messages.length - 2);
-          await session.setMetadata({ lastSavedIndex: startIndex });
-          meta = { lastSavedIndex: startIndex };
+          await session.setMetadata({ ...sessionMeta, lastSavedIndex: startIndex });
+          meta = { ...sessionMeta, lastSavedIndex: startIndex };
         }
 
         const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
 
-        // Add peers (session now guaranteed to exist)
+        // Add peers with per-agent peer (session now guaranteed to exist)
         await session.addPeers([
           [OWNER_ID, { observeMe: true, observeOthers: false }],
-          [OPENCLAW_ID, { observeMe: true, observeOthers: true }],
+          [agentPeer.id, { observeMe: true, observeOthers: true }],
         ]);
 
         // Skip if nothing new
@@ -191,11 +292,11 @@ const honchoPlugin = {
 
         // Extract only NEW messages (slice from lastSavedIndex)
         const newRawMessages = event.messages.slice(lastSavedIndex);
-        const messages = extractMessages(newRawMessages, ownerPeer!, openclawPeer!);
+        const messages = extractMessages(newRawMessages, ownerPeer!, agentPeer);
 
         if (messages.length === 0) {
           // Update index even if no saveable content (e.g., tool-only messages)
-          await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
+          await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: event.messages.length });
           return;
         }
 
@@ -203,7 +304,7 @@ const honchoPlugin = {
         await session.addMessages(messages);
 
         // Update watermark in Honcho
-        await session.setMetadata({ ...meta, lastSavedIndex: event.messages.length });
+        await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: event.messages.length });
       } catch (error) {
         api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
         if (error instanceof Error) {
@@ -224,7 +325,7 @@ const honchoPlugin = {
     // TOOL: honcho_session — Session conversation history
     // ========================================================================
     api.registerTool(
-      {
+      (toolCtx) => ({
         name: "honcho_session",
         label: "Get Session History",
         description: `Retrieve conversation history from THIS SESSION ONLY. Does NOT access cross-session memory.
@@ -301,18 +402,19 @@ Parameters:
           };
 
           await ensureInitialized();
+          const agentPeer = await getAgentPeer(toolCtx.agentId);
 
           const sessionKey = sessionKeyParam ?? "default";
 
           try {
             const session = await honcho.session(sessionKey);
 
-            // Get session context with the specified options
+            // Get session context with per-agent peer
             const context = await session.context({
               summary: includeSummary,
               tokens: messageLimit,
               peerTarget: ownerPeer!,
-              peerPerspective: openclawPeer!,
+              peerPerspective: agentPeer,
               searchQuery: searchQuery,
             });
 
@@ -400,7 +502,7 @@ Parameters:
             throw error;
           }
         },
-      },
+      }),
       { name: "honcho_session" }
     );
 
@@ -651,7 +753,7 @@ Parameters:
     // TOOL: honcho_recall — Quick factual Q&A (minimal reasoning)
     // ========================================================================
     api.registerTool(
-      {
+      (toolCtx) => ({
         name: "honcho_recall",
         label: "Recall from Honcho",
         description: `Ask Honcho a simple factual question and get a direct answer. Uses Honcho's LLM with minimal reasoning.
@@ -692,7 +794,8 @@ Parameters:
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
           await ensureInitialized();
-          const answer = await openclawPeer!.chat(query, {
+          const agentPeer = await getAgentPeer(toolCtx.agentId);
+          const answer = await agentPeer.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "minimal",
           });
@@ -701,7 +804,7 @@ Parameters:
             details: undefined,
           };
         },
-      },
+      }),
       { name: "honcho_recall" }
     );
 
@@ -709,7 +812,7 @@ Parameters:
     // TOOL: honcho_analyze — Complex Q&A with synthesis (medium reasoning)
     // ========================================================================
     api.registerTool(
-      {
+      (toolCtx) => ({
         name: "honcho_analyze",
         label: "Analyze with Honcho",
         description: `Ask Honcho a complex question requiring synthesis and get an analyzed answer. Uses Honcho's LLM with medium reasoning.
@@ -753,7 +856,8 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
         async execute(_toolCallId, params) {
           const { query } = params as { query: string };
           await ensureInitialized();
-          const answer = await openclawPeer!.chat(query, {
+          const agentPeer = await getAgentPeer(toolCtx.agentId);
+          const answer = await agentPeer.chat(query, {
             target: ownerPeer!,
             reasoningLevel: "medium",
           });
@@ -762,7 +866,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
             details: undefined,
           };
         },
-      },
+      }),
       { name: "honcho_analyze" }
     );
 
@@ -801,11 +905,14 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
           .action(async () => {
             try {
               await ensureInitialized();
+              const defaultPeer = await getAgentPeer(resolveDefaultAgentId());
               const ownerRep = await ownerPeer!.representation();
-              const openclawRep = await openclawPeer!.representation();
+              const agentRep = await defaultPeer.representation();
 
               console.log("Connected to Honcho");
               console.log(`  Workspace: ${cfg.workspaceId}`);
+              console.log(`  Default agent: ${resolveDefaultAgentId()} → peer "${defaultPeer.id}"`);
+              console.log(`  Agent peers mapped: ${Object.keys(agentPeerMap).join(", ") || "(none)"}`);
             } catch (error) {
               console.error(`Failed to connect: ${error}`);
             }
@@ -814,10 +921,12 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
         cmd
           .command("ask <question>")
           .description("Ask Honcho about the user")
-          .action(async (question: string) => {
+          .option("-a, --agent <id>", "Agent ID to query as (default: primary agent)")
+          .action(async (question: string, options: { agent?: string }) => {
             try {
               await ensureInitialized();
-              const answer = await openclawPeer!.chat(question, { target: ownerPeer! });
+              const agentPeer = await getAgentPeer(options.agent ?? resolveDefaultAgentId());
+              const answer = await agentPeer.chat(question, { target: ownerPeer! });
               console.log(answer ?? "No information available.");
             } catch (error) {
               console.error(`Failed to query: ${error}`);
@@ -882,7 +991,7 @@ function cleanMessageContent(content: string): string {
 function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
-  openclawPeer: Peer
+  agentPeer: Peer
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -916,7 +1025,7 @@ function extractMessages(
     content = content.trim();
 
     if (content) {
-      const peer = role === "user" ? ownerPeer : openclawPeer;
+      const peer = role === "user" ? ownerPeer : agentPeer;
       result.push(peer.message(content));
     }
   }
