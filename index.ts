@@ -88,9 +88,15 @@ const honchoPlugin = {
       const wsMeta = await honcho.getMetadata();
       agentPeerMap = (wsMeta.agentPeerMap as Record<string, string>) ?? {};
 
-      // Ensure legacy "openclaw" peer is mapped to the default agent
+      // Bootstrap agent-peer mapping for the default agent
       const defaultId = resolveDefaultAgentId();
-      if (!Object.values(agentPeerMap).includes(LEGACY_PEER_ID)) {
+      // Fresh workspace: use agent-{id} naming consistent with other agents
+      if (Object.keys(agentPeerMap).length === 0) {
+        agentPeerMap[defaultId] = `agent-${defaultId}`;
+        await honcho.setMetadata({ ...wsMeta, agentPeerMap });
+      }
+      // Existing workspace with legacy "openclaw" mapping: preserve it
+      else if (!Object.values(agentPeerMap).includes(LEGACY_PEER_ID) && !agentPeerMap[defaultId]) {
         agentPeerMap[defaultId] = LEGACY_PEER_ID;
         await honcho.setMetadata({ ...wsMeta, agentPeerMap });
       }
