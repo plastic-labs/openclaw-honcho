@@ -12,6 +12,6 @@
     "noImplicitAny": false,
     "types": ["node"]
   },
-  "include": ["*.ts", "hooks/**/*.ts", "tools/**/*.ts", "commands/**/*.ts"],
+  "include": ["*.ts", "hooks/**/*.ts", "tools/**/*.ts", "commands/**/*.ts", "__tests__/**/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }
