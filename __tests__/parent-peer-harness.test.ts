@@ -1,177 +1,77 @@
 /**
- * Harness test: verifies that agent-prime IS added to subagent sessions
+ * Integration: parent peer is added to subagent sessions
  *
- * When Prime delegates to Forge (agent:developer:subagent:xxx), the plugin's
- * agent_end hook should call `session.addPeers([owner, agent-developer, agent-prime])`.
- * This test verifies the fix by querying real Honcho after the hook fires and
- * asserting that all three peers are present — all assertions should PASS.
- *
- * Tests that should PASS:
- *   ✓ owner is in session peers
- *   ✓ agent-developer is in session peers
- *   ✓ agent-prime is in session peers  ← previously failing (the bug), now fixed
- *
- * Skipped automatically if HONCHO_API_KEY is missing.
+ * Fires the agent_end hook with a subagent-style session key and asserts
+ * that the resulting Honcho session contains owner, subagent, and parent.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Honcho } from '@honcho-ai/sdk';
 import honchoPlugin from '../index.js';
 
-// ── Honcho env vars ──────────────────────────────────────────────────────────
-const API_KEY = process.env.HONCHO_API_KEY;
+const API_KEY      = process.env.HONCHO_API_KEY;
 const WORKSPACE_ID = process.env.HONCHO_WORKSPACE_ID ?? 'openclaw-test';
-const BASE_URL = process.env.HONCHO_BASE_URL ?? 'https://api.honcho.dev';
+const BASE_URL     = process.env.HONCHO_BASE_URL ?? 'https://api.honcho.dev';
 
-const SKIP = !API_KEY;
-const describeOrSkip = SKIP ? describe.skip : describe;
+const maybe = !API_KEY ? describe.skip : describe;
 
-// ── Note on cleanup ──────────────────────────────────────────────────────────
-// There is no afterAll cleanup here because the Honcho API does not support
-// peer or session deletion. Tests are intentionally isolated to the
-// 'openclaw-test' workspace (see vitest.config.ts). To fully reset, delete and
-// recreate that workspace manually.
+const TS                 = Date.now();
+const OPENCLAW_SESSION   = `agent:developer:subagent:harness-${TS}`;
+const HONCHO_SESSION     = `agent-developer-subagent-harness-${TS}-test`;
 
-// ── Unique session key for this test run ─────────────────────────────────────
-const TS = Date.now();
-// This is the *openclaw* session key (colon-delimited, matching the subagent pattern)
-const OPENCLAW_SESSION_KEY = `agent:developer:subagent:harness-test-${TS}`;
-
-// The plugin's buildSessionKey() transforms the ctx into a Honcho-safe key:
-//   `${sessionKey}-${messageProvider}`.replace(/[^a-zA-Z0-9-]/g, '-')
-// So: "agent:developer:subagent:harness-test-{ts}-test"
-//  → "agent-developer-subagent-harness-test-{ts}-test"
-const HONCHO_SESSION_KEY = `agent-developer-subagent-harness-test-${TS}-test`;
-
-// ── Build a minimal mock api that satisfies the plugin's OpenClawPluginApi ───
 type HookCallback = (event: unknown, ctx: unknown) => Promise<unknown>;
 
 function buildMockApi() {
-  const hooks: Map<string, HookCallback[]> = new Map();
-
-  const api = {
-    // Plugin config — empty; config.ts will read env vars
+  const hooks = new Map<string, HookCallback[]>();
+  return {
     pluginConfig: {},
-
-    // Logger
     logger: {
-      info: (...args: unknown[]) => console.log('[plugin:info]', ...args),
-      warn: (...args: unknown[]) => console.warn('[plugin:warn]', ...args),
-      error: (...args: unknown[]) => console.error('[plugin:error]', ...args),
-      debug: (...args: unknown[]) => {}, // suppress debug noise
+      info:  (...a: unknown[]) => {},
+      warn:  (...a: unknown[]) => {},
+      error: (...a: unknown[]) => {},
+      debug: (...a: unknown[]) => {},
     },
-
-    // Overall config — provide agent list with 'developer' as default
     config: {
-      agents: {
-        list: [
-          { id: 'prime', default: true },
-          { id: 'developer', default: false },
-        ],
-      },
+      agents: { list: [{ id: 'prime', default: true }, { id: 'developer', default: false }] },
     },
-
-    // Hook registration — capture callbacks by event name
-    on(eventName: string, callback: HookCallback) {
-      if (!hooks.has(eventName)) hooks.set(eventName, []);
-      hooks.get(eventName)!.push(callback);
+    on(name: string, cb: HookCallback) {
+      hooks.set(name, [...(hooks.get(name) ?? []), cb]);
     },
-
-    // Tool registration — no-op (we don't care about tools here)
     registerTool: () => {},
-
-    // CLI registration — no-op
-    registerCli: () => {},
-
-    // Runtime tools — return null so the passthrough tool is skipped
+    registerCli:  () => {},
     runtime: {
-      tools: {
-        createMemorySearchTool: () => null,
-        createMemoryGetTool: () => null,
-      },
+      tools: { createMemorySearchTool: () => null, createMemoryGetTool: () => null },
     },
-
-    // Helper to fire a hook
-    async fire(eventName: string, event: unknown, ctx: unknown) {
-      const callbacks = hooks.get(eventName) ?? [];
-      for (const cb of callbacks) {
-        await cb(event, ctx);
-      }
+    async fire(name: string, event: unknown, ctx: unknown) {
+      for (const cb of hooks.get(name) ?? []) await cb(event, ctx);
     },
   };
-
-  return api;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-describeOrSkip('parent-peer harness: agent-prime present in subagent session', () => {
-  let mockApi: ReturnType<typeof buildMockApi>;
+maybe('subagent session peers', () => {
+  let peerIds: string[];
 
   beforeAll(async () => {
-    mockApi = buildMockApi();
-
-    // Register the plugin — this wires up the hooks on our mock api
-    honchoPlugin.register(mockApi as any);
-
-    // Fire gateway_start to initialize Honcho workspace / owner peer
-    console.log('[harness] Firing gateway_start...');
-    await mockApi.fire('gateway_start', {}, {});
-    console.log('[harness] gateway_start done');
-
-    // Fire agent_end with a subagent-style session key
-    const event = {
-      success: true,
+    const api = buildMockApi();
+    honchoPlugin.register(api as any);
+    await api.fire('gateway_start', {}, {});
+    await api.fire('agent_end', {
+      success:  true,
       messages: [
-        { role: 'user',      content: 'Hello from the harness test user' },
-        { role: 'assistant', content: 'Hello from the harness test agent' },
+        { role: 'user',      content: 'ping' },
+        { role: 'assistant', content: 'pong' },
       ],
-    };
-
-    const ctx = {
-      sessionKey:      OPENCLAW_SESSION_KEY,  // agent:developer:subagent:harness-test-{ts}
+    }, {
+      sessionKey:      OPENCLAW_SESSION,
       messageProvider: 'test',
       agentId:         'developer',
-    };
+    });
 
-    console.log(`[harness] Firing agent_end for session: ${OPENCLAW_SESSION_KEY}`);
-    console.log(`[harness] Honcho will create session with key: ${HONCHO_SESSION_KEY}`);
-    await mockApi.fire('agent_end', event, ctx);
-    console.log('[harness] agent_end done');
+    const honcho  = new Honcho({ apiKey: API_KEY, workspaceId: WORKSPACE_ID, baseURL: BASE_URL });
+    const session = await honcho.session(HONCHO_SESSION);
+    peerIds = (await session.peers()).map(p => p.id);
   }, 60_000);
 
-  // ── Query Honcho directly after the hook to inspect session peers ────────────
-  it('owner IS in session peers (should PASS)', async () => {
-    const honcho = new Honcho({ apiKey: API_KEY, workspaceId: WORKSPACE_ID, baseURL: BASE_URL });
-    const session = await honcho.session(HONCHO_SESSION_KEY);
-    const peers = await session.peers();
-    const peerIds = peers.map(p => p.id);
-
-    console.log('[harness] session peers:', peerIds);
-    expect(peerIds).toContain('owner');
-  });
-
-  it('agent-developer IS in session peers (should PASS)', async () => {
-    const honcho = new Honcho({ apiKey: API_KEY, workspaceId: WORKSPACE_ID, baseURL: BASE_URL });
-    const session = await honcho.session(HONCHO_SESSION_KEY);
-    const peers = await session.peers();
-    const peerIds = peers.map(p => p.id);
-
-    console.log('[harness] session peers:', peerIds);
-    // Match any peer ID that identifies the developer agent — the exact ID may vary
-    // if the workspace has stale peer mappings from prior test runs.
-    expect(peerIds.some(id => id.includes('developer'))).toBe(true);
-  });
-
-  it('agent-prime IS in session peers (fix verified)', async () => {
-    const honcho = new Honcho({ apiKey: API_KEY, workspaceId: WORKSPACE_ID, baseURL: BASE_URL });
-    const session = await honcho.session(HONCHO_SESSION_KEY);
-    const peers = await session.peers();
-    const peerIds = peers.map(p => p.id);
-
-    console.log('[harness] session peers:', peerIds);
-    console.log('[harness] ↑ agent-prime should now be present → fix confirmed');
-
-    // This assertion now PASSES — the parent peer is added for subagent sessions
-    expect(peerIds).toContain('agent-prime');
-  });
+  it('contains owner',          () => expect(peerIds).toContain('owner'));
+  it('contains agent-developer', () => expect(peerIds.some(id => id.includes('developer'))).toBe(true));
+  it('contains agent-prime',     () => expect(peerIds).toContain('agent-prime'));
 });
