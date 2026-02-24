@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Honcho, type Peer } from '@honcho-ai/sdk';
 
 const API_KEY = process.env.HONCHO_API_KEY;
-const WORKSPACE_ID = process.env.HONCHO_WORKSPACE_ID ?? 'openclaw';
+const WORKSPACE_ID = process.env.HONCHO_WORKSPACE_ID ?? 'openclaw-test';
 const BASE_URL = process.env.HONCHO_BASE_URL ?? 'https://api.honcho.dev';
 
 // Unique run prefix so parallel test runs don't collide

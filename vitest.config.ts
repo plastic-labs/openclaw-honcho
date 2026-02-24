@@ -6,5 +6,12 @@ export default defineConfig({
     environment: 'node',
     // Give integration tests more time
     testTimeout: 30000,
+    // Always run against the isolated test workspace, never the production 'openclaw' workspace.
+    // Note: The Honcho API does not support peer deletion, so test data accumulates in this
+    // workspace over time. To fully reset, delete and recreate the 'openclaw-test' workspace
+    // manually. The workspace isolation here is the critical safety net.
+    env: {
+      HONCHO_WORKSPACE_ID: 'openclaw-test',
+    },
   },
 });
