@@ -19,6 +19,29 @@ const OWNER_ID = "owner";
 const LEGACY_PEER_ID = "openclaw";
 
 // ============================================================================
+// Exported pure utilities (also used internally; exported for testing)
+// ============================================================================
+
+/**
+ * Derive the Honcho peer ID for a given agent ID.
+ * Normalises case and whitespace; falls back to "main" for blank IDs.
+ */
+export function derivePeerId(agentId: string): string {
+  const id = agentId.toLowerCase().trim() || "main";
+  return `agent-${id}`;
+}
+
+/**
+ * Build a Honcho session key from OpenClaw context.
+ * Combines sessionKey + messageProvider; replaces non-alphanumeric chars with hyphens.
+ */
+export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
+  const baseKey  = ctx?.sessionKey    ?? "default";
+  const provider = ctx?.messageProvider ?? "unknown";
+  return `${baseKey}-${provider}`.replace(/[^a-zA-Z0-9-]/g, "-");
+}
+
+// ============================================================================
 // Plugin Definition
 // ============================================================================
 
@@ -49,18 +72,7 @@ const honchoPlugin = {
     let agentPeerMap: Record<string, string> = {};  // agentId → peerId (from workspace metadata)
     let initialized = false;
 
-    /**
-     * Build a Honcho session key from OpenClaw context.
-     * Combines sessionKey + messageProvider to create unique sessions per platform.
-     * Uses hyphens as separators (Honcho requires hyphens, not underscores).
-     */
-    function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
-      const baseKey = ctx?.sessionKey ?? "default";
-      const provider = ctx?.messageProvider ?? "unknown";
-      const combined = `${baseKey}-${provider}`;
-      // Replace any non-alphanumeric characters with hyphens
-      return combined.replace(/[^a-zA-Z0-9-]/g, "-");
-    }
+    // buildSessionKey and derivePeerId are module-level exports (see top of file)
 
     function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
       return (ctx?.sessionKey ?? "").includes(":subagent:");
@@ -92,7 +104,7 @@ const honchoPlugin = {
       const defaultId = resolveDefaultAgentId();
       // Fresh workspace: use agent-{id} naming consistent with other agents
       if (Object.keys(agentPeerMap).length === 0) {
-        agentPeerMap[defaultId] = `agent-${defaultId}`;
+        agentPeerMap[defaultId] = derivePeerId(defaultId);
         await honcho.setMetadata({ ...wsMeta, agentPeerMap });
       }
       // Existing workspace with legacy "openclaw" mapping: preserve it
@@ -132,7 +144,7 @@ const honchoPlugin = {
 
       // 4. Still not found → create new peer
       if (!peerId) {
-        peerId = `agent-${id}`;
+        peerId = derivePeerId(id);
       }
 
       // Update workspace mapping if it changed

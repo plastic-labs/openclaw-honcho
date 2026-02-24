@@ -2,23 +2,11 @@
  * Unit tests: peer naming convention
  *
  * Verifies that distinct agent IDs produce distinct, predictable peer IDs.
- * This mirrors the logic in `getAgentPeer()` inside index.ts.
+ * Imports the real functions from index.ts so any change to the implementation
+ * is immediately caught here rather than silently diverging from a local copy.
  */
 import { describe, it, expect } from 'vitest';
-
-// ── Replicate the naming logic from index.ts ────────────────────────────────
-// Any change here that makes tests fail means the plugin behaviour changed too.
-function derivePeerId(agentId: string): string {
-  const id = agentId.toLowerCase().trim() || 'main';
-  return `agent-${id}`;
-}
-
-function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
-  const baseKey = ctx?.sessionKey ?? 'default';
-  const provider = ctx?.messageProvider ?? 'unknown';
-  const combined = `${baseKey}-${provider}`;
-  return combined.replace(/[^a-zA-Z0-9-]/g, '-');
-}
+import { derivePeerId, buildSessionKey } from '../index.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 
