@@ -1,20 +1,15 @@
 /**
- * Harness test: proves that agent-prime is NOT added to subagent sessions
+ * Harness test: verifies that agent-prime IS added to subagent sessions
  *
  * When Prime delegates to Forge (agent:developer:subagent:xxx), the plugin's
- * agent_end hook calls `session.addPeers([owner, agent-developer])` but NEVER
- * adds `agent-prime`. This test proves that gap by querying real Honcho after
- * the hook fires and asserting that `agent-prime` IS present — which will FAIL.
+ * agent_end hook should call `session.addPeers([owner, agent-developer, agent-prime])`.
+ * This test verifies the fix by querying real Honcho after the hook fires and
+ * asserting that all three peers are present — all assertions should PASS.
  *
  * Tests that should PASS:
  *   ✓ owner is in session peers
  *   ✓ agent-developer is in session peers
- *
- * Test that should FAIL (proves the bug):
- *   ✗ agent-prime is in session peers
- *
- * Once a fix is implemented (adding agent-prime to addPeers for subagent sessions),
- * all three assertions should pass and this test becomes green.
+ *   ✓ agent-prime is in session peers  ← previously failing (the bug), now fixed
  *
  * Skipped automatically if HONCHO_API_KEY is missing.
  */
@@ -103,7 +98,7 @@ function buildMockApi() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describeOrSkip('parent-peer harness: agent-prime missing from subagent session', () => {
+describeOrSkip('parent-peer harness: agent-prime present in subagent session', () => {
   let mockApi: ReturnType<typeof buildMockApi>;
 
   beforeAll(async () => {
@@ -159,16 +154,16 @@ describeOrSkip('parent-peer harness: agent-prime missing from subagent session',
     expect(peerIds).toContain('agent-developer');
   });
 
-  it('agent-prime IS in session peers (should FAIL — proving the bug)', async () => {
+  it('agent-prime IS in session peers (fix verified)', async () => {
     const honcho = new Honcho({ apiKey: API_KEY, workspaceId: WORKSPACE_ID, baseURL: BASE_URL });
     const session = await honcho.session(HONCHO_SESSION_KEY);
     const peers = await session.peers();
     const peerIds = peers.map(p => p.id);
 
     console.log('[harness] session peers:', peerIds);
-    console.log('[harness] ↑ agent-prime is absent → bug confirmed');
+    console.log('[harness] ↑ agent-prime should now be present → fix confirmed');
 
-    // THIS ASSERTION SHOULD FAIL — the plugin never adds agent-prime
+    // This assertion now PASSES — the parent peer is added for subagent sessions
     expect(peerIds).toContain('agent-prime');
   });
 });

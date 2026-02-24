@@ -285,10 +285,25 @@ const honchoPlugin = {
         const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
 
         // Add peers with per-agent peer (session now guaranteed to exist)
-        await session.addPeers([
+        const peers: Parameters<typeof session.addPeers>[0] = [
           [OWNER_ID, { observeMe: true, observeOthers: false }],
           [agentPeer.id, { observeMe: true, observeOthers: true }],
-        ]);
+        ];
+
+        // For subagent sessions, also add the parent agent so dreaming can
+        // consolidate cross-agent interactions in both directions:
+        //   observer: agent-prime, observed: agent-developer → Prime's view of Forge
+        //   observer: agent-developer, observed: agent-prime → Forge's view of Prime
+        if (isSubagent) {
+          const parentKey = extractParentAgentKey(ctx.sessionKey);
+          if (parentKey) {
+            const parentAgentId = parentKey.replace(/^agent:/, '').replace(/:.*$/, '');
+            const parentPeer = await getAgentPeer(parentAgentId);
+            peers.push([parentPeer.id, { observeMe: true, observeOthers: true }]);
+          }
+        }
+
+        await session.addPeers(peers);
 
         // Skip if nothing new
         if (event.messages.length <= lastSavedIndex) {
