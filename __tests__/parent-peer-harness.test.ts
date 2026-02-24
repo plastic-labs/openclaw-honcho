@@ -24,11 +24,17 @@ import honchoPlugin from '../index.js';
 
 // ── Honcho env vars ──────────────────────────────────────────────────────────
 const API_KEY = process.env.HONCHO_API_KEY;
-const WORKSPACE_ID = process.env.HONCHO_WORKSPACE_ID ?? 'openclaw';
+const WORKSPACE_ID = process.env.HONCHO_WORKSPACE_ID ?? 'openclaw-test';
 const BASE_URL = process.env.HONCHO_BASE_URL ?? 'https://api.honcho.dev';
 
 const SKIP = !API_KEY;
 const describeOrSkip = SKIP ? describe.skip : describe;
+
+// ── Note on cleanup ──────────────────────────────────────────────────────────
+// There is no afterAll cleanup here because the Honcho API does not support
+// peer or session deletion. Tests are intentionally isolated to the
+// 'openclaw-test' workspace (see vitest.config.ts). To fully reset, delete and
+// recreate that workspace manually.
 
 // ── Unique session key for this test run ─────────────────────────────────────
 const TS = Date.now();
