@@ -295,9 +295,11 @@ const honchoPlugin = {
         //   observer: agent-prime, observed: agent-developer → Prime's view of Forge
         //   observer: agent-developer, observed: agent-prime → Forge's view of Prime
         if (isSubagent) {
-          const parentKey = extractParentAgentKey(ctx.sessionKey);
-          if (parentKey) {
-            const parentAgentId = parentKey.replace(/^agent:/, '').replace(/:.*$/, '');
+          // The session key encodes the current agent (e.g. agent:developer:subagent:xxx),
+          // not the spawner. Default to the primary/default agent (the orchestrator) as the
+          // parent peer — it is always the entity that delegates to subagents.
+          const parentAgentId = resolveDefaultAgentId();
+          if (parentAgentId && parentAgentId !== agentId) {
             const parentPeer = await getAgentPeer(parentAgentId);
             peers.push([parentPeer.id, { observeMe: true, observeOthers: true }]);
           }
