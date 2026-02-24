@@ -2,9 +2,9 @@
 
 ## Overview
 
-In a multi-agent OpenClaw deployment, subagents (Forge, Scout, Ghostwriter, Sonar) are spawned
-by a parent agent (Prime) to complete focused tasks. Each subagent session has a session key of
-the form `agent:developer:subagent:<uuid>`, encoding the relationship to the parent.
+In a multi-agent OpenClaw deployment, worker agents (subagents) are spawned by a parent
+orchestrator agent to complete focused tasks. Each subagent session has a session key of the form
+`agent:developer:subagent:<uuid>`, encoding the relationship to the parent.
 
 The Honcho memory plugin is supposed to track observations across all peers — enabling the
 dreaming process to consolidate cross-agent interactions into persistent conclusions that survive
@@ -17,54 +17,44 @@ cause, and the fix applied in this PR.
 
 ## Current State: What We Observed
 
-After running in production with 6 configured peers:
+After running in production with multiple configured agent peers (an orchestrator and several
+worker agents), an audit of all conclusions in the workspace revealed:
 
-| Peer ID            | Role              |
-|--------------------|-------------------|
-| `owner`            | Workspace owner   |
-| `agent-prime`      | Primary agent     |
-| `agent-developer`  | Forge (developer) |
-| `agent-researcher` | Scout (research)  |
-| `agent-ghostwriter`| Ghostwriter       |
-| `agent-sonar`      | Sonar (search)    |
+| Observer           | Observed | Count |
+|--------------------|----------|-------|
+| `owner`            | `owner`  | 300   |
+| orchestrator agent | `owner`  | 200   |
+| worker agents      | —        | 0     |
 
-An audit of **all 500 conclusions** in the workspace revealed:
-
-| Observer      | Observed | Count |
-|---------------|----------|-------|
-| `owner`       | `owner`  | 300   |
-| `agent-prime` | `owner`  | 200   |
-| all others    | —        | 0     |
-
-**Every conclusion concerns the owner.** No cross-agent memory exists. Forge, Scout, Ghostwriter,
-and Sonar spin up fresh every session with zero accumulated context about their working
-relationship with Prime.
+**Every conclusion concerns the owner.** No cross-agent memory exists. Worker agents (subagents)
+spin up fresh every session with zero accumulated context about their working relationship with
+the orchestrator.
 
 ---
 
 ## The Gap: No Agent-to-Agent Memory
 
 Honcho's dreaming process consolidates observations from shared sessions into conclusions. For
-conclusions about the `agent-prime ↔ agent-developer` relationship to exist, both peers must be
-present in at least one shared session.
+conclusions about the `orchestrator ↔ worker` relationship to exist, both peers must be present
+in at least one shared session.
 
 In practice:
 
-- **Main agent sessions** (e.g. `agent:prime:main`) → `addPeers([owner, agent-prime])` ✓
-- **Subagent sessions** (e.g. `agent:developer:subagent:xxx`) → `addPeers([owner, agent-developer])` ✗
+- **Orchestrator sessions** (e.g. `agent:prime:main`) → `addPeers([owner, orchestrator])` ✓
+- **Subagent sessions** (e.g. `agent:developer:subagent:xxx`) → `addPeers([owner, worker])` ✗
 
-The parent agent (`agent-prime`) is **never added** to subagent sessions. Dreaming sees two
-completely disjoint session graphs:
+The parent agent is **never added** to subagent sessions. Dreaming sees two completely disjoint
+session graphs:
 
 ```
 Session: agent:prime:main
-  peers: owner, agent-prime
-  → dreaming produces: owner↔agent-prime conclusions ✓
+  peers: owner, orchestrator
+  → dreaming produces: owner↔orchestrator conclusions ✓
 
 Session: agent:developer:subagent:xxx
-  peers: owner, agent-developer
-  → dreaming produces: owner↔agent-developer conclusions
-  → NO agent-prime↔agent-developer conclusions (prime was never here) ✗
+  peers: owner, worker
+  → dreaming produces: owner↔worker conclusions
+  → NO orchestrator↔worker conclusions (orchestrator was never here) ✗
 ```
 
 ---
@@ -83,8 +73,7 @@ await session.addPeers([
 ```
 
 The function `extractParentAgentKey(sessionKey)` already exists and correctly parses the parent
-agent from the session key (e.g. extracts `agent:prime` from
-`agent:developer:subagent:xxx`). It is used only to store metadata — it was **never used in
+agent from the session key. It is used only to store metadata — it was **never used in
 `addPeers`**.
 
 ---
@@ -114,8 +103,8 @@ await session.addPeers(peers);
 Both `observeMe` and `observeOthers` are set to `true` for the parent peer so dreaming can
 consolidate observations in **both directions**:
 
-- `observer: agent-prime, observed: agent-developer` → Prime's conclusions about how Forge works
-- `observer: agent-developer, observed: agent-prime` → Forge's conclusions about how Prime delegates
+- `observer: orchestrator, observed: worker` → orchestrator's conclusions about how the subagent performs
+- `observer: worker, observed: orchestrator` → subagent's conclusions about how the orchestrator delegates
 
 ---
 
@@ -123,22 +112,23 @@ consolidate observations in **both directions**:
 
 | Session type | Peers added | Conclusions produced |
 |---|---|---|
-| `agent:prime:main` | `owner`, `agent-prime` | `owner↔agent-prime` |
-| `agent:developer:subagent:xxx` | `owner`, `agent-developer`, **`agent-prime`** | `owner↔agent-developer`, **`agent-prime↔agent-developer`** |
+| Orchestrator main session | `owner`, `orchestrator` | `owner↔orchestrator` |
+| Subagent session | `owner`, `worker`, **`orchestrator`** | `owner↔worker`, **`orchestrator↔worker`** |
 
-Over time, Prime will accumulate persistent memory about how each subagent performs, and each
-subagent will accumulate memory about how Prime delegates — surviving across session restarts.
+Over time, the orchestrator will accumulate persistent memory about how each subagent performs,
+and each subagent will accumulate memory about how the orchestrator delegates — surviving across
+session restarts.
 
 ---
 
 ## Tests
 
 A harness test (`__tests__/parent-peer-harness.test.ts`) instantiates the plugin with a mock
-OpenClaw API context, fires the `agent_end` hook with a subagent-style session key, and then
-queries Honcho directly to assert that `agent-prime` appears in the resulting session's peer list.
+OpenClaw API context, fires the message hook with a subagent-style session key, and then queries
+Honcho directly to assert that the parent agent appears in the resulting session's peer list.
 
-Before this fix: the third assertion (`agent-prime IS in session peers`) **failed** — proving the
-bug. After this fix: all three assertions pass.
+Before this fix: the assertion that the parent peer is present **failed** — proving the bug.
+After this fix: all assertions pass.
 
 ---
 
