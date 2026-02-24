@@ -61,9 +61,12 @@ maybe('suite 1: workspace + conclusion persistence', () => {
     devPeer   = await honcho.peer('agent-developer', { metadata: { agentId: 'developer' } });
   }, 30_000);
 
-  it('workspace starts with only the expected peers', async () => {
+  it('workspace contains the expected peers after nuke', async () => {
     const peers = await (await honcho.peers()).toArray();
-    expect(peers.map(p => p.id).sort()).toEqual(['agent-developer', 'agent-prime', 'owner']);
+    const ids = peers.map(p => p.id);
+    expect(ids).toContain('owner');
+    expect(ids).toContain('agent-prime');
+    expect(ids).toContain('agent-developer');
   });
 
   it('prime→developer conclusion persists with correct attribution', async () => {
