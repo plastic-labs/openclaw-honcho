@@ -1099,14 +1099,24 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                 [agentPeerSetup, { observeMe: true, observeOthers: true }],
               ]);
 
+              const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB safety cap
+
               let uploadCount = 0;
               for (const { filePath, peer } of detected) {
                 const stat = await fs.promises.stat(filePath).catch(() => null);
                 if (!stat?.isFile()) continue;
+                if (stat.size > MAX_UPLOAD_BYTES) {
+                  console.log(`  ! Skipping (too large): ${filePath}`);
+                  continue;
+                }
                 const filename = path.basename(filePath);
-                const content = await fs.promises.readFile(filePath);
                 const ext = path.extname(filename).toLowerCase();
-                const content_type = ext === ".json" ? "application/json" : "text/markdown";
+                const content_type = ext === ".json" ? "application/json" : ext === ".md" ? "text/markdown" : null;
+                if (!content_type) {
+                  console.log(`  ! Skipping unsupported file type: ${filePath}`);
+                  continue;
+                }
+                const content = await fs.promises.readFile(filePath);
                 const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
                 await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
                 console.log(`  ✓ Uploaded: ${filePath}`);
