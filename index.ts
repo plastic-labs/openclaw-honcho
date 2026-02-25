@@ -5,6 +5,10 @@
  * Uses Honcho's peer paradigm for multi-party conversation memory.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as readline from "node:readline";
 import { Type } from "@sinclair/typebox";
 import { Honcho, type Peer, type Session, type MessageInput } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
@@ -904,6 +908,146 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
     api.registerCli(
       ({ program, workspaceDir }) => {
         const cmd = program.command("honcho").description("Honcho memory commands");
+
+        cmd
+          .command("setup")
+          .description("Configure Honcho API key and migrate legacy memory files")
+          .action(async () => {
+            const configDir = path.join(os.homedir(), ".openclaw");
+            const configPath = path.join(configDir, "openclaw.json");
+
+            console.log("\nHoncho Setup\n");
+            console.log("Get your API key from: https://app.honcho.dev\n");
+            console.log('Press Enter to use the default shown in [brackets].\n');
+
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
+
+            try {
+              const apiKeyInput = await ask("Honcho API key (press Enter for self-hosted mode): ");
+              const baseUrlInput = await ask("Base URL [https://api.honcho.dev]: ");
+              const workspaceIdInput = await ask("Workspace ID [openclaw]: ");
+
+              const resolvedBaseUrl = baseUrlInput.trim() || "https://api.honcho.dev";
+              const resolvedWorkspaceId = workspaceIdInput.trim() || "openclaw";
+
+              // Write config
+              let config: Record<string, unknown> = {};
+              if (fs.existsSync(configPath)) {
+                try { config = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
+              }
+              if (!config.plugins) config.plugins = {};
+              const pluginsSection = config.plugins as Record<string, unknown>;
+              if (!pluginsSection.entries) pluginsSection.entries = {};
+              const entriesSection = pluginsSection.entries as Record<string, unknown>;
+              const existingEntry = (entriesSection["openclaw-honcho"] as Record<string, unknown>) ?? {};
+              const pluginCfg: Record<string, unknown> = {
+                ...(existingEntry.config as Record<string, unknown> ?? {}),
+              };
+              if (apiKeyInput.trim()) pluginCfg.apiKey = apiKeyInput.trim();
+              if (baseUrlInput.trim()) pluginCfg.baseUrl = baseUrlInput.trim();
+              if (workspaceIdInput.trim()) pluginCfg.workspaceId = workspaceIdInput.trim();
+              entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
+
+              if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+              fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
+
+              // Detect legacy files in workspace
+              const wsRoot = workspaceDir || (() => {
+                try {
+                  const c = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+                  return c?.agent?.workspace
+                    || c?.agents?.defaults?.workspace
+                    || c?.agents?.defaults?.workspaceDir
+                    || path.join(os.homedir(), ".openclaw", "workspace");
+                } catch { return path.join(os.homedir(), ".openclaw", "workspace"); }
+              })();
+
+              const OWNER_FILES = ["USER.md", "IDENTITY.md", "MEMORY.md"];
+              // HEARTBEAT.md excluded — it's a live task queue tied to the heartbeat loop, not memory
+              const AGENT_FILES = ["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
+              const LEGACY_DIRS = ["memory", "canvas"];
+
+              type FileEntry = { filePath: string; peer: "owner" | "agent" };
+              const detected: FileEntry[] = [];
+
+              for (const file of OWNER_FILES) {
+                const p = path.join(wsRoot, file);
+                if (fs.existsSync(p)) detected.push({ filePath: p, peer: "owner" });
+              }
+              for (const file of AGENT_FILES) {
+                const p = path.join(wsRoot, file);
+                if (fs.existsSync(p)) detected.push({ filePath: p, peer: "agent" });
+              }
+
+              function collectDir(dirPath: string, peerType: "owner" | "agent"): void {
+                if (!fs.existsSync(dirPath)) return;
+                const dirEntries = fs.readdirSync(dirPath, { withFileTypes: true });
+                for (const e of dirEntries) {
+                  const full = path.join(dirPath, e.name);
+                  if (e.isDirectory()) collectDir(full, peerType);
+                  else detected.push({ filePath: full, peer: peerType });
+                }
+              }
+              for (const dir of LEGACY_DIRS) {
+                collectDir(path.join(wsRoot, dir), "owner");
+              }
+
+              if (detected.length === 0) {
+                console.log("\nNo legacy memory files found.");
+                console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
+                return;
+              }
+
+              console.log(`\nFound ${detected.length} legacy memory file(s) in ${wsRoot}:`);
+              for (const { filePath, peer } of detected) {
+                const rel = path.relative(wsRoot, filePath);
+                const size = fs.statSync(filePath).size;
+                console.log(`  ${rel} (${(size / 1024).toFixed(1)} KB) → ${peer} peer`);
+              }
+              console.log(`\nData destination: ${resolvedBaseUrl}`);
+
+              const uploadConfirm = await ask("\nUpload these files to Honcho? [y/N]: ");
+              if (!["y", "yes"].includes(uploadConfirm.trim().toLowerCase())) {
+                console.log("\nSkipping upload.");
+                console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
+                return;
+              }
+
+              // Upload files to Honcho
+              const setupHoncho = new Honcho({
+                apiKey: apiKeyInput.trim() || undefined,
+                baseURL: resolvedBaseUrl,
+                workspaceId: resolvedWorkspaceId,
+              });
+
+              await setupHoncho.setMetadata({});
+              const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
+              const agentPeerSetup = await setupHoncho.peer("openclaw", { metadata: {} });
+              const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });
+              await migrationSession.addPeers([ownerPeerSetup, agentPeerSetup]);
+
+              let uploadCount = 0;
+              for (const { filePath, peer } of detected) {
+                const stat = await fs.promises.stat(filePath).catch(() => null);
+                if (!stat?.isFile()) continue;
+                const filename = path.basename(filePath);
+                const content = await fs.promises.readFile(filePath);
+                const ext = path.extname(filename).toLowerCase();
+                const content_type = ext === ".json" ? "application/json" : "text/markdown";
+                const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
+                await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
+                console.log(`  ✓ Uploaded: ${path.relative(wsRoot, filePath)}`);
+                uploadCount++;
+              }
+              console.log(`\n✓ Uploaded ${uploadCount} file(s) to Honcho`);
+
+              console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
+            } finally {
+              rl.close();
+            }
+          });
 
         cmd
           .command("status")

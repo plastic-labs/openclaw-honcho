@@ -1,0 +1,164 @@
+---
+title: "OpenClaw"
+icon: 'lobster'
+description: "Add AI-native memory to OpenClaw"
+sidebarTitle: 'OpenClaw'
+---
+
+[OpenClaw](https://openclaw.ai) is a general AI agent that can perform actions on behalf of a user. The Honcho plugin gives OpenClaw memory across every channel — WhatsApp, Telegram, Discord, Slack, and more.
+
+<Note>
+Honcho can run entirely locally with OpenClaw — no external API required. Keep your data on your machine while getting full memory capabilities across all channels. See the [self-hosting guide](/v3/contributing/self-hosting) to get started.
+</Note>
+
+
+## Install the Plugin
+
+```bash
+openclaw plugins install @honcho-ai/openclaw-honcho
+openclaw honcho setup
+openclaw gateway --force
+```
+
+`openclaw honcho setup` prompts for your API key, writes the config, and optionally uploads any legacy memory files to Honcho.
+
+<Note>
+**Alternative: ClawHub Skill**
+
+The `honcho-setup` skill handles installation and migration interactively from a chat session:
+
+```bash
+npx clawhub install honcho-setup
+# Restart OpenClaw, then invoke the skill from a session
+openclaw plugins install @honcho-ai/openclaw-honcho
+openclaw gateway restart
+```
+</Note>
+
+## Migrating Legacy Memory
+
+If you have existing workspace memory files (`USER.md`, `MEMORY.md`, `IDENTITY.md`, `memory/`, `canvas/`, etc.), `openclaw honcho setup` will detect them and offer to migrate them.
+
+<Note>
+Migration is **non-destructive** — files are uploaded to Honcho. Originals are never deleted or moved.
+</Note>
+
+### Legacy files
+
+**User/owner files** (content describes the user):
+- `USER.md`, `IDENTITY.md`, `MEMORY.md`
+- All files in `memory/` and `canvas/` directories
+
+**Agent/self files** (content describes the agent):
+- `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`
+
+### Upload to Honcho
+
+Files are uploaded via `session.uploadFile()`. User/owner files go to the owner peer; agent/self files go to the openclaw peer.
+
+## How It Works
+
+Once installed, the plugin runs automatically:
+
+* **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models.
+* **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context.
+* **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors).
+
+## AI Tools
+
+### Data Retrieval (fast, no LLM)
+
+| Tool | Description |
+| ---- | ----------- |
+| `honcho_session` | Conversation history and summaries from the current session. |
+| `honcho_profile` | User's peer card — key facts (name, preferences, role). |
+| `honcho_search` | Semantic search over stored observations. |
+| `honcho_context` | Full user representation across all sessions. |
+
+### Q&A (LLM-powered)
+
+| Tool | Description |
+| ---- | ----------- |
+| `honcho_recall` | Simple factual question — minimal reasoning. |
+| `honcho_analyze` | Complex question requiring synthesis — medium reasoning. |
+
+## CLI Commands
+
+```bash
+openclaw honcho setup                           # Configure API key and migrate legacy files
+openclaw honcho status                          # Connection status
+openclaw honcho ask <question>                  # Query Honcho about the user
+openclaw honcho search <query> [-k N] [-d D]    # Semantic search (topK, maxDistance)
+```
+
+## Configuration
+
+Run `openclaw honcho setup` to configure interactively, or set values directly in `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-honcho"].config`.
+
+| Key | Default | Description |
+| --- | ------- | ----------- |
+| `apiKey` | — | Honcho API key (required for managed; omit for self-hosted). |
+| `workspaceId` | `"openclaw"` | Honcho workspace ID for memory isolation. |
+| `baseUrl` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+
+### Self-Hosted Honcho
+
+Point the plugin to your local instance and follow the [self-hosting guide](https://github.com/plastic-labs/honcho?tab=readme-ov-file#local-development) to get started:
+
+```bash
+openclaw honcho setup
+# Enter blank API key, set Base URL to http://localhost:8000
+```
+
+## Local File Search (QMD Integration)
+
+The plugin automatically exposes OpenClaw's `memory_search` and `memory_get` tools when a memory backend is configured, allowing both Honcho cloud memory and local file search together.
+
+### Setup
+
+1. Install [QMD](https://github.com/tobi/qmd) on your server
+
+2. Configure OpenClaw in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "memory": {
+    "backend": "qmd",
+    "qmd": {
+      "limits": {
+        "timeoutMs": 120000
+      }
+    }
+  }
+}
+```
+
+3. Set up QMD collections and restart:
+
+```bash
+qmd collection add ~/Documents/notes --name notes
+qmd update
+openclaw gateway restart
+```
+
+### Available Tools
+
+When QMD is configured, you get both Honcho and local file tools:
+
+| Tool | Source | Description |
+| ---- | ------ | ----------- |
+| `honcho_*` | Honcho | Cross-session memory, user modeling, dialectic reasoning |
+| `memory_search` | QMD | Search local markdown files |
+| `memory_get` | QMD | Retrieve file content |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GitHub Repository" icon="github" href="https://github.com/plastic-labs/openclaw-honcho">
+    Source code, issues, and README.
+  </Card>
+
+  <Card title="Honcho Architecture" icon="sitemap" href="/v3/documentation/core-concepts/architecture">
+    Learn about peers, sessions, and dialectic reasoning.
+  </Card>
+</CardGroup>
