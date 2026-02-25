@@ -458,7 +458,7 @@ Parameters:
                 const timestamp = msg.createdAt
                   ? new Date(msg.createdAt).toLocaleString()
                   : "";
-                return `**${speaker}**${timestamp ? ` (${timestamp})` : ""}:\n${msg.content}`;
+                return `**${speaker}**${timestamp ? ` (${timestamp})` : ""}:\n${cleanMessageContent(msg.content as string)}`;
               });
               sections.push(
                 `## Recent Messages (${context.messages.length})\n\n${messageLines.join("\n\n---\n\n")}`
@@ -964,12 +964,6 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
               const defaultAgentPeerId = `agent-${defaultAgentId}`;
 
-              const wsRoot = workspaceDir
-                || (defaultAgent?.workspace as string)
-                || (defaultAgent?.workspaceDir as string)
-                || ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string
-                || path.join(os.homedir(), ".openclaw", "workspace");
-
               const OWNER_FILES = ["USER.md", "IDENTITY.md", "MEMORY.md"];
               // HEARTBEAT.md excluded — it's a live task queue tied to the heartbeat loop, not memory
               const AGENT_FILES = ["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
@@ -977,15 +971,6 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 
               type FileEntry = { filePath: string; peer: "owner" | "agent" };
               const detected: FileEntry[] = [];
-
-              for (const file of OWNER_FILES) {
-                const p = path.join(wsRoot, file);
-                if (fs.existsSync(p)) detected.push({ filePath: p, peer: "owner" });
-              }
-              for (const file of AGENT_FILES) {
-                const p = path.join(wsRoot, file);
-                if (fs.existsSync(p)) detected.push({ filePath: p, peer: "agent" });
-              }
 
               function collectDir(dirPath: string, peerType: "owner" | "agent"): void {
                 if (!fs.existsSync(dirPath)) return;
@@ -996,23 +981,73 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                   else detected.push({ filePath: full, peer: peerType });
                 }
               }
-              for (const dir of OWNER_DIRS) {
-                collectDir(path.join(wsRoot, dir), "owner");
+
+              function scanWorkspace(wsDir: string): void {
+                for (const file of OWNER_FILES) {
+                  const p = path.join(wsDir, file);
+                  if (fs.existsSync(p) && !detected.find((d) => d.filePath === p))
+                    detected.push({ filePath: p, peer: "owner" });
+                }
+                for (const file of AGENT_FILES) {
+                  const p = path.join(wsDir, file);
+                  if (fs.existsSync(p) && !detected.find((d) => d.filePath === p))
+                    detected.push({ filePath: p, peer: "agent" });
+                }
+                for (const dir of OWNER_DIRS) {
+                  collectDir(path.join(wsDir, dir), "owner");
+                }
+              }
+
+              // 1. Primary: resolved workspace from config/CLI
+              const primaryWsRoot = workspaceDir
+                || (defaultAgent?.workspace as string)
+                || (defaultAgent?.workspaceDir as string)
+                || ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string;
+              if (primaryWsRoot) scanWorkspace(primaryWsRoot);
+
+
+              // 2. Fallback: ~/. openclaw/workspace
+              const homeWsRoot = path.join(os.homedir(), ".openclaw", "workspace");
+              if (homeWsRoot !== primaryWsRoot && homeWsRoot !== rootWsRoot) scanWorkspace(homeWsRoot);
+
+              const wsRoot = primaryWsRoot || homeWsRoot;
+
+              // 3. Still nothing — prompt user to enter paths manually
+              if (detected.length === 0) {
+                console.log("\nNo memory files found in any default workspace location.");
+                console.log("Searched:");
+                if (primaryWsRoot) console.log(`  ${primaryWsRoot}`);
+                console.log(`  ${rootWsRoot}`);
+                console.log(`  ${homeWsRoot}`);
+                console.log('\nEnter file paths to upload (one per line, empty line to finish):');
+                console.log('Format: /path/to/file [owner|agent]  (peer defaults to "owner" if omitted)\n');
+                while (true) {
+                  const entry = await ask("> ");
+                  if (!entry.trim()) break;
+                  const parts = entry.trim().split(/\s+/);
+                  const filePath = parts[0];
+                  const peerType = (parts[1] === "agent" ? "agent" : "owner") as "owner" | "agent";
+                  if (!fs.existsSync(filePath)) {
+                    console.log(`  ! File not found: ${filePath}`);
+                    continue;
+                  }
+                  detected.push({ filePath, peer: peerType });
+                  console.log(`  + ${filePath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                }
               }
 
               if (detected.length === 0) {
-                console.log("\nNo memory files found.");
+                console.log("\nNo files to upload.");
                 console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
                 return;
               }
 
-              console.log(`\nFound ${detected.length} memory file(s) in ${wsRoot}:`);
+              console.log(`\nFound ${detected.length} memory file(s):`);
               console.log(`Default agent: ${defaultAgentId} (peer: ${defaultAgentPeerId})`);
               for (const { filePath, peer } of detected) {
-                const rel = path.relative(wsRoot, filePath);
                 const size = fs.statSync(filePath).size;
                 const peerLabel = peer === "owner" ? OWNER_ID : defaultAgentPeerId;
-                console.log(`  ${rel} (${(size / 1024).toFixed(1)} KB) → ${peerLabel}`);
+                console.log(`  ${filePath} (${(size / 1024).toFixed(1)} KB) → ${peerLabel}`);
               }
               console.log(`\nData destination: ${resolvedBaseUrl}`);
 
@@ -1046,7 +1081,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                 const content_type = ext === ".json" ? "application/json" : "text/markdown";
                 const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
                 await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
-                console.log(`  ✓ Uploaded: ${path.relative(wsRoot, filePath)}`);
+                console.log(`  ✓ Uploaded: ${filePath}`);
                 uploadCount++;
               }
               console.log(`\n✓ Uploaded ${uploadCount} file(s) to Honcho`);
