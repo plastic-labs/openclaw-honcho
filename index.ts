@@ -964,9 +964,9 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
               const defaultAgentPeerId = `agent-${defaultAgentId}`;
 
-              const OWNER_FILES = ["USER.md", "IDENTITY.md", "MEMORY.md"];
+              const OWNER_FILES = ["USER.md", "MEMORY.md"];
               // HEARTBEAT.md excluded — it's a live task queue tied to the heartbeat loop, not memory
-              const AGENT_FILES = ["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
+              const AGENT_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
               const OWNER_DIRS = ["memory", "canvas"];
 
               type FileEntry = { filePath: string; peer: "owner" | "agent" };
