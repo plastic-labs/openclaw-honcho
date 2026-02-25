@@ -1006,19 +1006,29 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               if (primaryWsRoot) scanWorkspace(primaryWsRoot);
 
 
-              // 2. Fallback: ~/. openclaw/workspace
+              // 2. Fallback: ~/.openclaw/workspace (flat layout)
               const homeWsRoot = path.join(os.homedir(), ".openclaw", "workspace");
-              if (homeWsRoot !== primaryWsRoot && homeWsRoot !== rootWsRoot) scanWorkspace(homeWsRoot);
+              if (homeWsRoot !== primaryWsRoot) scanWorkspace(homeWsRoot);
+
+              // 3. Fallback: ~/.openclaw/agents/*/workspace (per-agent layout)
+              const agentsDir = path.join(os.homedir(), ".openclaw", "agents");
+              if (fs.existsSync(agentsDir)) {
+                for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+                  if (!entry.isDirectory()) continue;
+                  const agentWsRoot = path.join(agentsDir, entry.name, "workspace");
+                  if (agentWsRoot !== primaryWsRoot) scanWorkspace(agentWsRoot);
+                }
+              }
 
               const wsRoot = primaryWsRoot || homeWsRoot;
 
-              // 3. Still nothing — prompt user to enter paths manually
+              // 4. Still nothing — prompt user to enter paths manually
               if (detected.length === 0) {
                 console.log("\nNo memory files found in any default workspace location.");
                 console.log("Searched:");
                 if (primaryWsRoot) console.log(`  ${primaryWsRoot}`);
-                console.log(`  ${rootWsRoot}`);
                 console.log(`  ${homeWsRoot}`);
+                console.log(`  ${agentsDir}/*/workspace`);
                 console.log('\nEnter file paths to upload (one per line, empty line to finish):');
                 console.log('Format: /path/to/file [owner|agent]  (peer defaults to "owner" if omitted)\n');
                 while (true) {
