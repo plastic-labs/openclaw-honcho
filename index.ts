@@ -911,7 +911,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 
         cmd
           .command("setup")
-          .description("Configure Honcho API key and migrate legacy memory files")
+          .description("Configure Honcho API key and upload memory files to Honcho")
           .action(async () => {
             const configDir = path.join(os.homedir(), ".openclaw");
             const configPath = path.join(configDir, "openclaw.json");
@@ -953,7 +953,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
 
-              // Detect legacy files in workspace
+              // Detect memory files in workspace
               const wsRoot = workspaceDir || (() => {
                 try {
                   const c = JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -967,7 +967,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               const OWNER_FILES = ["USER.md", "IDENTITY.md", "MEMORY.md"];
               // HEARTBEAT.md excluded — it's a live task queue tied to the heartbeat loop, not memory
               const AGENT_FILES = ["SOUL.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
-              const LEGACY_DIRS = ["memory", "canvas"];
+              const OWNER_DIRS = ["memory", "canvas"];
 
               type FileEntry = { filePath: string; peer: "owner" | "agent" };
               const detected: FileEntry[] = [];
@@ -990,17 +990,17 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                   else detected.push({ filePath: full, peer: peerType });
                 }
               }
-              for (const dir of LEGACY_DIRS) {
+              for (const dir of OWNER_DIRS) {
                 collectDir(path.join(wsRoot, dir), "owner");
               }
 
               if (detected.length === 0) {
-                console.log("\nNo legacy memory files found.");
+                console.log("\nNo memory files found.");
                 console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
                 return;
               }
 
-              console.log(`\nFound ${detected.length} legacy memory file(s) in ${wsRoot}:`);
+              console.log(`\nFound ${detected.length} memory file(s) in ${wsRoot}:`);
               for (const { filePath, peer } of detected) {
                 const rel = path.relative(wsRoot, filePath);
                 const size = fs.statSync(filePath).size;
