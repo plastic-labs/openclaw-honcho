@@ -1135,6 +1135,8 @@ function cleanMessageContent(content: string): string {
   cleaned = cleaned.replace(/^\[\w+\s+.+?\s+id:\d+\s+[^\]]+\]\s*/, "");
   // Remove trailing message_id: [message_id: xxx]
   cleaned = cleaned.replace(/\s*\[message_id:\s*[^\]]+\]\s*$/, "");
+  // Remove OpenClaw internal directive tags: [[reply_to_current]], [[...]], etc.
+  cleaned = cleaned.replace(/\[\[[^\]]*\]\]\s*/g, "");
   return cleaned.trim();
 }
 
@@ -1168,10 +1170,8 @@ function extractMessages(
         .join("\n");
     }
 
-    // Clean metadata tags from user messages
-    if (role === "user") {
-      content = cleanMessageContent(content);
-    }
+    // Clean metadata tags from all messages (user and agent)
+    content = cleanMessageContent(content);
     content = content.trim();
 
     if (content) {
