@@ -254,7 +254,8 @@ Provide a link to the Honcho docs for reference: https://docs.honcho.dev
 This skill has been designed with transparency and safety as priorities. Below is a complete disclosure of what this skill does:
 
 ### Data Upload
-- **What is uploaded**: Contents of USER.md, MEMORY.md, IDENTITY.md, all files under memory/, all files under canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md (HEARTBEAT.md excluded)
+- **uploaded_content**: USER.md, MEMORY.md, IDENTITY.md, all files under memory/, all files under canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md
+- **not_uploaded**: HEARTBEAT.md — excluded by design, never read or uploaded
 - **Where it goes**: By default to `api.honcho.dev` (managed Honcho cloud service). For self-hosted instances, to your configured `HONCHO_BASE_URL`
 - **User control**: Explicit confirmation required before any upload. You will see the exact list of files and the destination URL
 - **Purpose**: Migrating file-based memory system to Honcho API for AI agent personalization and memory

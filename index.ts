@@ -1040,8 +1040,13 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                   const entry = await ask("> ");
                   if (!entry.trim()) break;
                   const parts = entry.trim().split(/\s+/);
-                  const inputPath = parts[0];
-                  const peerType = (parts[1] === "agent" ? "agent" : "owner") as "owner" | "agent";
+                  const lastToken = parts[parts.length - 1];
+                  const peerType = (lastToken === "agent" || lastToken === "owner") && parts.length > 1
+                    ? (lastToken as "owner" | "agent")
+                    : "owner";
+                  const inputPath = (lastToken === "agent" || lastToken === "owner") && parts.length > 1
+                    ? entry.trim().slice(0, entry.trim().lastIndexOf(lastToken)).trimEnd()
+                    : entry.trim();
                   if (!fs.existsSync(inputPath)) {
                     console.log(`  ! Not found: ${inputPath}`);
                     continue;
@@ -1089,7 +1094,10 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
               const agentPeerSetup = await setupHoncho.peer(defaultAgentPeerId, { metadata: { agentId: defaultAgentId } });
               const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });
-              await migrationSession.addPeers([ownerPeerSetup, agentPeerSetup]);
+              await migrationSession.addPeers([
+                [ownerPeerSetup, { observeMe: true, observeOthers: false }],
+                [agentPeerSetup, { observeMe: true, observeOthers: true }],
+              ]);
 
               let uploadCount = 0;
               for (const { filePath, peer } of detected) {
