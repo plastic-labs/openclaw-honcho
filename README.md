@@ -6,10 +6,6 @@ AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://
 
 This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
 
-## Configuration
-
-The only required value is your Honcho API key. Get one at [honcho.dev](https://honcho.dev).
-
 ## Install
 
 ```bash
@@ -23,13 +19,18 @@ openclaw gateway restart
 <details>
 <summary>Alternative: ClawHub Skill</summary>
 
-The `honcho-setup` skill handles installation and migration interactively from within a chat session:
+Use the `honcho-setup` skill to run migration interactively from within a chat session:
 
 ```bash
+# 1. Add your Honcho API key to ~/.openclaw/.env
+# 2. Install the skill
 npx clawhub install honcho-setup
-# Restart OpenClaw, then invoke the skill from a session
+# 3. Restart OpenClaw to pick up the new skill
+# 4. Install the plugin
 openclaw plugins install @honcho-ai/openclaw-honcho
+# 5. Restart the gateway
 openclaw gateway restart
+# 6. Open an agent session and invoke the skill to migrate legacy files
 ```
 </details>
 
@@ -89,9 +90,10 @@ The plugin manages markdown files in your workspace:
 | File           | Contents                                               |
 | -------------- | ------------------------------------------------------ |
 | `SOUL.md`      | Agent profile — OpenClaw's self-model and personality. |
-| `AGENTS.md`    | Agent capabilities and tool descriptions.              |
-| `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
 | `IDENTITY.md`  | Static agent identity. Uploaded to the agent peer in Honcho during setup; the local file is not modified. |
+| `AGENTS.md`    | Agent capabilities and tool descriptions.              |
+| `TOOLS.md`     | Tool definitions and usage instructions for the agent. |
+| `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
 
 **Migration:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are uploaded to Honcho during `openclaw honcho setup`. Originals are preserved in place.
 
