@@ -953,16 +953,22 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
 
-              // Detect memory files in workspace
-              const wsRoot = workspaceDir || (() => {
-                try {
-                  const c = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-                  return c?.agent?.workspace
-                    || c?.agents?.defaults?.workspace
-                    || c?.agents?.defaults?.workspaceDir
-                    || path.join(os.homedir(), ".openclaw", "workspace");
-                } catch { return path.join(os.homedir(), ".openclaw", "workspace"); }
-              })();
+              // Resolve default agent and its workspace from config
+              let savedConfig: Record<string, unknown> = {};
+              try { savedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
+
+              const agentsList = Array.isArray((savedConfig?.agents as Record<string, unknown>)?.list)
+                ? ((savedConfig.agents as Record<string, unknown>).list as Array<Record<string, unknown>>)
+                : [];
+              const defaultAgent = agentsList.find((a) => a?.default) ?? agentsList[0] ?? null;
+              const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
+              const defaultAgentPeerId = `agent-${defaultAgentId}`;
+
+              const wsRoot = workspaceDir
+                || (defaultAgent?.workspace as string)
+                || (defaultAgent?.workspaceDir as string)
+                || ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string
+                || path.join(os.homedir(), ".openclaw", "workspace");
 
               const OWNER_FILES = ["USER.md", "IDENTITY.md", "MEMORY.md"];
               // HEARTBEAT.md excluded — it's a live task queue tied to the heartbeat loop, not memory
@@ -1001,10 +1007,12 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               }
 
               console.log(`\nFound ${detected.length} memory file(s) in ${wsRoot}:`);
+              console.log(`Default agent: ${defaultAgentId} (peer: ${defaultAgentPeerId})`);
               for (const { filePath, peer } of detected) {
                 const rel = path.relative(wsRoot, filePath);
                 const size = fs.statSync(filePath).size;
-                console.log(`  ${rel} (${(size / 1024).toFixed(1)} KB) → ${peer} peer`);
+                const peerLabel = peer === "owner" ? OWNER_ID : defaultAgentPeerId;
+                console.log(`  ${rel} (${(size / 1024).toFixed(1)} KB) → ${peerLabel}`);
               }
               console.log(`\nData destination: ${resolvedBaseUrl}`);
 
@@ -1024,7 +1032,7 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
 
               await setupHoncho.setMetadata({});
               const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
-              const agentPeerSetup = await setupHoncho.peer("openclaw", { metadata: {} });
+              const agentPeerSetup = await setupHoncho.peer(defaultAgentPeerId, { metadata: { agentId: defaultAgentId } });
               const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });
               await migrationSession.addPeers([ownerPeerSetup, agentPeerSetup]);
 
