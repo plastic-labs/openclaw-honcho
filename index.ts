@@ -998,51 +998,61 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                 }
               }
 
-              // 1. Primary: resolved workspace from config/CLI
-              const primaryWsRoot = workspaceDir
-                || (defaultAgent?.workspace as string)
-                || (defaultAgent?.workspaceDir as string)
-                || ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string;
-              if (primaryWsRoot) scanWorkspace(primaryWsRoot);
+              // Build ordered candidate workspace paths, deduplicated by real path.
+              // Scan each in priority order — stop as soon as files are found.
+              const ocHome = path.join(os.homedir(), ".openclaw");
 
+              const candidateWsPaths: string[] = [
+                workspaceDir as string,
+                defaultAgent?.workspace as string,
+                defaultAgent?.workspaceDir as string,
+                ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string,
+                path.join(ocHome, "agents", defaultAgentId, "workspace"),
+                path.join(ocHome, "workspace"),
+                path.join(os.homedir(), ".clawdbot", "workspace"),
+              ].filter(Boolean);
 
-              // 2. Fallback: ~/.openclaw/workspace (flat layout)
-              const homeWsRoot = path.join(os.homedir(), ".openclaw", "workspace");
-              if (homeWsRoot !== primaryWsRoot) scanWorkspace(homeWsRoot);
+              // Deduplicate by resolved real path so symlinks / duplicate entries don't double-scan
+              const seen = new Set<string>();
+              const uniqueCandidates = candidateWsPaths.filter((p) => {
+                const real = fs.existsSync(p) ? fs.realpathSync(p) : p;
+                if (seen.has(real)) return false;
+                seen.add(real);
+                return true;
+              });
 
-              // 3. Fallback: ~/.openclaw/agents/*/workspace (per-agent layout)
-              const agentsDir = path.join(os.homedir(), ".openclaw", "agents");
-              if (fs.existsSync(agentsDir)) {
-                for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
-                  if (!entry.isDirectory()) continue;
-                  const agentWsRoot = path.join(agentsDir, entry.name, "workspace");
-                  if (agentWsRoot !== primaryWsRoot) scanWorkspace(agentWsRoot);
+              let resolvedWsRoot = path.join(ocHome, "workspace");
+              for (const candidate of uniqueCandidates) {
+                scanWorkspace(candidate);
+                if (detected.length > 0) {
+                  resolvedWsRoot = candidate;
+                  break;
                 }
               }
 
-              const wsRoot = primaryWsRoot || homeWsRoot;
-
-              // 4. Still nothing — prompt user to enter paths manually
+              // Still nothing — prompt user to enter additional paths manually
               if (detected.length === 0) {
-                console.log("\nNo memory files found in any default workspace location.");
-                console.log("Searched:");
-                if (primaryWsRoot) console.log(`  ${primaryWsRoot}`);
-                console.log(`  ${homeWsRoot}`);
-                console.log(`  ${agentsDir}/*/workspace`);
-                console.log('\nEnter file paths to upload (one per line, empty line to finish):');
-                console.log('Format: /path/to/file [owner|agent]  (peer defaults to "owner" if omitted)\n');
+                console.log("\nNo memory files found. Searched:");
+                for (const c of uniqueCandidates) console.log(`  ${c}`);
+                console.log('\nEnter file or directory paths to upload (one per line, empty line to finish):');
+                console.log('Format: /path/to/file-or-dir [owner|agent]  (peer defaults to "owner" if omitted)\n');
                 while (true) {
                   const entry = await ask("> ");
                   if (!entry.trim()) break;
                   const parts = entry.trim().split(/\s+/);
-                  const filePath = parts[0];
+                  const inputPath = parts[0];
                   const peerType = (parts[1] === "agent" ? "agent" : "owner") as "owner" | "agent";
-                  if (!fs.existsSync(filePath)) {
-                    console.log(`  ! File not found: ${filePath}`);
+                  if (!fs.existsSync(inputPath)) {
+                    console.log(`  ! Not found: ${inputPath}`);
                     continue;
                   }
-                  detected.push({ filePath, peer: peerType });
-                  console.log(`  + ${filePath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  if (fs.statSync(inputPath).isDirectory()) {
+                    collectDir(inputPath, peerType);
+                    console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  } else {
+                    detected.push({ filePath: inputPath, peer: peerType });
+                    console.log(`  + ${inputPath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  }
                 }
               }
 
