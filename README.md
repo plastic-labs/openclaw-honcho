@@ -6,6 +6,10 @@ AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://
 
 This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During installation, existing memory files are migrated to Honcho as conclusions, and workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) are synced from plugin templates.
 
+## Configuration
+
+The only required value is your Honcho API key. Get one at [honcho.dev](https://honcho.dev).
+
 ## Install
 
 ```bash
@@ -38,11 +42,11 @@ Migration is **non-destructive** — files are uploaded to Honcho. Originals are
 ### Legacy files
 
 **User/owner files** (content describes the user):
-- `USER.md`, `IDENTITY.md`, `MEMORY.md`
+- `USER.md`, `MEMORY.md`
 - All files in `memory/` and `canvas/` directories (treated as user content)
 
 **Agent/self files** (content describes the agent):
-- `SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`
+- `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`
 
 ### Upload to Honcho
 
@@ -89,7 +93,7 @@ The plugin manages markdown files in your workspace:
 | `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
 | `IDENTITY.md`  | Static agent identity (unchanged by Honcho).           |
 
-**Migration:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are uploaded to Honcho during `openclaw honcho setup`. Originals are preserved in place. Commit them to version control before migrating.
+**Migration:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are uploaded to Honcho during `openclaw honcho setup`. Originals are preserved in place.
 
 ## AI Tools
 
