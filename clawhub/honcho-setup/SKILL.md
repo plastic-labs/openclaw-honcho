@@ -6,7 +6,7 @@ description: >
   USER.md, MEMORY.md, IDENTITY.md, memory/, canvas/, SOUL.md, AGENTS.md,
   BOOTSTRAP.md, TOOLS.md contents to api.honcho.dev (managed, default) or
   your self-hosted HONCHO_BASE_URL. HEARTBEAT.md is excluded (live task queue,
-  not memory). Requires user confirmation before uploading. Optionally appends
+  not memory). Requires user confirmation before uploading.
   No files are deleted, moved, or modified. Works with managed Honcho (requires
   API key) or self-hosted instances.
 metadata:
@@ -45,10 +45,10 @@ metadata:
         - "api.honcho.dev (managed Honcho, default)"
         - "User-configured HONCHO_BASE_URL (self-hosted mode)"
       uploaded_content:
-        - "USER.md, MEMORY.md, IDENTITY.md (user profile/memory files)"
+        - "USER.md, MEMORY.md (user profile/memory files)"
         - "All files under memory/ directory (structured memory)"
         - "All files under canvas/ directory (working memory)"
-        - "SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md (agent configuration)"
+        - "SOUL.md, IDENTITY.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md (agent configuration)"
         - "HEARTBEAT.md excluded — it is a live task queue, not memory"
       data_destination_purpose: "Migrates file-based memory system to Honcho API for AI agent memory/personalization"
   homepage: "https://honcho.dev"
@@ -132,11 +132,11 @@ Scan the workspace root for legacy memory files. The workspace root is determine
 
 **User/owner files** (content describes the user):
 - `USER.md`
-- `IDENTITY.md`
 - `MEMORY.md`
 
 **Agent/self files** (content describes the agent):
 - `SOUL.md`
+- `IDENTITY.md`
 - `AGENTS.md`
 - `TOOLS.md`
 - `BOOTSTRAP.md`
@@ -171,8 +171,8 @@ Do not proceed to Step 4 without explicit user confirmation.
 
 Upload each detected file to Honcho using the **messages upload** endpoint (or `honcho_analyze` if available):
 
-- **User/owner files** → upload as messages in a session, using the **owner** peer (`peer_id` = owner peer id).
-- **Agent/self files** → upload as messages in a session, using the **openclaw** peer (`peer_id` = openclaw peer id).
+- **User/owner files** → upload as messages in a session, using the **owner** peer (`peer_id` = `"owner"`).
+- **Agent/self files** → upload as messages in a session, using the **agent** peer (`peer_id` = `agent-{agentId}`, e.g. `"agent-main"` or `"agent-prime"`).
 
 Ensure the workspace and both peers exist (e.g. via SDK or API) before uploading. Get or create a session for the uploads. Report how many files were uploaded for each category (user vs. agent).
 
@@ -191,6 +191,9 @@ import { Honcho } from "@honcho-ai/sdk";
 
 const apiKey = process.env.HONCHO_API_KEY;
 const workspaceRoot = process.env.WORKSPACE_ROOT || "~/.openclaw/workspace";
+// Resolve the default agent ID from openclaw.json (falls back to "main")
+const agentId = process.env.OPENCLAW_AGENT_ID || "main";
+const agentPeerId = `agent-${agentId}`;
 
 const honcho = new Honcho({
   apiKey,
@@ -200,18 +203,18 @@ const honcho = new Honcho({
 });
 
 await honcho.setMetadata({});
-const openclawPeer = await honcho.peer("openclaw", { metadata: {} });
+const agentPeer = await honcho.peer(agentPeerId, { metadata: { agentId } });
 const ownerPeer = await honcho.peer("owner", { metadata: {} });
 
 // Session name can be customized for multiple migration runs
 const session = await honcho.session("migration-upload", { metadata: {} });
-await session.addPeers([ownerPeer, openclawPeer]);
+await session.addPeers([ownerPeer, agentPeer]);
 
 // For each detected file: read file and call session.uploadFile(file, peer)
-// User/owner files → ownerPeer; agent/self files → openclawPeer
+// User/owner files → ownerPeer; agent/self files → agentPeer
 const filesToUpload = [
   { path: path.join(workspaceRoot, "USER.md"), peer: ownerPeer },
-  { path: path.join(workspaceRoot, "SOUL.md"), peer: openclawPeer },
+  { path: path.join(workspaceRoot, "SOUL.md"), peer: agentPeer },
   // ... add every detected file and files under memory/ and canvas/
 ];
 
@@ -230,7 +233,7 @@ for (const { path: filePath, peer } of filesToUpload) {
 }
 ```
 
-- **Required:** `session.uploadFile(file, peer, options?)` — second argument is the peer (object or id). Use the owner peer for user/owner files (`USER.md`, `IDENTITY.md`, `MEMORY.md`, and everything under `memory/` and `canvas/`), and the openclaw peer for agent/self files (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`).
+- **Required:** `session.uploadFile(file, peer, options?)` — second argument is the peer (object or id). Use the owner peer for user/owner files (`USER.md`, `MEMORY.md`, and everything under `memory/` and `canvas/`), and the agent peer for agent/self files (`SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`). `HEARTBEAT.md` is excluded — do not upload it.
 - **Session:** Add both peers to the session with `session.addPeers([ownerPeer, openclawPeer])` before uploading.
 - **File (Node):** Pass `{ filename, content: Buffer | Uint8Array, content_type }`. See [Honcho file uploads](https://docs.honcho.dev/v3/guides/file-uploads#file-uploads) for supported types (PDF, text, JSON). A runnable test script is in `scripts/test-upload-file.mjs` (requires `HONCHO_API_KEY`).
 
@@ -251,7 +254,7 @@ Provide a link to the Honcho docs for reference: https://docs.honcho.dev
 This skill has been designed with transparency and safety as priorities. Below is a complete disclosure of what this skill does:
 
 ### Data Upload
-- **What is uploaded**: Contents of USER.md, MEMORY.md, IDENTITY.md, all files under memory/, all files under canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md, HEARTBEAT.md
+- **What is uploaded**: Contents of USER.md, MEMORY.md, IDENTITY.md, all files under memory/, all files under canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md (HEARTBEAT.md excluded)
 - **Where it goes**: By default to `api.honcho.dev` (managed Honcho cloud service). For self-hosted instances, to your configured `HONCHO_BASE_URL`
 - **User control**: Explicit confirmation required before any upload. You will see the exact list of files and the destination URL
 - **Purpose**: Migrating file-based memory system to Honcho API for AI agent personalization and memory

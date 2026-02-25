@@ -4,7 +4,7 @@
 
 AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
 
-This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During installation, existing memory files are migrated to Honcho as conclusions, and workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) are synced from plugin templates.
+This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
 
 ## Configuration
 
@@ -15,7 +15,7 @@ The only required value is your Honcho API key. Get one at [honcho.dev](https://
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
 openclaw honcho setup
-openclaw gateway --force
+openclaw gateway restart
 ```
 
 `openclaw honcho setup` prompts for your Honcho API key, writes the config, and optionally uploads any legacy memory files to Honcho.
@@ -50,7 +50,7 @@ Migration is **non-destructive** — files are uploaded to Honcho. Originals are
 
 ### Upload to Honcho
 
-Files are uploaded via `session.uploadFile()`. User/owner files go to the owner peer; agent/self files go to the openclaw peer.
+Files are uploaded via `session.uploadFile()`. User/owner files go to the owner peer; agent/self files go to the agent peer (`agent-{agentId}`, e.g. `agent-main`).
 
 ### Update workspace docs
 
@@ -91,7 +91,7 @@ The plugin manages markdown files in your workspace:
 | `SOUL.md`      | Agent profile — OpenClaw's self-model and personality. |
 | `AGENTS.md`    | Agent capabilities and tool descriptions.              |
 | `BOOTSTRAP.md` | Initial context and instructions for the agent.        |
-| `IDENTITY.md`  | Static agent identity (unchanged by Honcho).           |
+| `IDENTITY.md`  | Static agent identity. Uploaded to the agent peer in Honcho during setup; the local file is not modified. |
 
 **Migration:** Legacy files (`USER.md`, `MEMORY.md`, `memory/` directory) are uploaded to Honcho during `openclaw honcho setup`. Originals are preserved in place.
 
