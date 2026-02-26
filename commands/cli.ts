@@ -194,7 +194,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               workspaceId: resolvedWorkspaceId,
             });
 
-            await setupHoncho.setMetadata({});
+            const existingMeta = await setupHoncho.getMetadata();
+            await setupHoncho.setMetadata({ ...existingMeta });
             const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
             const agentPeerSetup = await setupHoncho.peer(defaultAgentPeerId, { metadata: { agentId: defaultAgentId } });
             const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });

@@ -26,19 +26,15 @@ export function extractParentAgentKey(sessionKey?: string): string | undefined {
 }
 
 /**
- * Strip OpenClaw's metadata tags and injected context from message content.
- * Removes:
- * - Platform headers: [Telegram Name id:123456 timestamp]
- * - Message IDs: [message_id: xxx]
- * - Honcho memory blocks: <honcho-memory>...</honcho-memory>
+ * Strip Honcho's own injected context from message content to prevent
+ * feedback loops (context injected → saved → re-injected → grows forever).
+ * All other metadata (platform headers, message IDs, etc.) is preserved
+ * as useful provenance data for Honcho's memory layer.
  */
 export function cleanMessageContent(content: string): string {
   let cleaned = content;
   cleaned = cleaned.replace(/<honcho-memory[^>]*>[\s\S]*?<\/honcho-memory>\s*/gi, "");
   cleaned = cleaned.replace(/<!--[^>]*honcho[^>]*-->\s*/gi, "");
-  cleaned = cleaned.replace(/^\[\w+\s+.+?\s+id:\d+\s+[^\]]+\]\s*/, "");
-  cleaned = cleaned.replace(/\s*\[message_id:\s*[^\]]+\]\s*$/, "");
-  cleaned = cleaned.replace(/\[\[[^\]]*\]\]\s*/g, "");
   return cleaned.trim();
 }
 
