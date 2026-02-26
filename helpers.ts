@@ -27,14 +27,20 @@ export function extractParentAgentKey(sessionKey?: string): string | undefined {
 
 /**
  * Strip Honcho's own injected context from message content to prevent
- * feedback loops (context injected → saved → re-injected → grows forever).
- * All other metadata (platform headers, message IDs, etc.) is preserved
- * as useful provenance data for Honcho's memory layer.
+ * feedback loops (context injected -> saved -> re-injected -> grows forever).
+ * Also strips leading OpenClaw reply directive tags (e.g. [[reply_to_current]])
+ * so control tokens are never persisted or re-surfaced as user-visible text.
+ * Other metadata (platform headers, message IDs, etc.) is preserved as
+ * useful provenance data for Honcho's memory layer.
  */
 export function cleanMessageContent(content: string): string {
   let cleaned = content;
   cleaned = cleaned.replace(/<honcho-memory[^>]*>[\s\S]*?<\/honcho-memory>\s*/gi, "");
   cleaned = cleaned.replace(/<!--[^>]*honcho[^>]*-->\s*/gi, "");
+  cleaned = cleaned.replace(
+    /^(\s*\[\[\s*(?:reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/gi,
+    ""
+  );
   return cleaned.trim();
 }
 
