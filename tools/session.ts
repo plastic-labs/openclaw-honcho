@@ -66,6 +66,12 @@ Parameters:
             maximum: 32000,
           })
         ),
+        sessionKey: Type.Optional(
+          Type.String({
+            description:
+              "Session identifier to retrieve history for (default: current session)",
+          })
+        ),
       }),
       async execute(_toolCallId, params, _signal) {
         const {
