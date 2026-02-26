@@ -63,8 +63,6 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
   async function ensureInitialized(): Promise<void> {
     if (state.initialized) return;
 
-    await honcho.setMetadata({});
-
     const wsMeta = await honcho.getMetadata();
     state.agentPeerMap = (wsMeta.agentPeerMap as Record<string, string>) ?? {};
 
