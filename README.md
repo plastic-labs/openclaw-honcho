@@ -22,15 +22,15 @@ openclaw gateway restart
 Use the `honcho-setup` skill to run migration interactively from within a chat session:
 
 ```bash
-# 1. Add your Honcho API key to ~/.openclaw/.env
-# 2. Install the skill
+# 1. Install the skill
 npx clawhub install honcho-setup
-# 3. Restart OpenClaw to pick up the new skill
-# 4. Install the plugin
+# 2. Restart OpenClaw to pick up the new skill
+# 3. Install the plugin
 openclaw plugins install @honcho-ai/openclaw-honcho
-# 5. Restart the gateway
+# 4. Restart the gateway
 openclaw gateway restart
-# 6. Open an agent session and invoke the skill to migrate legacy files
+# 5. Open an agent session and invoke the skill
+#    The skill will prompt for your Honcho API key and run setup interactively
 ```
 </details>
 
@@ -121,7 +121,7 @@ The plugin provides both **data retrieval tools** (cheap, fast, raw data) and **
 
 ```bash
 openclaw honcho setup                           # Configure API key and migrate legacy files
-openclaw honcho status                          # Show connection status and representation sizes
+openclaw honcho status                          # Show current installation and setup state
 openclaw honcho ask <question>                  # Query Honcho about the user
 openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
 ```

@@ -100,7 +100,7 @@ const honchoPlugin = {
         await honcho.setMetadata({ ...wsMeta, agentPeerMap });
       }
       // Existing workspace with legacy "openclaw" mapping: preserve it
-      else if (!Object.values(agentPeerMap).includes(LEGACY_PEER_ID) && !agentPeerMap[defaultId]) {
+      else if (Object.values(agentPeerMap).includes(LEGACY_PEER_ID) && !agentPeerMap[defaultId]) {
         agentPeerMap[defaultId] = LEGACY_PEER_ID;
         await honcho.setMetadata({ ...wsMeta, agentPeerMap });
       }
@@ -944,9 +944,15 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
               const pluginCfg: Record<string, unknown> = {
                 ...(existingEntry.config as Record<string, unknown> ?? {}),
               };
-              if (apiKeyInput.trim()) pluginCfg.apiKey = apiKeyInput.trim();
-              if (baseUrlInput.trim()) pluginCfg.baseUrl = baseUrlInput.trim();
-              if (workspaceIdInput.trim()) pluginCfg.workspaceId = workspaceIdInput.trim();
+              const trimmedApiKey = apiKeyInput.trim();
+              if (trimmedApiKey) pluginCfg.apiKey = trimmedApiKey;
+              else delete pluginCfg.apiKey;
+              const trimmedBaseUrl = baseUrlInput.trim();
+              if (trimmedBaseUrl) pluginCfg.baseUrl = trimmedBaseUrl;
+              else delete pluginCfg.baseUrl;
+              const trimmedWorkspaceId = workspaceIdInput.trim();
+              if (trimmedWorkspaceId) pluginCfg.workspaceId = trimmedWorkspaceId;
+              else delete pluginCfg.workspaceId;
               entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
 
               if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
@@ -1021,13 +1027,9 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
                 return true;
               });
 
-              let resolvedWsRoot = path.join(ocHome, "workspace");
               for (const candidate of uniqueCandidates) {
                 scanWorkspace(candidate);
-                if (detected.length > 0) {
-                  resolvedWsRoot = candidate;
-                  break;
-                }
+                if (detected.length > 0) break;
               }
 
               // Still nothing — prompt user to enter additional paths manually
@@ -1137,8 +1139,6 @@ Use honcho_analyze if you need Honcho to synthesize a complex answer.`,
             try {
               await ensureInitialized();
               const defaultPeer = await getAgentPeer(resolveDefaultAgentId());
-              const ownerRep = await ownerPeer!.representation();
-              const agentRep = await defaultPeer.representation();
 
               console.log("Connected to Honcho");
               console.log(`  Workspace: ${cfg.workspaceId}`);

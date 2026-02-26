@@ -8,8 +8,9 @@ description: >
   `openclaw honcho setup`: sends USER.md, MEMORY.md, IDENTITY.md, memory/,
   canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md to api.honcho.dev
   (managed, default) or your self-hosted HONCHO_BASE_URL. HEARTBEAT.md is
-  excluded. Requires user confirmation before uploading. No files are
-  deleted, moved, or modified.
+  excluded. Requires user confirmation before uploading. No workspace or
+  memory files are deleted, moved, or modified. `openclaw honcho setup`
+  does write plugin configuration to ~/.openclaw/openclaw.json.
 metadata:
   openclaw:
     emoji: "🧠"
@@ -24,8 +25,7 @@ metadata:
       - npm
     writes_to_disk: true  # openclaw honcho setup writes config to ~/.openclaw/openclaw.json
     reads_sensitive_files:
-      - "~/.openclaw/.env - read by openclaw honcho setup for HONCHO_API_KEY"
-      - "~/.openclaw/openclaw.json - read and updated by openclaw honcho setup"
+      - "~/.openclaw/openclaw.json - read and updated by openclaw honcho setup; API key collected via interactive prompt and written here"
     network_access:
       - "api.honcho.dev (managed mode, default)"
       - "User-configured HONCHO_BASE_URL (self-hosted mode)"
@@ -87,7 +87,7 @@ openclaw honcho setup
 ```
 
 This command will:
-1. Prompt for your Honcho API key (or read it from `~/.openclaw/.env` if already set)
+1. Prompt interactively for your Honcho API key
 2. Write configuration to `~/.openclaw/openclaw.json`
 3. Scan for legacy memory files and offer to migrate them to Honcho
 
