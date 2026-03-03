@@ -181,7 +181,8 @@ export function extractMessages(
 
     if (content) {
       const peer = role === "user" ? ownerPeer : agentPeer;
-      result.push(peer.message(content));
+      const ts = typeof m.timestamp === "number" ? new Date(m.timestamp) : undefined;
+      result.push(peer.message(content, ts ? { createdAt: ts } : undefined));
     }
   }
 
