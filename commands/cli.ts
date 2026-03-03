@@ -223,6 +223,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               }
               const content = await fs.promises.readFile(filePath);
               const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
+              await new Promise((r) => setTimeout(r, 250)); // stay under 5 req/sec limit
               await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
               console.log(`  ✓ Uploaded: ${filePath}`);
               uploadCount++;
