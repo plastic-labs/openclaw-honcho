@@ -14,7 +14,7 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 
 ### Fixed
 - **Subagent parent peer resolution via `subagent_spawned` hook**: Parent peer is now reliably resolved for all spawn paths by listening to the `subagent_spawned` event and storing the child→parent session key mapping in `state.subagentParentMap`.
-- **Turn-local message capture offsets**: Message persistence now slices from the turn-start index recorded at `before_prompt_build` time, preventing pre-installation history from being saved on first run.
+- **Absolute message watermarking for capture dedupe**: `lastSavedIndex` is now treated as an absolute index in `event.messages` (instead of a turn-local offset), preventing stale-offset drops on turn 2+ while still respecting `turnStartIndex` on first run.
 - **Inbound metadata stripping aligned with OpenClaw**: `cleanMessageContent` now strips OpenClaw platform metadata blocks (Conversation info, Sender, Thread starter, Replied message, Forwarded message, Chat history, and Untrusted context headers) before saving to Honcho, matching `strip-inbound-meta.ts` behavior.
 - **File upload throttling in `honcho setup`**: Added a 250 ms delay between file uploads to stay under Honcho's 5 req/sec rate limit.
 

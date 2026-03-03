@@ -37,25 +37,18 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       };
 
       const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
-      let meta = await session.getMetadata();
+      const meta = await session.getMetadata();
       const existingMeta: Record<string, unknown> =
         meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
-
-      if (existingMeta.lastSavedIndex === undefined) {
-        meta = { ...existingMeta, lastSavedIndex: 0 };
-        await session.setMetadata(meta);
-      } else {
-        meta = existingMeta;
-      }
 
       const turnStartIndex = Math.min(
         Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
         event.messages.length,
       );
-      const turnMessages = event.messages.slice(turnStartIndex, event.messages.length);
-      const rawLastSavedOffset = (meta.lastSavedIndex as number) ?? 0;
-      const lastSavedOffset =
-        rawLastSavedOffset >= 0 && rawLastSavedOffset <= turnMessages.length ? rawLastSavedOffset : 0;
+      const rawLastSavedIndex =
+        typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
+      const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), event.messages.length);
+      const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
       const peerConfigs: Array<[string, { observeMe: boolean; observeOthers: boolean }]> = [
         [OWNER_ID, { observeMe: true, observeOthers: false }],
@@ -68,21 +61,21 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
 
       await session.addPeers(peerConfigs);
 
-      if (turnMessages.length <= lastSavedOffset) {
+      if (event.messages.length <= startIndex) {
         api.logger.debug?.("No new messages to save");
         return;
       }
 
-      const newRawMessages = turnMessages.slice(lastSavedOffset);
+      const newRawMessages = event.messages.slice(startIndex);
       const messages = extractMessages(newRawMessages, state.ownerPeer!, agentPeer);
 
       if (messages.length === 0) {
-        await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: turnMessages.length });
+        await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: event.messages.length });
         return;
       }
 
       await session.addMessages(messages);
-      await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: turnMessages.length });
+      await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: event.messages.length });
     } catch (error) {
       api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
       if (error instanceof Error) {
@@ -91,6 +84,9 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         if (anyError.status) api.logger.error(`[honcho] Status: ${anyError.status}`);
         if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
       }
+    } finally {
+      state.turnStartIndex.delete(sessionKey);
+      if (isSubagent) state.subagentParentMap.delete(ctx.sessionKey ?? "");
     }
   });
 }
