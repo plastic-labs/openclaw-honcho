@@ -28,35 +28,39 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       let meta = await session.getMetadata();
 
       if (meta.lastSavedIndex === undefined) {
-        // First install: capture the full context window from the beginning.
-        // OpenClaw compacts sessions so event.messages is bounded in size.
-        const startIndex = 0;
-        await session.setMetadata({ ...sessionMeta, lastSavedIndex: startIndex });
-        meta = { ...sessionMeta, lastSavedIndex: startIndex };
+        await session.setMetadata({ ...sessionMeta, lastSavedIndex: 0 });
+        meta = { ...sessionMeta, lastSavedIndex: 0 };
       }
 
-      const lastSavedIndex = (meta.lastSavedIndex as number) ?? 0;
+      const turnStartIndex = Math.min(
+        Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
+        event.messages.length,
+      );
+      const turnMessages = event.messages.slice(turnStartIndex, event.messages.length);
+      const rawLastSavedOffset = (meta.lastSavedIndex as number) ?? 0;
+      const lastSavedOffset =
+        rawLastSavedOffset >= 0 && rawLastSavedOffset <= turnMessages.length ? rawLastSavedOffset : 0;
 
       await session.addPeers([
         [OWNER_ID, { observeMe: true, observeOthers: false }],
         [agentPeer.id, { observeMe: true, observeOthers: true }],
       ]);
 
-      if (event.messages.length <= lastSavedIndex) {
+      if (turnMessages.length <= lastSavedOffset) {
         api.logger.debug?.("No new messages to save");
         return;
       }
 
-      const newRawMessages = event.messages.slice(lastSavedIndex);
+      const newRawMessages = turnMessages.slice(lastSavedOffset);
       const messages = extractMessages(newRawMessages, state.ownerPeer!, agentPeer);
 
       if (messages.length === 0) {
-        await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: event.messages.length });
+        await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: turnMessages.length });
         return;
       }
 
       await session.addMessages(messages);
-      await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: event.messages.length });
+      await session.setMetadata({ ...meta, ...sessionMeta, lastSavedIndex: turnMessages.length });
     } catch (error) {
       api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
       if (error instanceof Error) {
