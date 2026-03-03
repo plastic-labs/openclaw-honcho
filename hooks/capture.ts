@@ -28,7 +28,11 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       let meta = await session.getMetadata();
 
       if (meta.lastSavedIndex === undefined) {
-        const startIndex = Math.max(0, event.messages.length - 2);
+        // Use the message count recorded at before_prompt_build time (start of
+        // this turn) so we skip pre-installation history but capture the current
+        // turn. Falls back to event.messages.length (skip everything) if the
+        // context hook didn't fire (e.g. cron/subagent sessions with short prompts).
+        const startIndex = state.turnStartIndex.get(sessionKey) ?? event.messages.length;
         await session.setMetadata({ ...sessionMeta, lastSavedIndex: startIndex });
         meta = { ...sessionMeta, lastSavedIndex: startIndex };
       }

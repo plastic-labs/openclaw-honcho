@@ -18,6 +18,10 @@ export type PluginState = {
   ownerPeer: Peer | null;
   agentPeers: Map<string, Peer>;
   agentPeerMap: Record<string, string>;
+  /** Message count recorded at before_prompt_build time, keyed by Honcho session key.
+   * Used by the capture hook to determine where the current turn starts in the
+   * accumulated message array, so first-init skips pre-installation history. */
+  turnStartIndex: Map<string, number>;
   initialized: boolean;
   api: OpenClawPluginApi;
   ensureInitialized: () => Promise<void>;
@@ -46,6 +50,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     ownerPeer: null,
     agentPeers: new Map<string, Peer>(),
     agentPeerMap: {},
+    turnStartIndex: new Map<string, number>(),
     initialized: false,
     api,
     ensureInitialized,

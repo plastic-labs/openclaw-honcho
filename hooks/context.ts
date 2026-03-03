@@ -4,12 +4,16 @@ import type { PluginState } from "../state.js";
 import { buildSessionKey, isSubagentSession } from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
-  api.on("before_agent_start", async (event, ctx) => {
+  api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
 
     const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
+
+    // Record message count before this turn so capture hook can use it as
+    // the start index on first-init, skipping pre-installation history.
+    state.turnStartIndex.set(sessionKey, event.messages.length);
 
     try {
       await state.ensureInitialized();
