@@ -25,6 +25,12 @@ export function extractParentAgentKey(sessionKey?: string): string | undefined {
   return match?.[1] ?? undefined;
 }
 
+export function extractAgentIdFromAgentKey(agentKey?: string): string | undefined {
+  const match = agentKey?.match(/^agent:([^:]+)$/);
+  const parsed = match?.[1]?.toLowerCase().trim();
+  return parsed || undefined;
+}
+
 /**
  * Port of OpenClaw's strip-inbound-meta.ts behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.

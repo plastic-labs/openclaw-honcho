@@ -2,7 +2,13 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
-import { buildSessionKey, isSubagentSession, extractParentAgentKey, extractMessages } from "../helpers.js";
+import {
+  buildSessionKey,
+  isSubagentSession,
+  extractParentAgentKey,
+  extractAgentIdFromAgentKey,
+  extractMessages,
+} from "../helpers.js";
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("agent_end", async (event, ctx) => {
@@ -11,16 +17,23 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
+    const parentAgentKey = isSubagent ? extractParentAgentKey(ctx.sessionKey) : undefined;
+    const parentAgentId = extractAgentIdFromAgentKey(parentAgentKey);
 
     try {
       await state.ensureInitialized();
       const agentPeer = await state.getAgentPeer(agentId);
+      const parentPeer =
+        isSubagent && parentAgentId && parentAgentId !== agentId
+          ? await state.getAgentPeer(parentAgentId)
+          : null;
 
       const sessionMeta: Record<string, unknown> = {
         agentId,
         ...(isSubagent ? {
           isSubagent: true,
-          parentAgentKey: extractParentAgentKey(ctx.sessionKey),
+          parentAgentKey,
+          ...(parentPeer ? { parentPeerId: parentPeer.id } : {}),
         } : {}),
       };
 
@@ -41,10 +54,16 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       const lastSavedOffset =
         rawLastSavedOffset >= 0 && rawLastSavedOffset <= turnMessages.length ? rawLastSavedOffset : 0;
 
-      await session.addPeers([
+      const peerConfigs: Array<[string, { observeMe: boolean; observeOthers: boolean }]> = [
         [OWNER_ID, { observeMe: true, observeOthers: false }],
         [agentPeer.id, { observeMe: true, observeOthers: true }],
-      ]);
+      ];
+      if (parentPeer) {
+        // Parent agent can silently observe subagent behavior without contributing messages.
+        peerConfigs.push([parentPeer.id, { observeMe: false, observeOthers: true }]);
+      }
+
+      await session.addPeers(peerConfigs);
 
       if (turnMessages.length <= lastSavedOffset) {
         api.logger.debug?.("No new messages to save");
