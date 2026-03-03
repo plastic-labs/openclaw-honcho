@@ -28,10 +28,8 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       let meta = await session.getMetadata();
 
       if (meta.lastSavedIndex === undefined) {
-        // Use the message count recorded at before_prompt_build time (start of
-        // this turn) so we skip pre-installation history but capture the current
-        // turn. Falls back to event.messages.length (skip everything) if the
-        // context hook didn't fire (e.g. cron/subagent sessions with short prompts).
+        // First install: capture the full context window from the beginning.
+        // OpenClaw compacts sessions so event.messages is bounded in size.
         const startIndex = 0;
         await session.setMetadata({ ...sessionMeta, lastSavedIndex: startIndex });
         meta = { ...sessionMeta, lastSavedIndex: startIndex };

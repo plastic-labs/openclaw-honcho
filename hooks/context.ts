@@ -11,8 +11,6 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
 
-    // Record message count before this turn so capture hook can use it as
-    // the start index on first-init, skipping pre-installation history.
     state.turnStartIndex.set(sessionKey, event.messages.length);
 
     try {
