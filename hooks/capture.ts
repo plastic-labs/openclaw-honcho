@@ -5,8 +5,7 @@ import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   isSubagentSession,
-  extractParentAgentKey,
-  extractAgentIdFromAgentKey,
+  extractAgentIdFromSessionKey,
   extractMessages,
 } from "../helpers.js";
 
@@ -17,8 +16,8 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
-    const parentAgentKey = isSubagent ? extractParentAgentKey(ctx.sessionKey) : undefined;
-    const parentAgentId = extractAgentIdFromAgentKey(parentAgentKey);
+    const parentSessionKey = isSubagent ? state.subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
+    const parentAgentId = extractAgentIdFromSessionKey(parentSessionKey);
 
     try {
       await state.ensureInitialized();
@@ -32,17 +31,21 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         agentId,
         ...(isSubagent ? {
           isSubagent: true,
-          parentAgentKey,
+          parentSessionKey,
           ...(parentPeer ? { parentPeerId: parentPeer.id } : {}),
         } : {}),
       };
 
       const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
       let meta = await session.getMetadata();
+      const existingMeta: Record<string, unknown> =
+        meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-      if (meta.lastSavedIndex === undefined) {
-        await session.setMetadata({ ...sessionMeta, lastSavedIndex: 0 });
-        meta = { ...sessionMeta, lastSavedIndex: 0 };
+      if (existingMeta.lastSavedIndex === undefined) {
+        meta = { ...existingMeta, lastSavedIndex: 0 };
+        await session.setMetadata(meta);
+      } else {
+        meta = existingMeta;
       }
 
       const turnStartIndex = Math.min(

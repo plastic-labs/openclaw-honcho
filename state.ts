@@ -22,6 +22,10 @@ export type PluginState = {
    * Used by the capture hook to determine where the current turn starts in the
    * accumulated message array, so first-init skips pre-installation history. */
   turnStartIndex: Map<string, number>;
+  /** Maps child OpenClaw sessionKey → parent (requester) OpenClaw sessionKey.
+   * Populated by subagent_spawned hook. Used by capture hook to resolve the
+   * parent agent peer for silent observation in subagent Honcho sessions. */
+  subagentParentMap: Map<string, string>;
   initialized: boolean;
   api: OpenClawPluginApi;
   ensureInitialized: () => Promise<void>;
@@ -51,6 +55,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     agentPeers: new Map<string, Peer>(),
     agentPeerMap: {},
     turnStartIndex: new Map<string, number>(),
+    subagentParentMap: new Map<string, string>(),
     initialized: false,
     api,
     ensureInitialized,
