@@ -20,11 +20,6 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return (ctx?.sessionKey ?? "").includes(":subagent:");
 }
 
-/**
- * Extract agentId from any OpenClaw session key.
- * "agent:prime:main" → "prime"
- * "agent:ghostwriter:subagent:uuid" → "ghostwriter"
- */
 export function extractAgentIdFromSessionKey(sessionKey?: string): string | undefined {
   const match = sessionKey?.match(/^agent:([^:]+)/);
   return match?.[1]?.toLowerCase().trim() || undefined;

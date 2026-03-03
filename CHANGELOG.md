@@ -2,6 +2,22 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.1.1] - 2026-03-03
+
+### Added
+- **Parent observer peer in subagent sessions**: The spawning agent's peer is now added as a silent observer (`observeMe: false, observeOthers: true`) in subagent Honcho sessions, giving the parent agent visibility into subagent activity.
+- **First-install full history with timestamps**: On first plugin installation, the full pre-existing session history is saved to Honcho with correct message timestamps instead of being skipped.
+
+### Changed
+- **Context hook moved to `before_prompt_build`**: Replaced the `before_agent_start` hook with `before_prompt_build` to accurately capture the turn-start message index before the prompt is assembled.
+- **Session metadata updated for subagents**: Subagent session metadata now records `parentSessionKey` and `parentPeerId` (replacing the old `parentAgentKey` field).
+
+### Fixed
+- **Subagent parent peer resolution via `subagent_spawned` hook**: Parent peer is now reliably resolved for all spawn paths by listening to the `subagent_spawned` event and storing the child→parent session key mapping in `state.subagentParentMap`.
+- **Turn-local message capture offsets**: Message persistence now slices from the turn-start index recorded at `before_prompt_build` time, preventing pre-installation history from being saved on first run.
+- **Inbound metadata stripping aligned with OpenClaw**: `cleanMessageContent` now strips OpenClaw platform metadata blocks (Conversation info, Sender, Thread starter, Replied message, Forwarded message, Chat history, and Untrusted context headers) before saving to Honcho, matching `strip-inbound-meta.ts` behavior.
+- **File upload throttling in `honcho setup`**: Added a 250 ms delay between file uploads to stay under Honcho's 5 req/sec rate limit.
+
 ## [1.1.0] - 2026-02-26
 
 ### Added
