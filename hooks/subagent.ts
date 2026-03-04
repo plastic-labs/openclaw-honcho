@@ -30,4 +30,10 @@ export function registerSubagentHooks(api: OpenClawPluginApi): void {
       }
     }
   });
+
+  api.on("agent_end", (_event, ctx) => {
+    if (ctx.sessionKey) {
+      sessionKeyToAgentId.delete(ctx.sessionKey);
+    }
+  });
 }
