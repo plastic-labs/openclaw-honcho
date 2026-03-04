@@ -20,11 +20,6 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return (ctx?.sessionKey ?? "").includes(":subagent:");
 }
 
-export function extractAgentIdFromSessionKey(sessionKey?: string): string | undefined {
-  const match = sessionKey?.match(/^agent:([^:]+)/);
-  return match?.[1]?.toLowerCase().trim() || undefined;
-}
-
 /**
  * Port of OpenClaw's strip-inbound-meta.ts behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.

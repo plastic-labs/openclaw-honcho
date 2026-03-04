@@ -5,9 +5,9 @@ import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   isSubagentSession,
-  extractAgentIdFromSessionKey,
   extractMessages,
 } from "../helpers.js";
+import { subagentParentMap } from "./subagent.js";
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("agent_end", async (event, ctx) => {
@@ -16,8 +16,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
-    const parentSessionKey = isSubagent ? state.subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
-    const parentAgentId = extractAgentIdFromSessionKey(parentSessionKey);
+    const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
 
     try {
       await state.ensureInitialized();
@@ -31,7 +30,6 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         agentId,
         ...(isSubagent ? {
           isSubagent: true,
-          parentSessionKey,
           ...(parentPeer ? { parentPeerId: parentPeer.id } : {}),
         } : {}),
       };
@@ -86,7 +84,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       }
     } finally {
       state.turnStartIndex.delete(sessionKey);
-      if (isSubagent) state.subagentParentMap.delete(ctx.sessionKey ?? "");
+      if (isSubagent) subagentParentMap.delete(ctx.sessionKey ?? "");
     }
   });
 }
