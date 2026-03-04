@@ -10,10 +10,10 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 
 ### Changed
 - **Context hook moved to `before_prompt_build`**: Replaced the `before_agent_start` hook with `before_prompt_build` to accurately capture the turn-start message index before the prompt is assembled.
-- **Session metadata updated for subagents**: Subagent session metadata now records `parentSessionKey` and `parentPeerId` (replacing the old `parentAgentKey` field).
+- **Session metadata updated for subagents**: Subagent session metadata now records `parentPeerId` (replacing the old `parentAgentKey` field).
 
 ### Fixed
-- **Subagent parent peer resolution via `subagent_spawned` hook**: Parent peer is now reliably resolved for all spawn paths by listening to the `subagent_spawned` event and storing the child→parent session key mapping in `state.subagentParentMap`.
+- **Subagent parent peer resolution via `subagent_spawned` hook**: Parent peer is now reliably resolved for all spawn paths. `before_agent_start` builds an authoritative `sessionKey→agentId` map; `subagent_spawned` uses it to store the child→parent agent ID in a module-level `subagentParentMap`, replacing fragile session-key string parsing.
 - **Absolute message watermarking for capture dedupe**: `lastSavedIndex` is now treated as an absolute index in `event.messages` (instead of a turn-local offset), preventing stale-offset drops on turn 2+ while still respecting `turnStartIndex` on first run.
 - **Inbound metadata stripping aligned with OpenClaw**: `cleanMessageContent` now strips OpenClaw platform metadata blocks (Conversation info, Sender, Thread starter, Replied message, Forwarded message, Chat history, and Untrusted context headers) before saving to Honcho, matching `strip-inbound-meta.ts` behavior.
 - **File upload throttling in `honcho setup`**: Added a 250 ms delay between file uploads to stay under Honcho's 5 req/sec rate limit.
