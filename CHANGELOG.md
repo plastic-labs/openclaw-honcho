@@ -6,7 +6,7 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 
 ### Added
 - **Parent observer peer in subagent sessions**: The spawning agent's peer is now added as a silent observer (`observeMe: false, observeOthers: true`) in subagent Honcho sessions, giving the parent agent visibility into subagent activity.
-- **First-install full history with timestamps**: On first plugin installation, the full pre-existing session history is saved to Honcho with correct message timestamps instead of being skipped.
+- **Timestamp-preserving message capture**: Messages captured while the plugin is active retain their original timestamps in Honcho.
 
 ### Changed
 - **Context hook moved to `before_prompt_build`**: Replaced the `before_agent_start` hook with `before_prompt_build` to accurately capture the turn-start message index before the prompt is assembled.

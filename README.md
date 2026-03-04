@@ -77,11 +77,19 @@ For setting up a local Honcho server, see the [Honcho local development guide](h
 
 Once installed, the plugin works automatically:
 
-- **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models.
-- **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context about the user.
-- **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors).
+- **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models. Message capture starts when the plugin is active for a session, and preserves original timestamps for captured messages.
+- **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context about the user. Context is injected during OpenClaw's `before_prompt_build` phase, ensuring accurate turn boundaries.
+- **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors). Each OpenClaw agent gets its own Honcho peer (`agent-{id}`), so multi-agent workspaces maintain isolated memory.
+- **Clean Persistence** — Platform metadata (conversation info, sender headers, thread context, forwarded messages) is stripped before saving to Honcho, ensuring only meaningful content is persisted.
 
 Honcho handles all reasoning and synthesis in the cloud.
+
+## Multi-Agent Support
+
+OpenClaw uses a multi-agent architecture where a primary agent can spawn **subagents** to handle specialized tasks. The Honcho plugin is fully aware of this hierarchy:
+
+- **Automatic Subagent Detection** — When OpenClaw spawns a subagent, the plugin tracks the parent→child relationship via the `subagent_spawned` hook. Each subagent session records its `parentPeerId` in metadata.
+- **Parent Observer Peer** — The spawning agent is added as a silent observer in the subagent's Honcho session (`observeMe: false, observeOthers: true`). This gives Honcho visibility into the full agent tree — the parent can see what its subagents are doing without its own messages being attributed to the subagent session.
 
 ## Workspace Files
 
