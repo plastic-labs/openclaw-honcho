@@ -2,10 +2,19 @@
  * Configuration schema and parsing for the Honcho memory plugin.
  */
 
+export const DEFAULT_NOISE_PATTERNS: string[] = [
+  "HEARTBEAT_OK",
+  "A scheduled reminder has been triggered",
+  "Execute your Session Startup sequence now",
+  "Queued messages from",
+];
+
 export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
   baseUrl: string;
+  noisePatterns: string[];
+  ownerObserveOthers: boolean;
 };
 
 /**
@@ -34,6 +43,11 @@ export const honchoConfigSchema = {
       apiKey = process.env.HONCHO_API_KEY;
     }
 
+    const userPatterns = Array.isArray(cfg.noisePatterns)
+      ? (cfg.noisePatterns as unknown[]).filter((p): p is string => typeof p === "string" && p.length > 0)
+      : [];
+    const noisePatterns = [...new Set([...DEFAULT_NOISE_PATTERNS, ...userPatterns])];
+
     return {
       apiKey,
       workspaceId:
@@ -44,6 +58,8 @@ export const honchoConfigSchema = {
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
+      noisePatterns,
+      ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
     };
   },
 };

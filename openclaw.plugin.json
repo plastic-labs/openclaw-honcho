@@ -16,6 +16,16 @@
       "baseUrl": {
         "type": "string",
         "default": "https://api.honcho.dev"
+      },
+      "noisePatterns": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
+      },
+      "ownerObserveOthers": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the owner peer observes agent messages. When true, Honcho models the user's awareness of assistant responses."
       }
     }
   },
@@ -35,6 +45,16 @@
       "label": "API Base URL",
       "advanced": true,
       "placeholder": "https://api.honcho.dev"
+    },
+    "noisePatterns": {
+      "label": "Noise Patterns",
+      "advanced": true,
+      "help": "Additional substring patterns to filter. Messages containing any pattern are dropped before saving to Honcho."
+    },
+    "ownerObserveOthers": {
+      "label": "Owner Observes Agent",
+      "advanced": true,
+      "help": "When enabled, Honcho models the user as aware of the agent's responses. Default: off."
     }
   }
 }

@@ -49,7 +49,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
       const peerConfigs: Array<[string, { observeMe: boolean; observeOthers: boolean }]> = [
-        [OWNER_ID, { observeMe: true, observeOthers: false }],
+        [OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers }],
         [agentPeer.id, { observeMe: true, observeOthers: true }],
       ];
       if (parentPeer) {
@@ -65,7 +65,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
       }
 
       const newRawMessages = event.messages.slice(startIndex);
-      const messages = extractMessages(newRawMessages, state.ownerPeer!, agentPeer);
+      const messages = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
 
       if (messages.length === 0) {
         await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: event.messages.length });

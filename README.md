@@ -61,17 +61,52 @@ The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/work
 
 Run `openclaw honcho setup` to configure interactively, or set values directly in `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-honcho"].config`.
 
-| Key           | Type     | Default                    | Description                               |
-| ------------- | -------- | -------------------------- | ----------------------------------------- |
-| `apiKey`      | `string` | —                          | Honcho API key (required for managed; omit for self-hosted). |
-| `workspaceId` | `string` | `"openclaw"`               | Honcho workspace ID for memory isolation. |
-| `baseUrl`     | `string` | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+| Key                    | Type       | Default                    | Description                               |
+| ---------------------- | ---------- | -------------------------- | ----------------------------------------- |
+| `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
+| `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
+| `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+| `noisePatterns`        | `string[]` | —                          | Additional substring patterns to skip messages. Merged with built-in defaults. |
+| `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 
 ### Self-Hosted / Local Honcho
 
 Run `openclaw honcho setup`, enter a blank API key, and set the Base URL to your instance (e.g., `http://localhost:8000`).
 
 For setting up a local Honcho server, see the [Honcho local development guide](https://github.com/plastic-labs/honcho?tab=readme-ov-file#local-development).
+
+### Noise Filtering
+
+The plugin automatically drops messages that match noise patterns before saving to Honcho. Built-in defaults filter:
+
+- `HEARTBEAT_OK` — assistant heartbeat acknowledgments
+- `A scheduled reminder has been triggered` — cron reminder boilerplate
+- `Execute your Session Startup sequence now` — session startup commands
+- `Queued messages from` — queued message wrapper headers
+
+Add custom patterns via `noisePatterns` in your config:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "config": {
+          "noisePatterns": ["my custom noise string"]
+        }
+      }
+    }
+  }
+}
+```
+
+Custom patterns are merged with the built-in defaults. Matching uses substring comparison (`String.includes()`), not regex.
+
+### Owner Peer Observation
+
+Honcho's `observeOthers` controls whether a peer forms representations of other peers based on messages it witnessed in shared sessions. The agent peer always has `observeOthers: true` — it sees and reasons about the user's messages. The owner (user) peer defaults to `observeOthers: false` — modeled only from what the user said, not what the agent replied.
+
+Set `ownerObserveOthers: true` to let the owner peer also observe agent messages. This gives Honcho perspective-aware memory: the owner stores conclusions about the agent based only on what it witnessed, enabling the user's representation to reflect the full conversational context rather than just their own side of it.
 
 ## How it works
 
@@ -80,7 +115,7 @@ Once installed, the plugin works automatically:
 - **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models. Message capture starts when the plugin is active for a session, and preserves original timestamps for captured messages.
 - **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context about the user. Context is injected during OpenClaw's `before_prompt_build` phase, ensuring accurate turn boundaries.
 - **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors). Each OpenClaw agent gets its own Honcho peer (`agent-{id}`), so multi-agent workspaces maintain isolated memory.
-- **Clean Persistence** — Platform metadata (conversation info, sender headers, thread context, forwarded messages) is stripped before saving to Honcho, ensuring only meaningful content is persisted.
+- **Clean Persistence** — Platform metadata (conversation info, sender headers, thread context, forwarded messages) is stripped before saving to Honcho, ensuring only meaningful content is persisted. Noise messages (heartbeat acks, cron boilerplate, startup commands) are dropped entirely via configurable pattern filters.
 
 Honcho handles all reasoning and synthesis in the cloud.
 

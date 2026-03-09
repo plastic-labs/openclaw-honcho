@@ -130,10 +130,19 @@ export function cleanMessageContent(content: string): string {
   return cleaned.trim();
 }
 
+/**
+ * Returns true if the message should be dropped entirely.
+ * Uses substring matching — no regex.
+ */
+export function shouldSkipMessage(content: string, noisePatterns: string[]): boolean {
+  return noisePatterns.some((pattern) => content.includes(pattern));
+}
+
 export function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
-  agentPeer: Peer
+  agentPeer: Peer,
+  noisePatterns: string[] = []
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -162,6 +171,9 @@ export function extractMessages(
 
     content = cleanMessageContent(content);
     content = content.trim();
+
+    if (!content) continue;
+    if (shouldSkipMessage(content, noisePatterns)) continue;
 
     if (content) {
       const peer = role === "user" ? ownerPeer : agentPeer;
