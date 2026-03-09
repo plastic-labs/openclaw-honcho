@@ -21,8 +21,14 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
 }
 
 /**
- * Port of OpenClaw's strip-inbound-meta.ts behavior.
+ * Port of OpenClaw's strip-inbound-meta.ts core stripping behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.
+ *
+ * Intentional omissions vs. upstream:
+ * - No stripTrailingUntrustedContextSuffix(): the final trim in
+ *   stripInboundMetadata() handles trailing blank lines equivalently.
+ * - No inline sentinel+json fence handling: OpenClaw's inbound formatter
+ *   always emits sentinel and ```json on separate lines.
  */
 const INBOUND_META_SENTINELS = [
   "Conversation info (untrusted metadata):",
@@ -53,14 +59,6 @@ function shouldStripTrailingUntrustedContext(lines: string[], index: number): bo
   return /<<<EXTERNAL_UNTRUSTED_CONTENT|UNTRUSTED channel metadata \(|Source:\s+/.test(probe);
 }
 
-function startsWithInlineSentinelJsonFence(line: string): boolean {
-  const trimmed = line.trimStart();
-  return INBOUND_META_SENTINELS.some((sentinel) => {
-    if (!trimmed.startsWith(sentinel)) return false;
-    return trimmed.slice(sentinel.length).trimStart().startsWith("```json");
-  });
-}
-
 function stripInboundMetadata(text: string): string {
   if (!text || !SENTINEL_FAST_RE.test(text)) return text;
 
@@ -81,15 +79,6 @@ function stripInboundMetadata(text: string): string {
       }
       inMetaBlock = true;
       inFencedJson = false;
-      continue;
-    }
-
-    if (!inMetaBlock && startsWithInlineSentinelJsonFence(line)) {
-      const start = line.indexOf("```json");
-      const end = start >= 0 ? line.indexOf("```", start + "```json".length) : -1;
-      if (end >= 0) continue;
-      inMetaBlock = true;
-      inFencedJson = true;
       continue;
     }
 
