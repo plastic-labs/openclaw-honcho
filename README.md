@@ -55,7 +55,7 @@ Files are uploaded via `session.uploadFile()`. User/owner files go to the owner 
 
 ### Update workspace docs
 
-The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Copy or merge these templates into your workspace for `AGENTS.md`, `SOUL.md`, and `BOOTSTRAP.md`. These templates reference the Honcho tools (`honcho_profile`, `honcho_context`, `honcho_search`, `honcho_recall`, `honcho_analyze`) instead of the old file-based memory system.
+The plugin ships template files in `node_modules/@honcho-ai/openclaw-honcho/workspace_md/`. Copy or merge these templates into your workspace for `AGENTS.md`, `SOUL.md`, and `BOOTSTRAP.md`. These templates reference the Honcho tools (`honcho_context`, `honcho_search`, `honcho_session`, `honcho_ask`) instead of the old file-based memory system.
 
 ## Configuration
 
@@ -114,7 +114,7 @@ Set `ownerObserveOthers: true` to let the owner peer also observe agent messages
 Once installed, the plugin works automatically:
 
 - **Message Observation** — After every AI turn, the conversation is persisted to Honcho. Both user and agent messages are observed, allowing Honcho to build and refine its models. Message capture starts when the plugin is active for a session, and preserves original timestamps for captured messages. Messages are also flushed before session compaction and `/new`/`/reset`, so no conversation data is lost.
-- **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_recall`, `honcho_search`, and `honcho_analyze` to retrieve relevant context about the user. Context is injected during OpenClaw's `before_prompt_build` phase, ensuring accurate turn boundaries.
+- **Tool-Based Context Access** — The AI can query Honcho mid-conversation using tools like `honcho_context`, `honcho_search`, and `honcho_ask` to retrieve relevant context about the user. Context is injected during OpenClaw's `before_prompt_build` phase, ensuring accurate turn boundaries.
 - **Dual Peer Model** — Honcho maintains separate representations: one for the user (preferences, facts, communication style) and one for the agent (personality, learned behaviors). Each OpenClaw agent gets its own Honcho peer (`agent-{id}`), so multi-agent workspaces maintain isolated memory.
 - **Clean Persistence** — Platform metadata (conversation info, sender headers, thread context, forwarded messages) is stripped before saving to Honcho, ensuring only meaningful content is persisted. Noise messages (heartbeat acks, cron boilerplate, startup commands) are dropped entirely via configurable pattern filters.
 
@@ -143,23 +143,14 @@ The plugin manages markdown files in your workspace:
 
 ## AI Tools
 
-The plugin provides both **data retrieval tools** (cheap, fast, raw data) and **Q&A tools** (LLM-powered, direct answers).
+The plugin provides 4 tools — 2 data retrieval (cheap, no LLM) and 2 interactive (LLM-powered).
 
-### Data Retrieval Tools
-
-| Tool             | Description                                                                                     |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| `honcho_session` | Retrieve conversation history and summaries from the current session. Supports semantic search. |
-| `honcho_profile` | Get the user's peer card — a curated list of their most important facts.                        |
-| `honcho_search`  | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
-| `honcho_context` | Retrieve Honcho's full representation — a broad view of observations about the user.            |
-
-### Q&A Tools
-
-| Tool             | Description                                                                                                |
-| ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `honcho_recall`  | Ask a simple factual question (e.g., "What's their name?"). Minimal LLM reasoning.                         |
-| `honcho_analyze` | Ask a complex question requiring synthesis (e.g., "Describe their communication style"). Medium reasoning. |
+| Tool             | Type | Description                                                                                     |
+| ---------------- | ---- | ----------------------------------------------------------------------------------------------- |
+| `honcho_context` | Data | User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation. |
+| `honcho_search`  | Data | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
+| `honcho_session` | Data | Current session history and summary. Supports semantic search within the session.               |
+| `honcho_ask`     | Q&A  | Ask Honcho a question about the user. `depth='quick'` for facts, `'thorough'` for synthesis.   |
 
 ## CLI Commands
 

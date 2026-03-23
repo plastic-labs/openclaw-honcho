@@ -3,9 +3,6 @@
  *
  * AI-native memory with dialectic reasoning for OpenClaw.
  * Uses Honcho's peer paradigm for multi-party conversation memory.
- *
- * Updated to use definePluginEntry() pattern and register a custom
- * MemoryPromptSection for Honcho-specific tool guidance.
  */
 
 // @ts-ignore - resolved by openclaw runtime
@@ -19,61 +16,59 @@ import { registerContextHook } from "./hooks/context.js";
 import { registerCaptureHook } from "./hooks/capture.js";
 import { registerSubagentHooks } from "./hooks/subagent.js";
 import { registerSessionTool } from "./tools/session.js";
-import { registerProfileTool } from "./tools/profile.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerContextTool } from "./tools/context.js";
-import { registerRecallTool } from "./tools/recall.js";
-import { registerAnalyzeTool } from "./tools/analyze.js";
+import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerCli } from "./commands/cli.js";
 
 /**
  * Memory prompt section builder for Honcho tools.
- * Tells OpenClaw how to guide the agent on using Honcho memory tools
- * in the system prompt's memory-recall section.
+ * This is the single place for tool-selection guidance — tool descriptions
+ * themselves stay short to minimize per-turn token overhead.
  */
 export const buildPromptSection: MemoryPromptSectionBuilder = ({
   availableTools,
 }) => {
   const hasSession = availableTools.has("honcho_session");
-  const hasProfile = availableTools.has("honcho_profile");
-  const hasSearch = availableTools.has("honcho_search");
   const hasContext = availableTools.has("honcho_context");
-  const hasRecall = availableTools.has("honcho_recall");
-  const hasAnalyze = availableTools.has("honcho_analyze");
+  const hasSearch = availableTools.has("honcho_search");
+  const hasAsk = availableTools.has("honcho_ask");
 
-  const anyTool = hasSession || hasProfile || hasSearch || hasContext || hasRecall || hasAnalyze;
+  const anyTool = hasSession || hasContext || hasSearch || hasAsk;
   if (!anyTool) return [];
 
   const lines: string[] = ["## Honcho Memory"];
 
-  if (hasProfile) {
+  lines.push("Choose the right Honcho tool based on what you need:");
+
+  if (hasContext) {
     lines.push(
-      "Use honcho_profile for a quick factual snapshot of the user (name, role, preferences). Fast, no LLM cost."
+      "- honcho_context: Quick user facts (detail='card') or full representation (detail='full'). Cheap, no LLM."
     );
   }
   if (hasSearch) {
     lines.push(
-      "Use honcho_search for semantic search over stored memory. Good for finding specific past facts."
+      "- honcho_search: Find specific past context by semantic query. Raw results, no LLM."
     );
   }
-  if (hasContext || hasAnalyze) {
+  if (hasAsk) {
     lines.push(
-      "Use honcho_context or honcho_analyze for synthesized answers about the user requiring LLM reasoning."
-    );
-  }
-  if (hasRecall) {
-    lines.push(
-      "Use honcho_recall for simple factual lookups with minimal reasoning cost."
+      "- honcho_ask: Ask a question and get a direct answer. depth='quick' for facts, 'thorough' for synthesis."
     );
   }
   if (hasSession) {
     lines.push(
-      "Use honcho_session to retrieve current session history, summary, or search within the session."
+      "- honcho_session: Current session history and summary only. Not cross-session."
     );
   }
 
-  lines.push("");
+  lines.push(
+    "",
+    "Prefer data tools (context, search) when you can reason over the results yourself. Use honcho_ask when you need Honcho to synthesize an answer.",
+    ""
+  );
+
   return lines;
 };
 
@@ -89,8 +84,8 @@ export default definePluginEntry({
   register(api) {
     const state = createPluginState(api);
 
-    // Register memory prompt section so OpenClaw knows how to guide
-    // the agent on using Honcho memory tools in system prompts.
+    // Register memory prompt section — tool selection guidance lives here,
+    // not in individual tool descriptions.
     api.registerMemoryPromptSection(buildPromptSection);
 
     // Hooks
@@ -99,13 +94,11 @@ export default definePluginEntry({
     registerContextHook(api, state);
     registerCaptureHook(api, state);
 
-    // Tools
+    // Tools (4 core + 2 passthrough)
     registerSessionTool(api, state);
-    registerProfileTool(api, state);
-    registerSearchTool(api, state);
     registerContextTool(api, state);
-    registerRecallTool(api, state);
-    registerAnalyzeTool(api, state);
+    registerSearchTool(api, state);
+    registerAskTool(api, state);
     registerMemoryPassthrough(api, state);
 
     // CLI
