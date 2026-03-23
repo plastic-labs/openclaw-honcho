@@ -28,7 +28,13 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
         await state.ensureInitialized();
 
         if (detail === "card") {
-          const card = await state.ownerPeer!.card().catch(() => null);
+          const card = await state.ownerPeer!.card().catch((err) => {
+            // Only treat NotFoundError as empty; re-throw others or log
+            if (err?.name === "NotFoundError") return null;
+            // Optionally log unexpected errors for debugging
+            console.warn("honcho_context card() error:", err);
+            return null;
+          });
 
           if (!card?.length) {
             return {
