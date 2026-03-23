@@ -25,11 +25,19 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.
  *
  * Intentional omissions vs. upstream:
- * - No stripTrailingUntrustedContextSuffix(): the final trim in
- *   stripInboundMetadata() handles trailing blank lines equivalently.
+ * - No stripLeadingInboundMetadata() / extractInboundSenderLabel():
+ *   only needed by UI/TUI surfaces, not for memory storage.
  * - No inline sentinel+json fence handling: OpenClaw's inbound formatter
  *   always emits sentinel and ```json on separate lines.
  */
+
+/**
+ * Leading timestamp prefix injected by OpenClaw's `injectTimestamp`.
+ * AI-facing only — must not be stored in Honcho as user message content.
+ * e.g. "[Mon 2026-03-23 13:12] "
+ */
+const LEADING_TIMESTAMP_PREFIX_RE = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\] */;
+
 const INBOUND_META_SENTINELS = [
   "Conversation info (untrusted metadata):",
   "Sender (untrusted metadata):",
@@ -60,9 +68,13 @@ function shouldStripTrailingUntrustedContext(lines: string[], index: number): bo
 }
 
 function stripInboundMetadata(text: string): string {
-  if (!text || !SENTINEL_FAST_RE.test(text)) return text;
+  if (!text) return text;
 
-  const lines = text.split("\n");
+  // Strip leading timestamp prefix injected by OpenClaw's injectTimestamp.
+  const withoutTimestamp = text.replace(LEADING_TIMESTAMP_PREFIX_RE, "");
+  if (!SENTINEL_FAST_RE.test(withoutTimestamp)) return withoutTimestamp;
+
+  const lines = withoutTimestamp.split("\n");
   const result: string[] = [];
   let inMetaBlock = false;
   let inFencedJson = false;

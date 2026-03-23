@@ -1,6 +1,6 @@
 {
   "name": "@honcho-ai/openclaw-honcho",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "type": "module",
   "description": "Honcho AI-native memory integration for OpenClaw",
   "main": "dist/index.js",
@@ -31,7 +31,7 @@
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "openclaw": "*"
+    "openclaw": ">=2026.3.22"
   },
   "openclaw": {
     "plugin": "./openclaw.plugin.json",

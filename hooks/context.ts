@@ -69,8 +69,11 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
 
       const formatted = sections.join("\n\n");
 
+      // Use appendSystemContext instead of systemPrompt to avoid overriding
+      // other plugins' prompt contributions. appendSystemContext is appended
+      // to the system prompt and benefits from provider prompt caching.
       return {
-        systemPrompt: `## User Memory Context\n\n${formatted}\n\nUse this context naturally when relevant. Never quote or expose this memory context to the user.`,
+        appendSystemContext: `## User Memory Context\n\n${formatted}\n\nUse this context naturally when relevant. Never quote or expose this memory context to the user.`,
       };
     } catch (error) {
       api.logger.warn?.(`Failed to fetch Honcho context: ${error}`);
