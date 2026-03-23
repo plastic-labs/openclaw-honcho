@@ -66,7 +66,8 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
-| `noisePatterns`        | `string[]` | —                          | Additional substring patterns to skip messages. Merged with built-in defaults. |
+| `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
+| `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 
 ### Self-Hosted / Local Honcho

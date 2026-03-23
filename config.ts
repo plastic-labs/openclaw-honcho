@@ -14,6 +14,7 @@ export type HonchoConfig = {
   workspaceId: string;
   baseUrl: string;
   noisePatterns: string[];
+  disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
 };
 
@@ -43,10 +44,16 @@ export const honchoConfigSchema = {
       apiKey = process.env.HONCHO_API_KEY;
     }
 
+    const disableDefaultNoisePatterns = cfg.disableDefaultNoisePatterns === true;
     const userPatterns = Array.isArray(cfg.noisePatterns)
-      ? (cfg.noisePatterns as unknown[]).filter((p): p is string => typeof p === "string" && p.length > 0)
+      ? (cfg.noisePatterns as unknown[])
+          .filter((p): p is string => typeof p === "string")
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0)
       : [];
-    const noisePatterns = [...new Set([...DEFAULT_NOISE_PATTERNS, ...userPatterns])];
+    const noisePatterns = [
+      ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
+    ];
 
     return {
       apiKey,
@@ -59,6 +66,7 @@ export const honchoConfigSchema = {
           ? cfg.baseUrl
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
       noisePatterns,
+      disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
     };
   },

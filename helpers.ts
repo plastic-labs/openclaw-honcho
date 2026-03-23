@@ -132,10 +132,25 @@ export function cleanMessageContent(content: string): string {
 
 /**
  * Returns true if the message should be dropped entirely.
- * Uses substring matching — no regex.
+ * Patterns starting with "/" are treated as anchored regexes (e.g. "/^HEARTBEAT/i").
+ * All other patterns match by exact equality or prefix (startsWith).
  */
 export function shouldSkipMessage(content: string, noisePatterns: string[]): boolean {
-  return noisePatterns.some((pattern) => content.includes(pattern));
+  return noisePatterns.some((pattern) => {
+    if (pattern.startsWith("/")) {
+      const lastSlash = pattern.lastIndexOf("/", pattern.length - 1);
+      if (lastSlash > 0) {
+        const source = pattern.slice(1, lastSlash);
+        const flags = pattern.slice(lastSlash + 1);
+        try {
+          return new RegExp(source, flags).test(content);
+        } catch {
+          // fall through to literal match if regex is invalid
+        }
+      }
+    }
+    return content === pattern || content.startsWith(pattern);
+  });
 }
 
 export function extractMessages(
