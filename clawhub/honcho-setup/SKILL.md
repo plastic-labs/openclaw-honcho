@@ -7,17 +7,19 @@ description: >
   restarts the gateway. **UPLOADS WORKSPACE CONTENT TO EXTERNAL API** via
   `openclaw honcho setup`: sends USER.md, MEMORY.md, IDENTITY.md, memory/,
   canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md to api.honcho.dev
-  (managed, default) or your self-hosted HONCHO_BASE_URL. HEARTBEAT.md is
-  excluded. Requires user confirmation before uploading. No workspace or
-  memory files are deleted, moved, or modified. `openclaw honcho setup`
-  does write plugin configuration to ~/.openclaw/openclaw.json.
+  (managed, default) or your self-hosted HONCHO_BASE_URL. HEARTBEAT.md is excluded. Requires explicit interactive user confirmation before uploading,
+  even when HONCHO_API_KEY is pre-set. No workspace or memory files are
+  deleted, moved, or modified. `openclaw honcho setup` writes plugin
+  configuration to ~/.openclaw/openclaw.json. After setup, the plugin
+  persistently observes conversations and transmits data to Honcho across
+  sessions; disable with `openclaw plugins disable openclaw-honcho`.
 metadata:
   openclaw:
     emoji: "🧠"
     required_env: []  # Nothing is strictly required - self-hosted mode works without API key
     optional_env:
       - name: HONCHO_API_KEY
-        description: "Required for managed Honcho (https://app.honcho.dev). If set, openclaw honcho setup will use it automatically. If not set, the setup command will prompt for it."
+        description: "Required for managed Honcho (https://app.honcho.dev). If set, the setup command skips the API key prompt but still requires explicit user confirmation before any data upload. If not set, the setup command will prompt for it interactively."
       - name: HONCHO_BASE_URL
         description: "Base URL for a self-hosted Honcho instance (e.g. http://localhost:8000). Defaults to https://api.honcho.dev (managed)."
     required_binaries:
@@ -109,7 +111,9 @@ Verify the plugin is active by checking gateway logs or running:
 openclaw honcho status
 ```
 
-Honcho memory is now active. The plugin will automatically observe conversations and make memory available via `honcho_recall`, `honcho_search`, `honcho_profile`, and related tools.
+Honcho memory is now active.
+
+> **Ongoing behavior after setup**: Once enabled, the plugin will persistently observe conversations in this workspace and send conversation data to `api.honcho.dev` (or your configured `HONCHO_BASE_URL`) to build and retrieve memory. This is ongoing network activity that continues across sessions. Memory is made available via `honcho_recall`, `honcho_search`, `honcho_profile`, and related tools. To stop this behavior, disable the plugin with `openclaw plugins disable openclaw-honcho`.
 
 ---
 
@@ -124,7 +128,7 @@ This skill runs three commands: `openclaw plugins install`, `openclaw honcho set
 - **uploaded_content**: USER.md, MEMORY.md, IDENTITY.md, all files under memory/, all files under canvas/, SOUL.md, AGENTS.md, BOOTSTRAP.md, TOOLS.md — uploaded by `openclaw honcho setup` during migration
 - **not_uploaded**: HEARTBEAT.md — excluded by design, never read or uploaded
 - **Where it goes**: By default to `api.honcho.dev` (managed Honcho cloud service). For self-hosted instances, to your configured `HONCHO_BASE_URL`
-- **User control**: `openclaw honcho setup` requires explicit confirmation before any upload. You will see the exact list of files and the destination URL
+- **User control**: `openclaw honcho setup` always requires explicit interactive confirmation before any upload, even when `HONCHO_API_KEY` is pre-set in the environment. You will see the exact list of files and the destination URL
 - **Purpose**: Migrating file-based memory system to Honcho API for AI agent personalization and memory
 
 ### File Modifications
@@ -139,6 +143,11 @@ This skill runs three commands: `openclaw plugins install`, `openclaw honcho set
 ### Network Access
 - **Managed mode**: Connects to `api.honcho.dev` (Honcho cloud service)
 - **Self-hosted mode**: Connects to your configured `HONCHO_BASE_URL` (e.g., `http://localhost:8000`)
+
+### Ongoing Behavior After Setup
+- **Persistent observation**: Once enabled, the plugin observes all conversations in the workspace and transmits conversation data to the configured Honcho endpoint on an ongoing basis
+- **Network activity**: Continues across sessions as long as the plugin is enabled — this is not a one-time migration
+- **How to stop**: Run `openclaw plugins disable openclaw-honcho` to stop all observation and network activity
 
 ### Open Source
 - **Honcho SDK**: Open source at https://github.com/plastic-labs/honcho
