@@ -22,6 +22,8 @@ import { registerAnalyzeTool } from "./tools/analyze.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerCli } from "./commands/cli.js";
 
+let _loggedLoaded = false;
+
 export default {
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
@@ -50,6 +52,11 @@ export default {
     // CLI
     registerCli(api, state);
 
-    api.logger.info("Honcho memory plugin loaded");
+    if (!_loggedLoaded) {
+      api.logger.info("Honcho memory plugin loaded");
+      _loggedLoaded = true;
+    } else {
+      api.logger.debug("Honcho memory plugin registered for workspace");
+    }
   },
 };
