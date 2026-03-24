@@ -20,6 +20,7 @@ import { registerSearchTool } from "./tools/search.js";
 import { registerContextTool } from "./tools/context.js";
 import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
+import { registerMessageSearchTool } from "./tools/message-search.js";
 import { registerCli } from "./commands/cli.js";
 
 /**
@@ -34,8 +35,9 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   const hasContext = availableTools.has("honcho_context");
   const hasSearch = availableTools.has("honcho_search");
   const hasAsk = availableTools.has("honcho_ask");
+  const hasMessageSearch = availableTools.has("honcho_message_search");
 
-  const anyTool = hasSession || hasContext || hasSearch || hasAsk;
+  const anyTool = hasSession || hasContext || hasSearch || hasAsk || hasMessageSearch;
   if (!anyTool) return [];
 
   const lines: string[] = ["## Honcho Memory"];
@@ -55,6 +57,11 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   if (hasAsk) {
     lines.push(
       "- honcho_ask: Ask a question and get a direct answer. depth='quick' for facts, 'thorough' for synthesis."
+    );
+  }
+  if (hasMessageSearch) {
+    lines.push(
+      "- honcho_message_search: Find specific messages across all sessions. Filter by peer, session, date, metadata."
     );
   }
   if (hasSession) {
@@ -94,11 +101,12 @@ export default definePluginEntry({
     registerContextHook(api, state);
     registerCaptureHook(api, state);
 
-    // Tools (4 core + 2 passthrough)
+    // Tools (5 core + 2 passthrough)
     registerSessionTool(api, state);
     registerContextTool(api, state);
     registerSearchTool(api, state);
     registerAskTool(api, state);
+    registerMessageSearchTool(api, state);
     registerMemoryPassthrough(api, state);
 
     // CLI
