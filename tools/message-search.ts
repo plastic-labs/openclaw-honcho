@@ -124,11 +124,15 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
           };
         });
 
+        const MAX_PREVIEW = 800;
         const text = results
-          .map(
-            (r, i) =>
-              `[${i + 1}] ${r.speaker} (${r.session_id}) ${r.created_at ?? ""}:\n${r.content}`
-          )
+          .map((r, i) => {
+            const preview =
+              r.content.length > MAX_PREVIEW
+                ? `${r.content.slice(0, MAX_PREVIEW)}… (truncated)`
+                : r.content;
+            return `[${i + 1}] ${r.speaker} (${r.session_id}) ${r.created_at ?? ""}:\n${preview}`;
+          })
           .join("\n\n");
 
         return {
