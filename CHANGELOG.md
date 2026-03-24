@@ -5,26 +5,23 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 ## [1.2.0] - 2026-03-24
 
 ### ⚠ Breaking Changes
-- **Tool consolidation from 6 to 4**: `honcho_recall` and `honcho_analyze` have been merged into **`honcho_ask`** (with `depth='quick'|'thorough'`). `honcho_profile` has been merged into **`honcho_context`** (with `detail='card'|'full'`). If your agent prompts or workspace docs reference the old tool names (`honcho_recall`, `honcho_analyze`, `honcho_profile`), they must be updated.
-- **`honcho_message_search` `from` parameter replaces raw IDs**: The `peer_id` and `session_id` parameters have been removed. Use the new `from` parameter (`"user"` | `"agent"` | `"all"`) to filter by sender instead.
+- **Tool API changes**: `honcho_recall` and `honcho_analyze` have been merged into **`honcho_ask`** (with `depth='quick'|'thorough'`). `honcho_profile` has been merged into **`honcho_context`** (with `detail='card'|'full'`). `honcho_message_search`'s `peer_id` and `session_id` parameters have been replaced with a `from` parameter (`"user"` | `"agent"` | `"all"`). If your agent prompts or workspace docs reference the old tool names (`honcho_recall`, `honcho_analyze`, `honcho_profile`) or old parameters, they must be updated.
 
 ### Added
-- **`honcho_message_search` tool**: Workspace-level message search with hybrid semantic + full-text matching. Supports filtering by sender (`from`), date range, and metadata.
-- **`honcho_ask` tool**: Merged replacement for `honcho_recall` + `honcho_analyze`. Use `depth='quick'` for factual lookups, `'thorough'` for synthesis.
+- **`honcho_message_search` tool**: Workspace-level message search with hybrid semantic + full-text matching. Filter by sender (`from: "user"` | `"agent"` | `"all"`), date range, and metadata. Uses `peer.search()` for sender filtering — in multi-agent setups, `from: "agent"` resolves to the calling agent's peer.
+- **`honcho_ask` tool** (replaces `honcho_recall` + `honcho_analyze`): Ask Honcho a question and get a direct answer. `depth='quick'` for factual lookups, `'thorough'` for synthesis.
+- **`honcho_context` tool** (replaces `honcho_profile`): User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation.
+- **Configurable noise filtering**: New `noisePatterns` config option to add custom message filters. Patterns support exact match, prefix match, and regex (e.g. `/^HEARTBEAT/i`). Custom patterns merge with built-in defaults. Set `disableDefaultNoisePatterns: true` to use only your own patterns.
+- **`ownerObserveOthers` config option**: Controls whether the owner peer observes agent messages in Honcho's social model. Defaults to `false`. Set to `true` for perspective-aware memory where the user's representation reflects the full conversational context.
 - **Pre-compaction and pre-reset message flush**: Messages are now saved to Honcho before session compaction or `/new`/`/reset`, preventing data loss.
 - **Timestamp stripping**: Leading OpenClaw-injected timestamps are stripped from messages before saving to Honcho.
 - **Memory prompt section builder**: Tool selection guidance is now injected via `registerMemoryPromptSection` instead of bloating individual tool descriptions (~2,200 token reduction per LLM call).
 
 ### Changed
-- **`honcho_context` consolidates `honcho_profile`**: Now accepts `detail='card'` (key facts) or `'full'` (broad representation) in a single tool.
 - **`honcho_session` uses runtime session key**: Previously hardcoded to `"default"`, now derives the session key from `buildSessionKey(toolCtx)` to match the capture hook. Fixes session lookup in multi-session setups.
-- **`honcho_message_search` uses `peer.search()` for sender filtering**: The `from` parameter routes to `ownerPeer.search()`, `agentPeer.search()`, or workspace-level `honcho.search()`. In multi-agent setups, `from: "agent"` resolves to the calling agent's peer.
 - **Tool descriptions trimmed**: All tool descriptions reduced from 200-400 words to 1-2 sentences. `additionalProperties: false` added to all schemas. Structured `details` returned from all tools.
 - **Synced with OpenClaw plugin SDK updates**: `definePluginEntry`, `appendSystemContext`, compaction/reset hooks.
-
-### Fixed
-- **Non-`NotFoundError` from `card()` handled gracefully**: Previously only caught `NotFoundError`; other errors now fall through correctly instead of being silently swallowed.
-- **Reasoning level configuration**: Fixed reasoning level parameter handling.
+- **Plugin load logging**: "Honcho memory plugin loaded" now logs once per process instead of per workspace registration, reducing log noise in multi-agent setups.
 
 ## [1.1.1] - 2026-03-03
 
