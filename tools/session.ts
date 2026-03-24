@@ -2,7 +2,7 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { cleanMessageContent } from "../helpers.js";
+import { buildSessionKey, cleanMessageContent } from "../helpers.js";
 
 export function registerSessionTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -53,7 +53,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
 
         await state.ensureInitialized();
         const agentPeer = await state.getAgentPeer(toolCtx.agentId);
-        const sessionKey = "default";
+        const sessionKey = buildSessionKey(toolCtx);
 
         try {
           const session = await state.honcho.session(sessionKey);
