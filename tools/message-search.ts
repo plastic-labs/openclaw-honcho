@@ -7,7 +7,7 @@ import type { PluginState } from "../state.js";
 export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({
-      name: "honcho_message_search",
+      name: "honcho_search_messages",
       label: "Search Messages",
       description:
         "Search conversation messages across all sessions. Hybrid semantic + full-text search. Filter by sender (user/agent/all), date range, or metadata.",
@@ -146,6 +146,6 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         };
       },
     }),
-    { name: "honcho_message_search" }
+    { name: "honcho_search_messages" }
   );
 }

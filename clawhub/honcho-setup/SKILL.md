@@ -113,7 +113,7 @@ openclaw honcho status
 
 Honcho memory is now active.
 
-> **Ongoing behavior after setup**: Once enabled, the plugin will persistently observe conversations in this workspace and send conversation data to `api.honcho.dev` (or your configured `HONCHO_BASE_URL`) to build and retrieve memory. This is ongoing network activity that continues across sessions. Memory is made available via `honcho_recall`, `honcho_search`, `honcho_profile`, and related tools. To stop this behavior, disable the plugin with `openclaw plugins disable openclaw-honcho`.
+> **Ongoing behavior after setup**: Once enabled, the plugin will persistently observe conversations in this workspace and send conversation data to `api.honcho.dev` (or your configured `HONCHO_BASE_URL`) to build and retrieve memory. This is ongoing network activity that continues across sessions. Memory is made available via `honcho_context`, `honcho_search_conclusions`, `honcho_ask`, `honcho_search_messages`, `honcho_session`, and related tools. To stop this behavior, disable the plugin with `openclaw plugins disable openclaw-honcho`.
 
 ---
 

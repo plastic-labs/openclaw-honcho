@@ -33,9 +33,9 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
 }) => {
   const hasSession = availableTools.has("honcho_session");
   const hasContext = availableTools.has("honcho_context");
-  const hasSearch = availableTools.has("honcho_search");
+  const hasSearch = availableTools.has("honcho_search_conclusions");
   const hasAsk = availableTools.has("honcho_ask");
-  const hasMessageSearch = availableTools.has("honcho_message_search");
+  const hasMessageSearch = availableTools.has("honcho_search_messages");
 
   const anyTool = hasSession || hasContext || hasSearch || hasAsk || hasMessageSearch;
   if (!anyTool) return [];
@@ -51,7 +51,7 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   }
   if (hasSearch) {
     lines.push(
-      "- honcho_search: Find specific past context by semantic query. Raw results, no LLM."
+      "- honcho_search_conclusions: Find specific past context by semantic query. Raw results, no LLM."
     );
   }
   if (hasAsk) {
@@ -61,7 +61,7 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   }
   if (hasMessageSearch) {
     lines.push(
-      "- honcho_message_search: Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata."
+      "- honcho_search_messages: Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata."
     );
   }
   if (hasSession) {

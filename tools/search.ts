@@ -6,10 +6,10 @@ import type { PluginState } from "../state.js";
 export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     {
-      name: "honcho_search",
-      label: "Search Honcho Memory",
+      name: "honcho_search_conclusions",
+      label: "Search Honcho conclusions",
       description:
-        "Semantic vector search over stored observations about the user. Returns raw memories ranked by relevance. Use for finding specific past context, decisions, or preferences.",
+        "Semantic vector search over stored conclusions about the user. Returns raw memories ranked by relevance. Use for finding specific past context, decisions, or preferences.",
       parameters: Type.Object(
         {
           query: Type.String({
@@ -65,6 +65,6 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
         };
       },
     },
-    { name: "honcho_search" }
+    { name: "honcho_search_conclusions" }
   );
 }

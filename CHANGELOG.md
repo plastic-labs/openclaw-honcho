@@ -5,10 +5,10 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 ## [1.2.0] - 2026-03-24
 
 ### ⚠ Breaking Changes
-- **Tool API changes**: `honcho_recall` and `honcho_analyze` have been merged into **`honcho_ask`** (with `depth='quick'|'thorough'`). `honcho_profile` has been merged into **`honcho_context`** (with `detail='card'|'full'`). `honcho_message_search`'s `peer_id` and `session_id` parameters have been replaced with a `from` parameter (`"user"` | `"agent"` | `"all"`). If your agent prompts or workspace docs reference the old tool names (`honcho_recall`, `honcho_analyze`, `honcho_profile`) or old parameters, they must be updated.
+- **Tool consolidation and renames**: `honcho_recall` and `honcho_analyze` merged into **`honcho_ask`** (with `depth='quick'|'thorough'`). `honcho_profile` merged into **`honcho_context`** (with `detail='card'|'full'`). `honcho_search` renamed to **`honcho_search_conclusions`**. Update any agent prompts or workspace docs that reference the old tool names.
 
 ### Added
-- **`honcho_message_search` tool**: Workspace-level message search with hybrid semantic + full-text matching. Filter by sender (`from: "user"` | `"agent"` | `"all"`), date range, and metadata. Uses `peer.search()` for sender filtering — in multi-agent setups, `from: "agent"` resolves to the calling agent's peer.
+- **`honcho_search_messages` tool**: Workspace-level message search with hybrid semantic + full-text matching. Filter by sender (`from: "user"` | `"agent"` | `"all"`), date range, and metadata. Uses `peer.search()` for sender filtering — in multi-agent setups, `from: "agent"` resolves to the calling agent's peer.
 - **`honcho_ask` tool** (replaces `honcho_recall` + `honcho_analyze`): Ask Honcho a question and get a direct answer. `depth='quick'` for factual lookups, `'thorough'` for synthesis.
 - **`honcho_context` tool** (replaces `honcho_profile`): User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation.
 - **Configurable noise filtering**: New `noisePatterns` config option to add custom message filters. Patterns support exact match, prefix match, and regex (e.g. `/^HEARTBEAT/i`). Custom patterns merge with built-in defaults. Set `disableDefaultNoisePatterns: true` to use only your own patterns.
