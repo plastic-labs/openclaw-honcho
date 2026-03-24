@@ -143,14 +143,15 @@ The plugin manages markdown files in your workspace:
 
 ## AI Tools
 
-The plugin provides 4 tools — 2 data retrieval (cheap, no LLM) and 2 interactive (LLM-powered).
+The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interactive (LLM-powered).
 
-| Tool             | Type | Description                                                                                     |
-| ---------------- | ---- | ----------------------------------------------------------------------------------------------- |
-| `honcho_context` | Data | User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation. |
-| `honcho_search`  | Data | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
-| `honcho_session` | Data | Current session history and summary. Supports semantic search within the session.               |
-| `honcho_ask`     | Q&A  | Ask Honcho a question about the user. `depth='quick'` for facts, `'thorough'` for synthesis.   |
+| Tool                     | Type | Description                                                                                     |
+| ------------------------ | ---- | ----------------------------------------------------------------------------------------------- |
+| `honcho_context`         | Data | User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation. |
+| `honcho_search`          | Data | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
+| `honcho_message_search`  | Data | Find specific messages across all sessions. Filter by peer, session, date, metadata.            |
+| `honcho_session`         | Data | Current session history and summary. Supports semantic search within the session.               |
+| `honcho_ask`             | Q&A  | Ask Honcho a question about the user. `depth='quick'` for facts, `'thorough'` for synthesis.   |
 
 ## CLI Commands
 
