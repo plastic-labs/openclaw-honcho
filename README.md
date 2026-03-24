@@ -149,7 +149,7 @@ The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interacti
 | ------------------------ | ---- | ----------------------------------------------------------------------------------------------- |
 | `honcho_context`         | Data | User knowledge across all sessions. `detail='card'` for key facts, `'full'` for broad representation. |
 | `honcho_search`          | Data | Semantic vector search over stored observations. Returns raw memories ranked by relevance.      |
-| `honcho_message_search`  | Data | Find specific messages across all sessions. Filter by peer, session, date, metadata.            |
+| `honcho_message_search`  | Data | Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata.   |
 | `honcho_session`         | Data | Current session history and summary. Supports semantic search within the session.               |
 | `honcho_ask`             | Q&A  | Ask Honcho a question about the user. `depth='quick'` for facts, `'thorough'` for synthesis.   |
 

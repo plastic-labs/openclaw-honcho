@@ -61,7 +61,7 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   }
   if (hasMessageSearch) {
     lines.push(
-      "- honcho_message_search: Find specific messages across all sessions. Filter by peer, session, date, metadata."
+      "- honcho_message_search: Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata."
     );
   }
   if (hasSession) {
