@@ -34,7 +34,7 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
         await state.ensureInitialized();
         const agentPeer = await state.getAgentPeer(toolCtx.agentId);
 
-        const reasoningLevel = depth === "thorough" ? "medium" : "minimal";
+        const reasoningLevel = depth === "thorough" ? "high" : "low";
         const answer = await agentPeer.chat(query, {
           target: state.ownerPeer!,
           reasoningLevel,
