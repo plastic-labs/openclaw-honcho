@@ -11,7 +11,7 @@ import { OWNER_ID } from "../state.js";
 
 /* ── Upload manifest ─────────────────────────────────────────────────── */
 
-type ManifestEntry = { sha256: string; uploadedAt: string };
+type ManifestEntry = { sha256: string; uploadedAt: string; baseUrl: string; workspaceId: string };
 type UploadManifest = Record<string, ManifestEntry>;
 
 const MANIFEST_PATH = () => path.join(os.homedir(), ".openclaw", ".upload-manifest.json");
@@ -298,9 +298,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               const content = await fs.promises.readFile(filePath);
               const hash = contentHash(content);
 
-              // Skip files already uploaded with identical content
+              // Skip files already uploaded with identical content to the same destination
               const prev = manifest[filePath];
-              if (prev && prev.sha256 === hash) {
+              if (prev && prev.sha256 === hash && prev.baseUrl === resolvedBaseUrl && prev.workspaceId === resolvedWorkspaceId) {
                 console.log(`  ${progress} ~ Unchanged: ${filePath}`);
                 unchangedCount++;
                 continue;
@@ -314,7 +314,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 uploadCount++;
 
                 // Record success
-                manifest[filePath] = { sha256: hash, uploadedAt: new Date().toISOString() };
+                manifest[filePath] = { sha256: hash, uploadedAt: new Date().toISOString(), baseUrl: resolvedBaseUrl, workspaceId: resolvedWorkspaceId };
                 saveManifest(manifest);
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
