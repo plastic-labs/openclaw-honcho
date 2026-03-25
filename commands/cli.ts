@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8,6 +9,30 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 
+/* ── Upload manifest ─────────────────────────────────────────────────── */
+
+type ManifestEntry = { sha256: string; uploadedAt: string };
+type UploadManifest = Record<string, ManifestEntry>;
+
+const MANIFEST_PATH = () => path.join(os.homedir(), ".openclaw", ".upload-manifest.json");
+
+function loadManifest(): UploadManifest {
+  try {
+    return JSON.parse(fs.readFileSync(MANIFEST_PATH(), "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveManifest(manifest: UploadManifest): void {
+  const dir = path.dirname(MANIFEST_PATH());
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(MANIFEST_PATH(), JSON.stringify(manifest, null, 2));
+}
+
+function contentHash(content: Buffer): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
 
 export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
   api.registerCli(
@@ -240,9 +265,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             await new Promise((r) => setTimeout(r, 1500));
 
             const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB safety cap
-            const UPLOAD_DELAY_MS = 250; // stay under 5 req/sec platform limit
+            const UPLOAD_DELAY_MS = 400; // stay under 5 req/sec platform limit
 
+            const manifest = loadManifest();
             let uploadCount = 0;
+            let unchangedCount = 0;
             const skipped: string[] = [];
             const failed: { filePath: string; error: string }[] = [];
             const total = detected.length;
@@ -268,12 +295,26 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               }
 
               const content = await fs.promises.readFile(filePath);
+              const hash = contentHash(content);
+
+              // Skip files already uploaded with identical content
+              const prev = manifest[filePath];
+              if (prev && prev.sha256 === hash) {
+                console.log(`  ${progress} ~ Unchanged: ${filePath}`);
+                unchangedCount++;
+                continue;
+              }
+
               const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
               try {
                 await new Promise((r) => setTimeout(r, UPLOAD_DELAY_MS));
                 await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
                 console.log(`  ${progress} ✓ Uploaded: ${filePath}`);
                 uploadCount++;
+
+                // Record success
+                manifest[filePath] = { sha256: hash, uploadedAt: new Date().toISOString() };
+                saveManifest(manifest);
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
                 console.log(`  ${progress} ✗ Failed: ${filePath}`);
@@ -281,12 +322,19 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               }
             }
 
+            // Clean stale manifest entries
+            for (const key of Object.keys(manifest)) {
+              if (!fs.existsSync(key)) delete manifest[key];
+            }
+            saveManifest(manifest);
+
             // Summary
             console.log(`\nUpload summary:`);
-            console.log(`  Uploaded: ${uploadCount}/${total}`);
-            if (skipped.length > 0) console.log(`  Skipped:  ${skipped.length}`);
+            console.log(`  Uploaded:  ${uploadCount}/${total}`);
+            if (unchangedCount > 0) console.log(`  Unchanged: ${unchangedCount}`);
+            if (skipped.length > 0) console.log(`  Skipped:   ${skipped.length}`);
             if (failed.length > 0) {
-              console.log(`  Failed:   ${failed.length}`);
+              console.log(`  Failed:    ${failed.length}`);
               for (const f of failed) {
                 console.log(`    ! ${f.filePath} — ${f.error}`);
               }
