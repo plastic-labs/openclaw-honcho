@@ -87,6 +87,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               resolvedApiKey = savedApiKey;
               resolvedBaseUrl = savedBaseUrl;
               resolvedWorkspaceId = savedWorkspaceId;
+              console.log("✓ Using existing configuration\n");
             } else {
               console.log('Press Enter to use the default shown in [brackets].\n');
 
@@ -98,26 +99,26 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               resolvedApiKey = apiKeyInput.trim() || savedApiKey;
               resolvedBaseUrl = baseUrlInput.trim() || savedBaseUrl;
               resolvedWorkspaceId = workspaceIdInput.trim() || savedWorkspaceId;
+
+              // Write config
+              if (!config.plugins) config.plugins = {};
+              const pluginsSection = config.plugins as Record<string, unknown>;
+              if (!pluginsSection.entries) pluginsSection.entries = {};
+              const entriesSection = pluginsSection.entries as Record<string, unknown>;
+              const existingEntry = (entriesSection["openclaw-honcho"] as Record<string, unknown>) ?? {};
+              const pluginCfg: Record<string, unknown> = {
+                ...(existingEntry.config as Record<string, unknown> ?? {}),
+              };
+              if (resolvedApiKey) pluginCfg.apiKey = resolvedApiKey;
+              else delete pluginCfg.apiKey;
+              pluginCfg.baseUrl = resolvedBaseUrl;
+              pluginCfg.workspaceId = resolvedWorkspaceId;
+              entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
+
+              if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+              fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
             }
-
-            // Write config
-            if (!config.plugins) config.plugins = {};
-            const pluginsSection = config.plugins as Record<string, unknown>;
-            if (!pluginsSection.entries) pluginsSection.entries = {};
-            const entriesSection = pluginsSection.entries as Record<string, unknown>;
-            const existingEntry = (entriesSection["openclaw-honcho"] as Record<string, unknown>) ?? {};
-            const pluginCfg: Record<string, unknown> = {
-              ...(existingEntry.config as Record<string, unknown> ?? {}),
-            };
-            if (resolvedApiKey) pluginCfg.apiKey = resolvedApiKey;
-            else delete pluginCfg.apiKey;
-            pluginCfg.baseUrl = resolvedBaseUrl;
-            pluginCfg.workspaceId = resolvedWorkspaceId;
-            entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
-
-            if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-            console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
 
             // Resolve default agent and its workspace from config
             let savedConfig: Record<string, unknown> = {};
