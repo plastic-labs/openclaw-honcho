@@ -295,19 +295,19 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 continue;
               }
 
-              const content = await fs.promises.readFile(filePath);
-              const hash = contentHash(content);
-
-              // Skip files already uploaded with identical content to the same destination
-              const prev = manifest[filePath];
-              if (prev && prev.sha256 === hash && prev.baseUrl === resolvedBaseUrl && prev.workspaceId === resolvedWorkspaceId) {
-                console.log(`  ${progress} ~ Unchanged: ${filePath}`);
-                unchangedCount++;
-                continue;
-              }
-
               const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
               try {
+                const content = await fs.promises.readFile(filePath);
+                const hash = contentHash(content);
+
+                // Skip files already uploaded with identical content to the same destination
+                const prev = manifest[filePath];
+                if (prev && prev.sha256 === hash && prev.baseUrl === resolvedBaseUrl && prev.workspaceId === resolvedWorkspaceId) {
+                  console.log(`  ${progress} ~ Unchanged: ${filePath}`);
+                  unchangedCount++;
+                  continue;
+                }
+
                 await new Promise((r) => setTimeout(r, UPLOAD_DELAY_MS));
                 await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
                 console.log(`  ${progress} ✓ Uploaded: ${filePath}`);
