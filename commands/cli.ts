@@ -8,6 +8,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 
+
 export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
   api.registerCli(
     ({ program, workspaceDir }) => {
@@ -16,30 +17,65 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
       cmd
         .command("setup")
         .description("Configure Honcho API key and upload memory files to Honcho")
-        .action(async () => {
+        .option("--reconfigure", "Force re-entry of all configuration values")
+        .action(async (options: { reconfigure?: boolean }) => {
           const configDir = path.join(os.homedir(), ".openclaw");
           const configPath = path.join(configDir, "openclaw.json");
 
+          // Load existing config to use as defaults
+          let config: Record<string, unknown> = {};
+          if (fs.existsSync(configPath)) {
+            try { config = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
+          }
+          const existingPluginCfg = (
+            ((config.plugins as Record<string, unknown>)
+              ?.entries as Record<string, unknown>)
+              ?.["openclaw-honcho"] as Record<string, unknown>
+          )?.config as Record<string, unknown> | undefined;
+
+          const savedApiKey = (existingPluginCfg?.apiKey as string) ?? "";
+          const savedBaseUrl = (existingPluginCfg?.baseUrl as string) || "https://api.honcho.dev";
+          const savedWorkspaceId = (existingPluginCfg?.workspaceId as string) || "openclaw";
+          const hasExistingConfig = !!existingPluginCfg && !!savedApiKey;
+
           console.log("\nHoncho Setup\n");
           console.log("Get your API key from: https://app.honcho.dev\n");
-          console.log('Press Enter to use the default shown in [brackets].\n');
 
           const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
           const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));
 
           try {
-            const apiKeyInput = await ask("Honcho API key (press Enter for self-hosted mode): ");
-            const baseUrlInput = await ask("Base URL [https://api.honcho.dev]: ");
-            const workspaceIdInput = await ask("Workspace ID [openclaw]: ");
+            let resolvedApiKey: string;
+            let resolvedBaseUrl: string;
+            let resolvedWorkspaceId: string;
 
-            const resolvedBaseUrl = baseUrlInput.trim() || "https://api.honcho.dev";
-            const resolvedWorkspaceId = workspaceIdInput.trim() || "openclaw";
+            if (hasExistingConfig && !options.reconfigure) {
+              const maskedKey = savedApiKey.length > 8
+                ? savedApiKey.slice(0, 4) + "..." + savedApiKey.slice(-4)
+                : "****";
+              console.log("Existing configuration found:");
+              console.log(`  API key:      ${maskedKey}`);
+              console.log(`  Base URL:     ${savedBaseUrl}`);
+              console.log(`  Workspace ID: ${savedWorkspaceId}`);
+              console.log('\nPress Enter to keep existing values, or use --reconfigure to change.\n');
+
+              resolvedApiKey = savedApiKey;
+              resolvedBaseUrl = savedBaseUrl;
+              resolvedWorkspaceId = savedWorkspaceId;
+            } else {
+              console.log('Press Enter to use the default shown in [brackets].\n');
+
+              const apiKeyDefault = savedApiKey ? ` [${savedApiKey.slice(0, 4)}...${savedApiKey.slice(-4)}]` : "";
+              const apiKeyInput = await ask(`Honcho API key${apiKeyDefault || " (press Enter for self-hosted mode)"}: `);
+              const baseUrlInput = await ask(`Base URL [${savedBaseUrl}]: `);
+              const workspaceIdInput = await ask(`Workspace ID [${savedWorkspaceId}]: `);
+
+              resolvedApiKey = apiKeyInput.trim() || savedApiKey;
+              resolvedBaseUrl = baseUrlInput.trim() || savedBaseUrl;
+              resolvedWorkspaceId = workspaceIdInput.trim() || savedWorkspaceId;
+            }
 
             // Write config
-            let config: Record<string, unknown> = {};
-            if (fs.existsSync(configPath)) {
-              try { config = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
-            }
             if (!config.plugins) config.plugins = {};
             const pluginsSection = config.plugins as Record<string, unknown>;
             if (!pluginsSection.entries) pluginsSection.entries = {};
@@ -48,15 +84,10 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const pluginCfg: Record<string, unknown> = {
               ...(existingEntry.config as Record<string, unknown> ?? {}),
             };
-            const trimmedApiKey = apiKeyInput.trim();
-            if (trimmedApiKey) pluginCfg.apiKey = trimmedApiKey;
+            if (resolvedApiKey) pluginCfg.apiKey = resolvedApiKey;
             else delete pluginCfg.apiKey;
-            const trimmedBaseUrl = baseUrlInput.trim();
-            if (trimmedBaseUrl) pluginCfg.baseUrl = trimmedBaseUrl;
-            else delete pluginCfg.baseUrl;
-            const trimmedWorkspaceId = workspaceIdInput.trim();
-            if (trimmedWorkspaceId) pluginCfg.workspaceId = trimmedWorkspaceId;
-            else delete pluginCfg.workspaceId;
+            if (resolvedBaseUrl !== "https://api.honcho.dev") pluginCfg.baseUrl = resolvedBaseUrl;
+            if (resolvedWorkspaceId !== "openclaw") pluginCfg.workspaceId = resolvedWorkspaceId;
             entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
 
             if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
@@ -189,7 +220,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
             // Upload files to Honcho
             const setupHoncho = new Honcho({
-              apiKey: apiKeyInput.trim() || undefined,
+              apiKey: resolvedApiKey || undefined,
               baseURL: resolvedBaseUrl,
               workspaceId: resolvedWorkspaceId,
             });
@@ -204,31 +235,63 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               [agentPeerSetup, { observeMe: true, observeOthers: true }],
             ]);
 
+            // Cooldown after setup calls — the hosted platform (groudon) enforces
+            // 5 req/sec per tenant; the 6 calls above consume most of that budget.
+            await new Promise((r) => setTimeout(r, 1500));
+
             const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB safety cap
+            const UPLOAD_DELAY_MS = 250; // stay under 5 req/sec platform limit
 
             let uploadCount = 0;
-            for (const { filePath, peer } of detected) {
+            const skipped: string[] = [];
+            const failed: { filePath: string; error: string }[] = [];
+            const total = detected.length;
+
+            for (let i = 0; i < detected.length; i++) {
+              const { filePath, peer } = detected[i];
+              const progress = `[${i + 1}/${total}]`;
+
               const stat = await fs.promises.stat(filePath).catch(() => null);
               if (!stat?.isFile()) continue;
               if (stat.size > MAX_UPLOAD_BYTES) {
-                console.log(`  ! Skipping (too large): ${filePath}`);
+                console.log(`  ${progress} ! Skipping (larger than 5MB): ${filePath}`);
+                skipped.push(filePath);
                 continue;
               }
               const filename = path.basename(filePath);
               const ext = path.extname(filename).toLowerCase();
               const content_type = ext === ".json" ? "application/json" : ext === ".md" ? "text/markdown" : null;
               if (!content_type) {
-                console.log(`  ! Skipping unsupported file type: ${filePath}`);
+                console.log(`  ${progress} ! Skipping unsupported type: ${filePath}`);
+                skipped.push(filePath);
                 continue;
               }
+
               const content = await fs.promises.readFile(filePath);
               const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
-              await new Promise((r) => setTimeout(r, 250)); // stay under 5 req/sec limit
-              await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
-              console.log(`  ✓ Uploaded: ${filePath}`);
-              uploadCount++;
+              try {
+                await new Promise((r) => setTimeout(r, UPLOAD_DELAY_MS));
+                await migrationSession.uploadFile({ filename, content, content_type }, targetPeer, {});
+                console.log(`  ${progress} ✓ Uploaded: ${filePath}`);
+                uploadCount++;
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.log(`  ${progress} ✗ Failed: ${filePath}`);
+                failed.push({ filePath, error: msg });
+              }
             }
-            console.log(`\n✓ Uploaded ${uploadCount} file(s) to Honcho`);
+
+            // Summary
+            console.log(`\nUpload summary:`);
+            console.log(`  Uploaded: ${uploadCount}/${total}`);
+            if (skipped.length > 0) console.log(`  Skipped:  ${skipped.length}`);
+            if (failed.length > 0) {
+              console.log(`  Failed:   ${failed.length}`);
+              for (const f of failed) {
+                console.log(`    ! ${f.filePath} — ${f.error}`);
+              }
+              console.log(`\nRun \`openclaw honcho setup\` again to retry failed files.`);
+            }
 
             console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
           } finally {
