@@ -86,8 +86,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             };
             if (resolvedApiKey) pluginCfg.apiKey = resolvedApiKey;
             else delete pluginCfg.apiKey;
-            if (resolvedBaseUrl !== "https://api.honcho.dev") pluginCfg.baseUrl = resolvedBaseUrl;
-            if (resolvedWorkspaceId !== "openclaw") pluginCfg.workspaceId = resolvedWorkspaceId;
+            pluginCfg.baseUrl = resolvedBaseUrl;
+            pluginCfg.workspaceId = resolvedWorkspaceId;
             entriesSection["openclaw-honcho"] = { ...existingEntry, config: pluginCfg };
 
             if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
