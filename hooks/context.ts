@@ -11,17 +11,22 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const isSubagent = isSubagentSession(ctx);
 
+    // Resolve workspace and get the correct Honcho client for this agent
+    const workspaceId = state.resolveWorkspace(agentId);
+    const honcho = state.getHonchoClient(workspaceId);
+
     state.turnStartIndex.set(sessionKey, event.messages.length);
 
     try {
-      await state.ensureInitialized();
+      await state.ensureInitialized(workspaceId);
       const agentPeer = await state.getAgentPeer(agentId);
+      const ownerPeer = state.getOwnerPeer(workspaceId)!;
 
       const sections: string[] = [];
 
       if (isSubagent) {
         try {
-          const peerCtx = await agentPeer.context({ target: state.ownerPeer! });
+          const peerCtx = await agentPeer.context({ target: ownerPeer });
           if (peerCtx.peerCard?.length) {
             sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
           }
@@ -36,14 +41,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
       } else {
-        const session = await state.honcho.session(sessionKey, { metadata: { agentId } });
+        const session = await honcho.session(sessionKey, { metadata: { agentId } });
 
         let context;
         try {
           context = await session.context({
             summary: true,
             tokens: 2000,
-            peerTarget: state.ownerPeer!,
+            peerTarget: ownerPeer,
             peerPerspective: agentPeer,
           });
         } catch (e: unknown) {

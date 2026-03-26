@@ -26,7 +26,11 @@ async function flushMessages(
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
 
-  await state.ensureInitialized();
+  // Resolve workspace and get the correct Honcho client for this agent
+  const workspaceId = state.resolveWorkspace(agentId);
+  const honcho = state.getHonchoClient(workspaceId);
+
+  await state.ensureInitialized(workspaceId);
   const agentPeer = await state.getAgentPeer(agentId);
   const parentPeer =
     isSubagent && parentAgentId && parentAgentId !== agentId
@@ -41,7 +45,7 @@ async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+  const session = await honcho.session(sessionKey, { metadata: sessionMeta });
   const meta = await session.getMetadata();
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
@@ -70,7 +74,8 @@ async function flushMessages(
   }
 
   const newRawMessages = messages.slice(startIndex);
-  const extracted = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
+  const ownerPeer = state.getOwnerPeer(workspaceId)!;
+  const extracted = extractMessages(newRawMessages, ownerPeer, agentPeer, state.cfg.noisePatterns);
 
   if (extracted.length === 0) {
     await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });

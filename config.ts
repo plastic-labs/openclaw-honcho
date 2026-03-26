@@ -16,6 +16,22 @@ export type HonchoConfig = {
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
+  /**
+   * Optional per-agent workspace routing.
+   * Maps agent ID prefixes to Honcho workspace IDs.
+   * Agents whose IDs start with a matching prefix will use the mapped workspace.
+   * Agents not matching any prefix fall back to the default `workspaceId`.
+   *
+   * Example:
+   * ```json
+   * {
+   *   "nr_": "neoreef",
+   *   "hb_": "her-beauty",
+   *   "lc_": "lifecycle"
+   * }
+   * ```
+   */
+  workspaceMapping?: Record<string, string>;
 };
 
 /**
@@ -55,6 +71,20 @@ export const honchoConfigSchema = {
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
 
+    // Parse optional workspace mapping (agentId prefix → workspaceId)
+    let workspaceMapping: Record<string, string> | undefined;
+    if (cfg.workspaceMapping && typeof cfg.workspaceMapping === "object" && !Array.isArray(cfg.workspaceMapping)) {
+      const mapping: Record<string, string> = {};
+      for (const [prefix, wsId] of Object.entries(cfg.workspaceMapping as Record<string, unknown>)) {
+        if (typeof prefix === "string" && prefix.length > 0 && typeof wsId === "string" && wsId.length > 0) {
+          mapping[prefix] = wsId;
+        }
+      }
+      if (Object.keys(mapping).length > 0) {
+        workspaceMapping = mapping;
+      }
+    }
+
     return {
       apiKey,
       workspaceId:
@@ -68,6 +98,7 @@ export const honchoConfigSchema = {
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
+      workspaceMapping,
     };
   },
 };
