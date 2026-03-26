@@ -16,6 +16,30 @@ export type HonchoConfig = {
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
+  /**
+   * Maximum number of unsaved messages to backfill when catching up.
+   * If a session has more unsaved messages than this limit, older messages
+   * are skipped and lastSavedIndex advances to only save the most recent N.
+   * Set to 0 to never backfill (only save messages from the current turn onward).
+   * Default: 100 (save up to 100 backlogged messages).
+   */
+  maxBackfill: number;
+  /**
+   * Optional per-agent workspace routing.
+   * Maps agent ID prefixes to Honcho workspace IDs.
+   * Agents whose IDs start with a matching prefix will use the mapped workspace.
+   * Agents not matching any prefix fall back to the default `workspaceId`.
+   *
+   * Example:
+   * ```json
+   * {
+   *   "nr_": "neoreef",
+   *   "hb_": "her-beauty",
+   *   "lc_": "lifecycle"
+   * }
+   * ```
+   */
+  workspaceMapping?: Record<string, string>;
 };
 
 /**
@@ -55,6 +79,20 @@ export const honchoConfigSchema = {
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
 
+    // Parse optional workspace mapping (agentId prefix → workspaceId)
+    let workspaceMapping: Record<string, string> | undefined;
+    if (cfg.workspaceMapping && typeof cfg.workspaceMapping === "object" && !Array.isArray(cfg.workspaceMapping)) {
+      const mapping: Record<string, string> = {};
+      for (const [prefix, wsId] of Object.entries(cfg.workspaceMapping as Record<string, unknown>)) {
+        if (typeof prefix === "string" && prefix.length > 0 && typeof wsId === "string" && wsId.length > 0) {
+          mapping[prefix] = wsId;
+        }
+      }
+      if (Object.keys(mapping).length > 0) {
+        workspaceMapping = mapping;
+      }
+    }
+
     return {
       apiKey,
       workspaceId:
@@ -68,6 +106,8 @@ export const honchoConfigSchema = {
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
+      maxBackfill: typeof cfg.maxBackfill === "number" && cfg.maxBackfill >= 0 ? cfg.maxBackfill : 100,
+      workspaceMapping,
     };
   },
 };

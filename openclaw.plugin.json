@@ -26,6 +26,11 @@
         "type": "boolean",
         "default": false,
         "description": "Whether the owner peer observes agent messages. When true, Honcho models the user's awareness of assistant responses."
+      },
+      "workspaceMapping": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "description": "Optional per-agent workspace routing. Maps agent ID prefixes to Honcho workspace IDs. Agents not matching any prefix use the default workspaceId."
       }
     }
   },
@@ -55,6 +60,11 @@
       "label": "Owner Observes Agent",
       "advanced": true,
       "help": "When enabled, Honcho models the user as aware of the agent's responses. Default: off."
+    },
+    "workspaceMapping": {
+      "label": "Workspace Mapping",
+      "advanced": true,
+      "help": "Map agent ID prefixes to Honcho workspace IDs for multi-org isolation. Example: {\"nr_\": \"neoreef\", \"hb_\": \"her-beauty\"}. Agents not matching any prefix use the default workspaceId."
     }
   }
 }

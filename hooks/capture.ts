@@ -26,7 +26,11 @@ async function flushMessages(
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
 
-  await state.ensureInitialized();
+  // Resolve workspace and get the correct Honcho client for this agent
+  const workspaceId = state.resolveWorkspace(agentId);
+  const honcho = state.getHonchoClient(workspaceId);
+
+  await state.ensureInitialized(workspaceId);
   const agentPeer = await state.getAgentPeer(agentId);
   const parentPeer =
     isSubagent && parentAgentId && parentAgentId !== agentId
@@ -41,7 +45,7 @@ async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+  const session = await honcho.session(sessionKey, { metadata: sessionMeta });
   const meta = await session.getMetadata();
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
@@ -69,15 +73,47 @@ async function flushMessages(
     return 0;
   }
 
-  const newRawMessages = messages.slice(startIndex);
-  const extracted = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
+  // Cap backfill to prevent overwhelming Honcho with stale history.
+  // If more messages are unsaved than maxBackfill, skip older ones.
+  const unsavedCount = messages.length - startIndex;
+  const maxBackfill = state.cfg.maxBackfill;
+  let effectiveStartIndex = startIndex;
+  if (maxBackfill >= 0 && unsavedCount > maxBackfill) {
+    const skipped = unsavedCount - maxBackfill;
+    effectiveStartIndex = messages.length - maxBackfill;
+    // Advance lastSavedIndex past the skipped messages so they're never retried
+    await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: effectiveStartIndex });
+    if (maxBackfill === 0) {
+      // No backfill at all — just mark current position and return
+      await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
+      return 0;
+    }
+    api.logger.info?.(`[honcho] Skipped ${skipped} old messages (maxBackfill=${maxBackfill}), saving most recent ${maxBackfill}`);
+  }
+
+  const newRawMessages = messages.slice(effectiveStartIndex);
+  const ownerPeer = state.getOwnerPeer(workspaceId)!;
+  const extracted = extractMessages(newRawMessages, ownerPeer, agentPeer, state.cfg.noisePatterns);
 
   if (extracted.length === 0) {
     await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
     return 0;
   }
 
-  await session.addMessages(extracted);
+  // Honcho API enforces a 100-message-per-request limit.
+  // Batch to stay under that ceiling and advance lastSavedIndex per batch
+  // so partial progress is preserved if a later batch fails.
+  const BATCH_SIZE = 50;
+  let saved = 0;
+  for (let i = 0; i < extracted.length; i += BATCH_SIZE) {
+    const batch = extracted.slice(i, i + BATCH_SIZE);
+    await session.addMessages(batch);
+    saved += batch.length;
+    // Advance index after each successful batch so we don't re-send on retry
+    const progressIndex = startIndex + saved;
+    await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: progressIndex });
+  }
+
   await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
   return extracted.length;
 }
