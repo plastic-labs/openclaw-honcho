@@ -86,6 +86,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     apiKey: cfg.apiKey,
     baseURL: cfg.baseUrl,
     workspaceId: cfg.workspaceId,
+    timeout: 30_000, // 30s — addMessages with 50-msg batches needs headroom
   });
 
   // Cache of workspace-specific clients (keyed by workspaceId)
@@ -170,6 +171,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
         apiKey: cfg.apiKey,
         baseURL: cfg.baseUrl,
         workspaceId,
+        timeout: 30_000,
       });
       clientCache.set(workspaceId, client);
     }
