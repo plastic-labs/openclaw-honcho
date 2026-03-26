@@ -3,6 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { Message } from "@honcho-ai/sdk";
 import type { PluginState } from "../state.js";
+import { buildSessionKey } from "../helpers.js";
 
 export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -90,7 +91,8 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         // Route to the appropriate search method based on `from`
         let messages: Message[];
         if (from === "user") {
-          messages = await state.ownerPeer!.search(query, searchOpts);
+          const humanPeer = await state.resolveSessionHumanPeer(buildSessionKey(toolCtx));
+          messages = await humanPeer.search(query, searchOpts);
         } else if (from === "agent") {
           const agentPeer = await state.getAgentPeer(toolCtx.agentId);
           messages = await agentPeer.search(query, searchOpts);
@@ -111,7 +113,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         }
 
         const results = messages.map((msg) => {
-          const speaker = msg.peerId === state.ownerPeer!.id ? "User" : "Agent";
+          const speaker = state.isHumanPeerId(msg.peerId) ? "User" : "Agent";
           return {
             id: msg.id,
             content: msg.content,

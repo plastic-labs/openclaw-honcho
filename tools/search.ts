@@ -2,10 +2,11 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
+import { buildSessionKey } from "../helpers.js";
 
 export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
-    {
+    (toolCtx) => ({
       name: "honcho_search_conclusions",
       label: "Search Honcho conclusions",
       description:
@@ -40,8 +41,9 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
         };
 
         await state.ensureInitialized();
+        const humanPeer = await state.resolveSessionHumanPeer(buildSessionKey(toolCtx));
 
-        const representation = await state.ownerPeer!.representation({
+        const representation = await humanPeer.representation({
           searchQuery: query,
           searchTopK: topK ?? 10,
           searchMaxDistance: maxDistance ?? 0.5,
@@ -64,7 +66,7 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
           details: { query, resultCount: representation.split("\n").filter(Boolean).length },
         };
       },
-    },
+    }),
     { name: "honcho_search_conclusions" }
   );
 }

@@ -261,7 +261,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
           try {
             await state.ensureInitialized();
             const agentPeer = await state.getAgentPeer(options.agent ?? state.resolveDefaultAgentId());
-            const answer = await agentPeer.chat(question, { target: state.ownerPeer! });
+            const humanPeer = await state.getHumanPeer();
+            const answer = await agentPeer.chat(question, { target: humanPeer });
             console.log(answer ?? "No information available.");
           } catch (error) {
             console.error(`Failed to query: ${error}`);
@@ -276,7 +277,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .action(async (query: string, options: { topK: string; maxDistance: string }) => {
           try {
             await state.ensureInitialized();
-            const representation = await state.ownerPeer!.representation({
+            const humanPeer = await state.getHumanPeer();
+            const representation = await humanPeer.representation({
               searchQuery: query,
               searchTopK: parseInt(options.topK, 10),
               searchMaxDistance: parseFloat(options.maxDistance),

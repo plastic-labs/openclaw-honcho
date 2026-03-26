@@ -6,8 +6,31 @@ import {
   buildSessionKey,
   isSubagentSession,
   extractMessages,
+  extractSenderId,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
+
+/**
+ * Extract raw text content from a message object (before cleaning).
+ */
+function getRawContent(msg: unknown): string {
+  if (!msg || typeof msg !== "object") return "";
+  const m = msg as Record<string, unknown>;
+  if (typeof m.content === "string") return m.content;
+  if (Array.isArray(m.content)) {
+    return m.content
+      .filter(
+        (block: unknown) =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as Record<string, unknown>).type === "text"
+      )
+      .map((block: unknown) => (block as Record<string, unknown>).text)
+      .filter((t): t is string => typeof t === "string")
+      .join("\n");
+  }
+  return "";
+}
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -55,30 +78,85 @@ async function flushMessages(
   const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
   const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
-  const peerConfigs: Array<[string, { observeMe: boolean; observeOthers: boolean }]> = [
-    [OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers }],
-    [agentPeer.id, { observeMe: true, observeOthers: true }],
-  ];
-  if (parentPeer) {
-    peerConfigs.push([parentPeer.id, { observeMe: false, observeOthers: true }]);
-  }
-
-  await session.addPeers(peerConfigs);
-
   if (messages.length <= startIndex) {
     return 0;
   }
 
   const newRawMessages = messages.slice(startIndex);
-  const extracted = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
+
+  // Pre-resolve human peers for all unique sender IDs in this batch
+  const senderIds = new Set<string>();
+  let lastSenderId: string | undefined;
+  let userMsgCount = 0;
+  for (const msg of newRawMessages) {
+    if (!msg || typeof msg !== "object") continue;
+    const m = msg as Record<string, unknown>;
+    if (m.role !== "user") continue;
+    userMsgCount++;
+    const rawContent = getRawContent(msg);
+    const senderId = extractSenderId(rawContent);
+    if (senderId) {
+      senderIds.add(senderId);
+      lastSenderId = senderId;
+    } else {
+      const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
+      api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
+    }
+  }
+  if (senderIds.size > 0) {
+    api.logger.debug?.(`[honcho] Resolved ${senderIds.size} unique sender(s) from ${userMsgCount} user message(s): ${[...senderIds].join(", ")}`);
+  }
+
+  const resolvedPeers = new Map<string, Awaited<ReturnType<typeof state.getHumanPeer>>>();
+  for (const senderId of senderIds) {
+    resolvedPeers.set(senderId, await state.getHumanPeer(senderId));
+  }
+
+  const defaultHumanPeer = await state.getHumanPeer();
+
+  // Build peer configs: default owner + all resolved human peers + agent + parent
+  const peerConfigMap = new Map<string, { observeMe: boolean; observeOthers: boolean }>();
+  peerConfigMap.set(OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
+  for (const [, peer] of resolvedPeers) {
+    if (peer.id !== OWNER_ID) {
+      peerConfigMap.set(peer.id, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
+    }
+  }
+  peerConfigMap.set(agentPeer.id, { observeMe: true, observeOthers: true });
+  if (parentPeer) {
+    peerConfigMap.set(parentPeer.id, { observeMe: false, observeOthers: true });
+  }
+
+  const peerConfigs = Array.from(peerConfigMap.entries()) as Array<
+    [string, { observeMe: boolean; observeOthers: boolean }]
+  >;
+  await session.addPeers(peerConfigs);
+
+  const extracted = extractMessages(
+    newRawMessages,
+    defaultHumanPeer,
+    agentPeer,
+    state.cfg.noisePatterns,
+    (senderId) => resolvedPeers.get(senderId),
+  );
+
+  // Store the last active human sender's channel peer ID for tool resolution
+  const updatedMeta: Record<string, unknown> = {
+    ...existingMeta,
+    ...sessionMeta,
+    lastSavedIndex: messages.length,
+  };
+  if (lastSenderId) {
+    updatedMeta.humanPeerId = lastSenderId;
+  }
 
   if (extracted.length === 0) {
-    await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
+    await session.setMetadata(updatedMeta);
     return 0;
   }
 
   await session.addMessages(extracted);
-  await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
+  await session.setMetadata(updatedMeta);
   return extracted.length;
 }
 

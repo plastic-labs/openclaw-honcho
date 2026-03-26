@@ -16,6 +16,8 @@ export type HonchoConfig = {
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
+  peerMappings: Record<string, string>;
+  agentPeerMappings: Record<string, string>;
 };
 
 /**
@@ -30,6 +32,17 @@ function resolveEnvVars(value: string): string {
     }
     return envValue;
   });
+}
+
+function parseStringRecord(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k === "string" && typeof v === "string" && k.length > 0 && v.length > 0) {
+      result[k] = v;
+    }
+  }
+  return result;
 }
 
 export const honchoConfigSchema = {
@@ -68,6 +81,8 @@ export const honchoConfigSchema = {
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
+      peerMappings: parseStringRecord(cfg.peerMappings),
+      agentPeerMappings: parseStringRecord(cfg.agentPeerMappings),
     };
   },
 };

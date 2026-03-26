@@ -2,10 +2,11 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
+import { buildSessionKey } from "../helpers.js";
 
 export function registerContextTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
-    {
+    (toolCtx) => ({
       name: "honcho_context",
       label: "Get User Context",
       description:
@@ -26,9 +27,10 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
         const { detail = "card" } = params as { detail?: "card" | "full" };
 
         await state.ensureInitialized();
+        const humanPeer = await state.resolveSessionHumanPeer(buildSessionKey(toolCtx));
 
         if (detail === "card") {
-          const card = await state.ownerPeer!.card().catch((err) => {
+          const card = await humanPeer.card().catch((err) => {
             // Only treat NotFoundError as empty; re-throw others or log
             if (err?.name === "NotFoundError") return null;
             // Optionally log unexpected errors for debugging
@@ -60,7 +62,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
         }
 
         // detail === "full"
-        const representation = await state.ownerPeer!.representation({
+        const representation = await humanPeer.representation({
           includeMostFrequent: true,
         });
 
@@ -81,7 +83,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
           details: { detail, representationLength: representation.length },
         };
       },
-    },
+    }),
     { name: "honcho_context" }
   );
 }

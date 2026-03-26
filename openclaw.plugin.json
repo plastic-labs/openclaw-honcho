@@ -26,6 +26,18 @@
         "type": "boolean",
         "default": false,
         "description": "Whether the owner peer observes agent messages. When true, Honcho models the user's awareness of assistant responses."
+      },
+      "peerMappings": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "default": {},
+        "description": "Maps channel peer IDs (e.g., Discord user IDs) to Honcho peer IDs. Unmapped senders are auto-created using their channel peer ID."
+      },
+      "agentPeerMappings": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "default": {},
+        "description": "Maps OpenClaw agent IDs to Honcho peer IDs. By default, agent 'foo' gets peer ID 'agent-foo'."
       }
     }
   },
@@ -55,6 +67,16 @@
       "label": "Owner Observes Agent",
       "advanced": true,
       "help": "When enabled, Honcho models the user as aware of the agent's responses. Default: off."
+    },
+    "peerMappings": {
+      "label": "Peer Mappings",
+      "advanced": true,
+      "help": "Maps channel peer IDs (e.g., Discord user IDs) to Honcho peer IDs. Unmapped senders are auto-created."
+    },
+    "agentPeerMappings": {
+      "label": "Agent Peer Mappings",
+      "advanced": true,
+      "help": "Maps OpenClaw agent IDs to custom Honcho peer IDs. Default: agent 'foo' → peer 'agent-foo'."
     }
   }
 }

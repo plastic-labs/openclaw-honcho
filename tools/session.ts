@@ -54,6 +54,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
         await state.ensureInitialized();
         const agentPeer = await state.getAgentPeer(toolCtx.agentId);
         const sessionKey = buildSessionKey(toolCtx);
+        const humanPeer = await state.resolveSessionHumanPeer(sessionKey);
 
         try {
           const session = await state.honcho.session(sessionKey);
@@ -61,7 +62,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           const context = await session.context({
             summary: includeSummary,
             tokens: messageLimit,
-            peerTarget: state.ownerPeer!,
+            peerTarget: humanPeer,
             peerPerspective: agentPeer,
             searchQuery: searchQuery,
           });
@@ -88,7 +89,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
 
           if (includeMessages && context.messages.length > 0) {
             const messageLines = context.messages.map((msg) => {
-              const speaker = msg.peerId === state.ownerPeer!.id ? "User" : "OpenClaw";
+              const speaker = state.isHumanPeerId(msg.peerId) ? "User" : "OpenClaw";
               const timestamp = msg.createdAt
                 ? new Date(msg.createdAt).toLocaleString()
                 : "";
