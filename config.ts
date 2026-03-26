@@ -17,6 +17,14 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   /**
+   * Maximum number of unsaved messages to backfill when catching up.
+   * If a session has more unsaved messages than this limit, older messages
+   * are skipped and lastSavedIndex advances to only save the most recent N.
+   * Set to 0 to never backfill (only save messages from the current turn onward).
+   * Default: 100 (save up to 100 backlogged messages).
+   */
+  maxBackfill: number;
+  /**
    * Optional per-agent workspace routing.
    * Maps agent ID prefixes to Honcho workspace IDs.
    * Agents whose IDs start with a matching prefix will use the mapped workspace.
@@ -98,6 +106,7 @@ export const honchoConfigSchema = {
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
+      maxBackfill: typeof cfg.maxBackfill === "number" && cfg.maxBackfill >= 0 ? cfg.maxBackfill : 100,
       workspaceMapping,
     };
   },

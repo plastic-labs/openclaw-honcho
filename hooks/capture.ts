@@ -73,7 +73,25 @@ async function flushMessages(
     return 0;
   }
 
-  const newRawMessages = messages.slice(startIndex);
+  // Cap backfill to prevent overwhelming Honcho with stale history.
+  // If more messages are unsaved than maxBackfill, skip older ones.
+  const unsavedCount = messages.length - startIndex;
+  const maxBackfill = state.cfg.maxBackfill;
+  let effectiveStartIndex = startIndex;
+  if (maxBackfill >= 0 && unsavedCount > maxBackfill) {
+    const skipped = unsavedCount - maxBackfill;
+    effectiveStartIndex = messages.length - maxBackfill;
+    // Advance lastSavedIndex past the skipped messages so they're never retried
+    await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: effectiveStartIndex });
+    if (maxBackfill === 0) {
+      // No backfill at all — just mark current position and return
+      await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
+      return 0;
+    }
+    api.logger.info?.(`[honcho] Skipped ${skipped} old messages (maxBackfill=${maxBackfill}), saving most recent ${maxBackfill}`);
+  }
+
+  const newRawMessages = messages.slice(effectiveStartIndex);
   const ownerPeer = state.getOwnerPeer(workspaceId)!;
   const extracted = extractMessages(newRawMessages, ownerPeer, agentPeer, state.cfg.noisePatterns);
 
