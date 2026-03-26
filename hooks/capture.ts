@@ -140,7 +140,14 @@ async function flushMessages(
     (senderId) => resolvedPeers.get(senderId),
   );
 
-  // Store the last active human sender's channel peer ID for tool resolution
+  // Store sender IDs in session metadata for tool resolution.
+  // humanPeerId = last active sender (default for tools).
+  // humanPeerIds = all known senders in this session (for future multi-target tools).
+  const previousPeerIds: string[] = Array.isArray(existingMeta.humanPeerIds)
+    ? (existingMeta.humanPeerIds as string[])
+    : [];
+  const allPeerIds = [...new Set([...previousPeerIds, ...senderIds])];
+
   const updatedMeta: Record<string, unknown> = {
     ...existingMeta,
     ...sessionMeta,
@@ -148,6 +155,9 @@ async function flushMessages(
   };
   if (lastSenderId) {
     updatedMeta.humanPeerId = lastSenderId;
+  }
+  if (allPeerIds.length > 0) {
+    updatedMeta.humanPeerIds = allPeerIds;
   }
 
   if (extracted.length === 0) {

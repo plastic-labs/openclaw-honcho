@@ -257,11 +257,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .command("ask <question>")
         .description("Ask Honcho about the user")
         .option("-a, --agent <id>", "Agent ID to query as (default: primary agent)")
-        .action(async (question: string, options: { agent?: string }) => {
+        .option("-p, --peer <id>", "Channel peer ID or Honcho peer ID to target (default: owner)")
+        .action(async (question: string, options: { agent?: string; peer?: string }) => {
           try {
             await state.ensureInitialized();
             const agentPeer = await state.getAgentPeer(options.agent ?? state.resolveDefaultAgentId());
-            const humanPeer = await state.getHumanPeer();
+            const humanPeer = await state.getHumanPeer(options.peer);
             const answer = await agentPeer.chat(question, { target: humanPeer });
             console.log(answer ?? "No information available.");
           } catch (error) {
@@ -274,10 +275,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .description("Semantic search over Honcho memory")
         .option("-k, --top-k <number>", "Number of results to return", "10")
         .option("-d, --max-distance <number>", "Maximum semantic distance (0-1)", "0.5")
-        .action(async (query: string, options: { topK: string; maxDistance: string }) => {
+        .option("-p, --peer <id>", "Channel peer ID or Honcho peer ID to target (default: owner)")
+        .action(async (query: string, options: { topK: string; maxDistance: string; peer?: string }) => {
           try {
             await state.ensureInitialized();
-            const humanPeer = await state.getHumanPeer();
+            const humanPeer = await state.getHumanPeer(options.peer);
             const representation = await humanPeer.representation({
               searchQuery: query,
               searchTopK: parseInt(options.topK, 10),
