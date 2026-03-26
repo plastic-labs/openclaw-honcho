@@ -82,7 +82,20 @@ async function flushMessages(
     return 0;
   }
 
-  await session.addMessages(extracted);
+  // Honcho API enforces a 100-message-per-request limit.
+  // Batch to stay under that ceiling and advance lastSavedIndex per batch
+  // so partial progress is preserved if a later batch fails.
+  const BATCH_SIZE = 50;
+  let saved = 0;
+  for (let i = 0; i < extracted.length; i += BATCH_SIZE) {
+    const batch = extracted.slice(i, i + BATCH_SIZE);
+    await session.addMessages(batch);
+    saved += batch.length;
+    // Advance index after each successful batch so we don't re-send on retry
+    const progressIndex = startIndex + saved;
+    await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: progressIndex });
+  }
+
   await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
   return extracted.length;
 }
