@@ -26,6 +26,11 @@
         "type": "boolean",
         "default": false,
         "description": "Whether the owner peer observes agent messages. When true, Honcho models the user's awareness of assistant responses."
+      },
+      "disableDefaultNoisePatterns": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, built-in noise patterns are not applied — only noisePatterns entries are used."
       }
     }
   },
@@ -55,6 +60,11 @@
       "label": "Owner Observes Agent",
       "advanced": true,
       "help": "When enabled, Honcho models the user as aware of the agent's responses. Default: off."
+    },
+    "disableDefaultNoisePatterns": {
+      "label": "Disable Default Noise Patterns",
+      "advanced": true,
+      "help": "When enabled, only custom noisePatterns entries are used — built-in defaults are skipped."
     }
   }
 }
