@@ -5,6 +5,9 @@ import type { PluginState } from "../state.js";
 export function registerMemoryPassthrough(api: OpenClawPluginApi, _state: PluginState): void {
   api.registerTool(
     (ctx) => {
+      if (!api.runtime?.tools) {
+        return null;
+      }
       const memorySearchTool = api.runtime.tools.createMemorySearchTool({
         config: ctx.config,
         agentSessionKey: ctx.sessionKey,
