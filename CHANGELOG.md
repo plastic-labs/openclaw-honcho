@@ -2,6 +2,20 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.2.2] - 2026-03-31
+
+### Fixed
+- **Memory passthrough no longer crashes when `memory-core` is disabled (#37, #41)**: Added a guard in `memory-passthrough.ts` that checks for the existence of `createMemorySearchTool`/`createMemoryGetTool` before calling them. When `memory-core` is disabled, accessing these methods threw a `TypeError` on every tool resolution cycle. The guard returns `null`, which OpenClaw handles gracefully.
+- **ClawHub plugin API version compatibility**: `pluginApi` range updated from `>=1.0.0` to `>=2026.3.22` to match OpenClaw's unified versioning scheme. The old value worked by accident (2026 > 1 in semver comparison) but was semantically meaningless. See OpenClaw #53157 for the upstream change that eliminated the separate plugin API version constant.
+- **`disableDefaultNoisePatterns` missing from plugin manifest (#38)**: The config option was documented in the README but missing from `openclaw.plugin.json`'s `configSchema` and `uiHints`, causing OpenClaw config validation to reject it.
+
+## [1.2.1] - 2026-03-25
+
+### Fixed
+- **`honcho setup` preserves config on re-run (#30)**: Previously, re-running setup would wipe existing API key, base URL, and workspace ID if the user pressed Enter without typing. Now shows masked existing values and skips prompts unless `--reconfigure` is passed.
+- **Rate limit safety during setup**: Added 1.5s cooldown after initial API calls and 250ms delay between file uploads to stay under Honcho's 5 req/sec limit.
+- **Per-file upload error handling**: File uploads now show progress indicators and a summary, with individual error handling instead of failing the entire batch.
+
 ## [1.2.0] - 2026-03-24
 
 ### ⚠ Breaking Changes
