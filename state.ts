@@ -32,7 +32,15 @@ export type PluginState = {
 export function createPluginState(api: OpenClawPluginApi): PluginState {
   const cfg = honchoConfigSchema.parse(api.pluginConfig);
 
-  if (!cfg.apiKey) {
+  const base = String(cfg.baseUrl ?? "").toLowerCase();
+  const selfHosted =
+    base.startsWith("http://localhost") ||
+    base.startsWith("http://127.0.0.1") ||
+    base.startsWith("http://") ||
+    base.startsWith("https://localhost") ||
+    base.startsWith("https://127.0.0.1");
+
+  if (!cfg.apiKey && !selfHosted) {
     api.logger.warn(
       "openclaw-honcho: No API key configured. Set HONCHO_API_KEY or configure apiKey in plugin config."
     );

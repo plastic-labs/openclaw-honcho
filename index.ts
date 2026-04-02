@@ -22,6 +22,7 @@ import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
 import { registerCli } from "./commands/cli.js";
+import { registerHonchoMemoryRuntime } from "./runtime.js";
 
 /**
  * Memory prompt section builder for Honcho tools.
@@ -94,6 +95,9 @@ export default definePluginEntry({
     // Register memory prompt section — tool selection guidance lives here,
     // not in individual tool descriptions.
     api.registerMemoryPromptSection(buildPromptSection);
+
+    // Memory runtime adapter — wires Honcho into OpenClaw's memory-core slot.
+    registerHonchoMemoryRuntime(api, state);
 
     // Hooks
     registerGatewayHook(api, state);
