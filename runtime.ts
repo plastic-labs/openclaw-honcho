@@ -1,17 +1,8 @@
 import { buildSessionKey } from "./helpers.js";
-import type { PluginState } from "./state.js";
+import { isLocalHonchoBaseUrl, type PluginState } from "./state.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
-
-function isLocalBaseUrl(baseUrl?: string): boolean {
-  try {
-    const host = new URL(baseUrl ?? "").hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "::1";
-  } catch {
-    return false;
-  }
-}
 
 function normalizeSessionPath(sessionId: string): string {
   return `sessions/${sessionId}.txt`;
@@ -69,6 +60,38 @@ async function buildSessionTranscript(
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+function findSnippetLineRange(transcript: string, snippet: string): { startLine: number; endLine: number } {
+  const transcriptLines = transcript.split(/\r?\n/);
+  const snippetLines = snippet.split(/\r?\n/);
+
+  if (!snippet.trim()) {
+    return { startLine: 1, endLine: 1 };
+  }
+
+  for (let i = 0; i <= transcriptLines.length - snippetLines.length; i += 1) {
+    let matches = true;
+    for (let j = 0; j < snippetLines.length; j += 1) {
+      if (transcriptLines[i + j] !== snippetLines[j]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return { startLine: i + 1, endLine: i + snippetLines.length };
+    }
+  }
+
+  const firstNeedle = snippetLines.find((line) => line.trim().length > 0);
+  if (firstNeedle) {
+    const idx = transcriptLines.findIndex((line) => line.includes(firstNeedle));
+    if (idx >= 0) {
+      return { startLine: idx + 1, endLine: idx + snippetLines.length };
+    }
+  }
+
+  return { startLine: 1, endLine: Math.max(1, snippetLines.length) };
+}
+
 export function registerHonchoMemoryRuntime(api: any, state: PluginState): void {
   api.registerMemoryRuntime({
     async getMemorySearchManager(params: { agentId?: string }) {
@@ -84,30 +107,42 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
               ? Number(opts.maxResults)
               : DEFAULT_SEARCH_RESULTS;
             const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
-
-            const raw = await state.ownerPeer.search(query, {
-              limit,
-            });
-
             const requestedSessionKey =
               typeof opts.sessionKey === "string" && opts.sessionKey.length > 0 ? opts.sessionKey : null;
 
-            return raw
+            const raw = await state.ownerPeer.search(query, {
+              limit: requestedSessionKey ? MAX_SEARCH_RESULTS : limit,
+            });
+
+            const filtered = raw
               .filter((msg: any) => {
                 if (!requestedSessionKey) return true;
                 return msg.sessionId === requestedSessionKey || msg.sessionId.startsWith(`${requestedSessionKey}-`);
               })
-              .map((msg: any) => {
+              .slice(0, limit);
+
+            const transcriptCache = new Map<string, Promise<string>>();
+
+            return Promise.all(
+              filtered.map(async (msg: any) => {
                 const snippet = typeof msg.content === "string" ? msg.content : "";
+                let transcriptPromise = transcriptCache.get(msg.sessionId);
+                if (!transcriptPromise) {
+                  transcriptPromise = buildSessionTranscript(state, agentId, msg.sessionId);
+                  transcriptCache.set(msg.sessionId, transcriptPromise);
+                }
+                const transcript = await transcriptPromise;
+                const { startLine, endLine } = findSnippetLineRange(transcript, snippet);
                 return {
                   path: normalizeSessionPath(msg.sessionId),
-                  startLine: 1,
-                  endLine: countLines(snippet),
+                  startLine,
+                  endLine,
                   score: 1,
                   snippet,
                   source: "sessions",
                 };
-              });
+              })
+            );
           },
 
           async readFile(params: { relPath: string; from?: number; lines?: number }) {
@@ -126,7 +161,7 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
           status() {
             return {
               backend: "qmd",
-              provider: isLocalBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
+              provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
               model: "n/a",
               sources: ["sessions"],
               custom: {
