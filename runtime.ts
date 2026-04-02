@@ -1,6 +1,18 @@
 import { buildSessionKey } from "./helpers.js";
 import type { PluginState } from "./state.js";
 
+const DEFAULT_SEARCH_RESULTS = 10;
+const MAX_SEARCH_RESULTS = 50;
+
+function isLocalBaseUrl(baseUrl?: string): boolean {
+  try {
+    const host = new URL(baseUrl ?? "").hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function normalizeSessionPath(sessionId: string): string {
   return `sessions/${sessionId}.txt`;
 }
@@ -68,9 +80,13 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
         manager: {
           async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
             await state.ensureInitialized();
+            const requested = Number.isFinite(opts.maxResults)
+              ? Number(opts.maxResults)
+              : DEFAULT_SEARCH_RESULTS;
+            const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
 
             const raw = await state.ownerPeer.search(query, {
-              limit: opts.maxResults ?? 10,
+              limit,
             });
 
             const requestedSessionKey =
@@ -110,10 +126,7 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
           status() {
             return {
               backend: "qmd",
-              provider:
-                state.cfg.baseUrl?.includes("localhost") || state.cfg.baseUrl?.includes("127.0.0.1")
-                  ? "honcho-selfhosted"
-                  : "honcho",
+              provider: isLocalBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
               model: "n/a",
               sources: ["sessions"],
               custom: {

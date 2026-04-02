@@ -32,13 +32,18 @@ export type PluginState = {
 export function createPluginState(api: OpenClawPluginApi): PluginState {
   const cfg = honchoConfigSchema.parse(api.pluginConfig);
 
-  const base = String(cfg.baseUrl ?? "").toLowerCase();
-  const selfHosted =
-    base.startsWith("http://localhost") ||
-    base.startsWith("http://127.0.0.1") ||
-    base.startsWith("http://") ||
-    base.startsWith("https://localhost") ||
-    base.startsWith("https://127.0.0.1");
+  const base = String(cfg.baseUrl ?? "").trim();
+  let selfHosted = false;
+  if (base) {
+    try {
+      const { hostname, protocol } = new URL(base);
+      selfHosted =
+        (protocol === "http:" || protocol === "https:") &&
+        (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1");
+    } catch {
+      selfHosted = false;
+    }
+  }
 
   if (!cfg.apiKey && !selfHosted) {
     api.logger.warn(
