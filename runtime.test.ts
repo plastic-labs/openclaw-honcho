@@ -125,6 +125,16 @@ describe("Honcho memory runtime", () => {
     expect(results[0]?.startLine).toBeGreaterThan(0);
     expect(results[0]?.endLine).toBeGreaterThanOrEqual(results[0]?.startLine ?? 0);
     expect((state.ownerPeer.search as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+
+    const implicitScopeResults = await manager.search("remember", {
+      maxResults: 10,
+    });
+    expect(implicitScopeResults).toHaveLength(2);
+    await expect(
+      manager.search("remember", {
+        sessionKey: "other-session",
+      }),
+    ).rejects.toThrow(/outside the active session/);
   });
 
   it("reads scoped transcript slices and resolves backend metadata", async () => {

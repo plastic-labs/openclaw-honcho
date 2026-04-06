@@ -121,7 +121,18 @@ export async function getHonchoMemorySearchManager(
           : DEFAULT_SEARCH_RESULTS;
         const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
         const requestedSessionKey =
-          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0 ? opts.sessionKey : null;
+          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
+            ? opts.sessionKey
+            : activeSessionKey ?? null;
+        if (
+          activeSessionKey &&
+          requestedSessionKey &&
+          !matchesSessionScope(requestedSessionKey, activeSessionKey)
+        ) {
+          throw new Error(
+            `Requested Honcho session is outside the active session: ${requestedSessionKey}`
+          );
+        }
         const transcriptCache = new Map<string, Promise<string>>();
         const seenSessionIds = new Set<string>();
         const filtered: Array<any> = [];
