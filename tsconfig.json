@@ -13,5 +13,5 @@
     "types": ["node"]
   },
   "include": ["*.ts", "hooks/**/*.ts", "tools/**/*.ts", "commands/**/*.ts"],
-  "exclude": ["node_modules", "dist", "test"]
+  "exclude": ["node_modules", "dist", "test", "**/*.test.ts"]
 }
