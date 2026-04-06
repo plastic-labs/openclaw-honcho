@@ -95,11 +95,17 @@ function findSnippetLineRange(transcript: string, snippet: string): { startLine:
   if (firstNeedle) {
     const idx = transcriptLines.findIndex((line) => line.includes(firstNeedle));
     if (idx >= 0) {
-      return { startLine: idx + 1, endLine: idx + snippetLines.length };
+      return {
+        startLine: idx + 1,
+        endLine: Math.min(transcriptLines.length, idx + snippetLines.length),
+      };
     }
   }
 
-  return { startLine: 1, endLine: Math.max(1, snippetLines.length) };
+  return {
+    startLine: 1,
+    endLine: Math.min(Math.max(1, transcriptLines.length), Math.max(1, snippetLines.length)),
+  };
 }
 
 /**

@@ -48,6 +48,24 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
         ],
       },
     ],
+    [
+      "session-2",
+      {
+        summary: { content: "Summary for session two" },
+        messages: [
+          {
+            peerId: "owner",
+            createdAt: "2026-04-06T00:00:04Z",
+            content: "Alpha",
+          },
+          {
+            peerId: "agent-main",
+            createdAt: "2026-04-06T00:00:05Z",
+            content: "Beta",
+          },
+        ],
+      },
+    ],
   ]);
   const searchResults = new Map<string, Array<Record<string, unknown>>>([
     [
@@ -57,6 +75,10 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
     [
       "session-1-child",
       [{ id: "msg-2", sessionId: "session-1-child", content: "Child transcript hit" }],
+    ],
+    [
+      "session-2",
+      [{ id: "msg-3", sessionId: "session-2", content: "Beta\nextra" }],
     ],
   ]);
 
@@ -170,6 +192,23 @@ describe("Honcho memory runtime", () => {
       qmd: {},
       sessionKey: "agent-main-dashboard-test-telegram",
     });
+  });
+
+  it("clamps fallback snippet ranges to the transcript length", async () => {
+    const state = createState();
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-2",
+    });
+
+    const [result] = await manager.search("beta", {
+      sessionKey: "session-2",
+      maxResults: 5,
+    });
+
+    expect(result?.path).toBe("sessions/session-2.txt");
+    expect(result?.startLine).toBe(8);
+    expect(result?.endLine).toBe(9);
   });
 
   it("fails cleanly when ownerPeer is unavailable after initialization", async () => {
