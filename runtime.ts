@@ -24,7 +24,7 @@ function matchesSessionScope(sessionId: string, activeSessionKey: string): boole
 function sliceLines(text: string, from = 1, lines?: number): string {
   const all = text.split(/\r?\n/);
   const start = Math.max(1, from) - 1;
-  const end = lines == null ? all.length : Math.max(start, start + Math.max(0, lines));
+  const end = lines == null ? all.length : Math.min(all.length, start + Math.max(0, lines));
   return all.slice(start, end).join("\n");
 }
 
@@ -173,7 +173,7 @@ export async function getHonchoMemorySearchManager(
           collect(await exactSession.search(query, { limit }));
 
           if (filtered.length < limit) {
-            const sessions = await state.ownerPeer.sessions();
+            const sessions = await ownerPeer.sessions();
             for await (const session of sessions) {
               if (filtered.length >= limit) break;
               if (
