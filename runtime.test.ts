@@ -49,6 +49,24 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
       },
     ],
   ]);
+  const searchResults = new Map<string, Array<Record<string, unknown>>>([
+    [
+      "session-1",
+      [{ id: "msg-1", sessionId: "session-1", content: "Need to remember this" }],
+    ],
+    [
+      "session-1-child",
+      [{ id: "msg-2", sessionId: "session-1-child", content: "Child transcript hit" }],
+    ],
+  ]);
+
+  const createSession = (sessionId: string) => ({
+    id: sessionId,
+    context: vi.fn(async () => contexts.get(sessionId)),
+    search: vi.fn(async () => searchResults.get(sessionId) ?? []),
+  });
+
+  const childSession = createSession("session-1-child");
 
   return {
     cfg: {
@@ -59,9 +77,7 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
       ownerObserveOthers: false,
     },
     honcho: {
-      session: vi.fn(async (sessionId: string) => ({
-        context: vi.fn(async () => contexts.get(sessionId)),
-      })),
+      session: vi.fn(async (sessionId: string) => createSession(sessionId)),
     } as never,
     ownerPeer: {
       id: "owner",
@@ -70,6 +86,11 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
         { sessionId: "session-1-child", content: "Child transcript hit" },
         { sessionId: "other-session", content: "Other result" },
       ]),
+      sessions: vi.fn(async () => ({
+        async *[Symbol.asyncIterator]() {
+          yield childSession;
+        },
+      })),
     } as never,
     agentPeers: new Map(),
     agentPeerMap: {},
@@ -86,7 +107,10 @@ describe("Honcho memory runtime", () => {
   it("filters search results by session key and returns session transcript paths", async () => {
     const state = createState();
 
-    const { manager } = await getHonchoMemorySearchManager(state, { agentId: "main" });
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
     const results = await manager.search("remember", {
       sessionKey: "session-1",
       maxResults: 10,
@@ -100,12 +124,16 @@ describe("Honcho memory runtime", () => {
     expect(results[0]?.snippet).toBe("Need to remember this");
     expect(results[0]?.startLine).toBeGreaterThan(0);
     expect(results[0]?.endLine).toBeGreaterThanOrEqual(results[0]?.startLine ?? 0);
+    expect((state.ownerPeer.search as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
-  it("reads transcript slices and resolves backend metadata", async () => {
+  it("reads scoped transcript slices and resolves backend metadata", async () => {
     const state = createState("http://localhost:8000");
 
-    const { manager } = await getHonchoMemorySearchManager(state, { agentId: "main" });
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
     const file = await manager.readFile({
       relPath: "sessions/session-1.txt",
       from: 1,
@@ -116,6 +144,11 @@ describe("Honcho memory runtime", () => {
     expect(file.text).toContain("# Summary");
     expect(file.text).toContain("Summary for session one");
     expect(manager.status().provider).toBe("honcho-selfhosted");
+    await expect(
+      manager.readFile({
+        relPath: "sessions/other-session.txt",
+      }),
+    ).rejects.toThrow(/outside the active session/);
 
     expect(
       resolveHonchoMemoryBackendConfig({

@@ -84,6 +84,38 @@ describe("memory passthrough tools", () => {
     expect(searchResult.content[0]?.text).toContain("\"provider\": \"honcho\"");
     expect(searchResult.content[0]?.text).toContain("\"path\": \"sessions/test-session.txt\"");
     expect(getResult.content[0]?.text).toContain("\"text\": \"remembered fact\"");
-    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, { agentId: "main" });
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, {}, {
+      agentId: "main",
+      sessionKey: "agent:main:dashboard:test",
+    });
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, {}, {
+      agentId: "main",
+      sessionKey: "agent:main:dashboard:test",
+    });
+  });
+
+  it("returns structured unavailable payloads when manager acquisition fails", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+    getHonchoMemorySearchManagerMock.mockRejectedValueOnce(new Error("auth failed"));
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "main",
+      config: {},
+      sessionKey: "agent:main:dashboard:test",
+    };
+    const searchTool = registrations[0]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+    const result = await searchTool.execute("call-search", { query: "Chief" });
+
+    expect(result.content[0]?.text).toContain("\"disabled\": true");
+    expect(result.content[0]?.text).toContain("\"error\": \"auth failed\"");
   });
 });

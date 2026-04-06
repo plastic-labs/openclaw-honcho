@@ -13,6 +13,10 @@ function parseSessionPath(relPath: string): string | null {
   return m ? m[1] : null;
 }
 
+function matchesSessionScope(sessionId: string, activeSessionKey: string): boolean {
+  return sessionId === activeSessionKey || sessionId.startsWith(`${activeSessionKey}-`);
+}
+
 function sliceLines(text: string, from = 1, lines?: number): string {
   const all = text.split(/\r?\n/);
   const start = Math.max(1, from) - 1;
@@ -90,9 +94,9 @@ function findSnippetLineRange(transcript: string, snippet: string): { startLine:
 
 export async function getHonchoMemorySearchManager(
   state: PluginState,
-  params: { agentId?: string } = {}
+  params: { agentId?: string; sessionKey?: string } = {}
 ) {
-  const { agentId = state.resolveDefaultAgentId() } = params;
+  const { agentId = state.resolveDefaultAgentId(), sessionKey: activeSessionKey } = params;
 
   await state.ensureInitialized();
 
@@ -106,19 +110,48 @@ export async function getHonchoMemorySearchManager(
         const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
         const requestedSessionKey =
           typeof opts.sessionKey === "string" && opts.sessionKey.length > 0 ? opts.sessionKey : null;
-
-        const raw = await state.ownerPeer.search(query, {
-          limit: requestedSessionKey ? MAX_SEARCH_RESULTS : limit,
-        });
-
-        const filtered = raw
-          .filter((msg: any) => {
-            if (!requestedSessionKey) return true;
-            return msg.sessionId === requestedSessionKey || msg.sessionId.startsWith(`${requestedSessionKey}-`);
-          })
-          .slice(0, limit);
-
         const transcriptCache = new Map<string, Promise<string>>();
+        const seenSessionIds = new Set<string>();
+        const filtered: Array<any> = [];
+
+        const collect = (messages: Array<any>) => {
+          for (const msg of messages) {
+            if (filtered.length >= limit) break;
+            const sessionId = typeof msg?.sessionId === "string" ? msg.sessionId : "";
+            if (!sessionId || seenSessionIds.has(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`)) {
+              continue;
+            }
+            if (requestedSessionKey && !matchesSessionScope(sessionId, requestedSessionKey)) {
+              continue;
+            }
+            seenSessionIds.add(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`);
+            filtered.push(msg);
+          }
+        };
+
+        if (requestedSessionKey) {
+          const exactSession = await state.honcho.session(requestedSessionKey, {
+            metadata: { agentId },
+          });
+          collect(await exactSession.search(query, { limit }));
+
+          if (filtered.length < limit) {
+            const sessions = await state.ownerPeer.sessions();
+            for await (const session of sessions) {
+              if (filtered.length >= limit) break;
+              if (
+                typeof session?.id !== "string" ||
+                session.id === requestedSessionKey ||
+                !session.id.startsWith(`${requestedSessionKey}-`)
+              ) {
+                continue;
+              }
+              collect(await session.search(query, { limit: limit - filtered.length }));
+            }
+          }
+        } else {
+          collect(await state.ownerPeer.search(query, { limit }));
+        }
 
         return Promise.all(
           filtered.map(async (msg: any) => {
@@ -146,6 +179,9 @@ export async function getHonchoMemorySearchManager(
         const sessionId = parseSessionPath(params.relPath);
         if (!sessionId) {
           throw new Error(`Unsupported Honcho memory path: ${params.relPath}`);
+        }
+        if (activeSessionKey && !matchesSessionScope(sessionId, activeSessionKey)) {
+          throw new Error(`Requested Honcho memory path is outside the active session: ${params.relPath}`);
         }
 
         const transcript = await buildSessionTranscript(state, agentId, sessionId);
@@ -192,8 +228,12 @@ export function resolveHonchoMemoryBackendConfig(
 }
 
 export function registerHonchoMemoryRuntime(api: any, state: PluginState): void {
+  if (typeof api?.registerMemoryRuntime !== "function") {
+    return;
+  }
+
   api.registerMemoryRuntime({
-    getMemorySearchManager(params: { agentId?: string }) {
+    getMemorySearchManager(params: { agentId?: string; sessionKey?: string }) {
       return getHonchoMemorySearchManager(state, params);
     },
 
