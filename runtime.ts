@@ -13,10 +13,6 @@ function parseSessionPath(relPath: string): string | null {
   return m ? m[1] : null;
 }
 
-function countLines(text: string): number {
-  return text.length === 0 ? 1 : text.split(/\r?\n/).length;
-}
-
 function sliceLines(text: string, from = 1, lines?: number): string {
   const all = text.split(/\r?\n/);
   const start = Math.max(1, from) - 1;

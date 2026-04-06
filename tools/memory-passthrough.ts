@@ -1,8 +1,6 @@
 import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-// @ts-ignore - resolved by openclaw runtime
-import { jsonResult, readNumberParam, readStringParam } from "openclaw/plugin-sdk/memory-core";
 import type { PluginState } from "../state.js";
 import { getHonchoMemorySearchManager } from "../runtime.js";
 
@@ -28,6 +26,57 @@ function buildMemorySearchUnavailableResult(error: string | undefined) {
     warning: "Memory search is unavailable due to a memory provider error.",
     action: "Check memory provider configuration and retry memory_search.",
   };
+}
+
+function jsonResult(payload: unknown) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(payload, null, 2),
+      },
+    ],
+    details: payload,
+  };
+}
+
+function readStringParam(
+  params: Record<string, unknown>,
+  key: string,
+  options: { required?: boolean } = {}
+) {
+  const raw = params[key];
+  if (typeof raw === "string") {
+    const value = raw.trim();
+    if (value) return value;
+  }
+  if (options.required) {
+    throw new Error(`${key} required`);
+  }
+  return undefined;
+}
+
+function readNumberParam(
+  params: Record<string, unknown>,
+  key: string,
+  options: { integer?: boolean } = {}
+) {
+  const raw = params[key];
+  let value: number | undefined;
+
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    value = raw;
+  } else if (typeof raw === "string") {
+    const parsed = Number.parseFloat(raw.trim());
+    if (Number.isFinite(parsed)) {
+      value = parsed;
+    }
+  }
+
+  if (value === undefined) {
+    return undefined;
+  }
+  return options.integer ? Math.trunc(value) : value;
 }
 
 export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginState): void {
@@ -70,7 +119,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
   );
 
   api.registerTool(
-    (_ctx) => ({
+    (ctx) => ({
       name: "memory_get",
       label: "Memory Get",
       description:
@@ -81,7 +130,9 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const from = readNumberParam(params, "from", { integer: true });
         const lines = readNumberParam(params, "lines", { integer: true });
 
-        const { manager } = await getHonchoMemorySearchManager(state);
+        const { manager } = await getHonchoMemorySearchManager(state, {
+          agentId: ctx.agentId,
+        });
 
         try {
           const result = await manager.readFile({
