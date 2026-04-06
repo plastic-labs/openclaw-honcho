@@ -92,104 +92,117 @@ function findSnippetLineRange(transcript: string, snippet: string): { startLine:
   return { startLine: 1, endLine: Math.max(1, snippetLines.length) };
 }
 
+export async function getHonchoMemorySearchManager(
+  state: PluginState,
+  params: { agentId?: string } = {}
+) {
+  const { agentId = state.resolveDefaultAgentId() } = params;
+
+  await state.ensureInitialized();
+
+  return {
+    manager: {
+      async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
+        await state.ensureInitialized();
+        const requested = Number.isFinite(opts.maxResults)
+          ? Number(opts.maxResults)
+          : DEFAULT_SEARCH_RESULTS;
+        const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
+        const requestedSessionKey =
+          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0 ? opts.sessionKey : null;
+
+        const raw = await state.ownerPeer.search(query, {
+          limit: requestedSessionKey ? MAX_SEARCH_RESULTS : limit,
+        });
+
+        const filtered = raw
+          .filter((msg: any) => {
+            if (!requestedSessionKey) return true;
+            return msg.sessionId === requestedSessionKey || msg.sessionId.startsWith(`${requestedSessionKey}-`);
+          })
+          .slice(0, limit);
+
+        const transcriptCache = new Map<string, Promise<string>>();
+
+        return Promise.all(
+          filtered.map(async (msg: any) => {
+            const snippet = typeof msg.content === "string" ? msg.content : "";
+            let transcriptPromise = transcriptCache.get(msg.sessionId);
+            if (!transcriptPromise) {
+              transcriptPromise = buildSessionTranscript(state, agentId, msg.sessionId);
+              transcriptCache.set(msg.sessionId, transcriptPromise);
+            }
+            const transcript = await transcriptPromise;
+            const { startLine, endLine } = findSnippetLineRange(transcript, snippet);
+            return {
+              path: normalizeSessionPath(msg.sessionId),
+              startLine,
+              endLine,
+              score: 1,
+              snippet,
+              source: "sessions",
+            };
+          })
+        );
+      },
+
+      async readFile(params: { relPath: string; from?: number; lines?: number }) {
+        const sessionId = parseSessionPath(params.relPath);
+        if (!sessionId) {
+          throw new Error(`Unsupported Honcho memory path: ${params.relPath}`);
+        }
+
+        const transcript = await buildSessionTranscript(state, agentId, sessionId);
+        return {
+          path: params.relPath,
+          text: sliceLines(transcript, params.from, params.lines),
+        };
+      },
+
+      status() {
+        return {
+          backend: "qmd",
+          provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
+          model: "n/a",
+          sources: ["sessions"],
+          custom: {
+            searchMode: "semantic",
+            workspaceId: state.cfg.workspaceId,
+            baseUrl: state.cfg.baseUrl,
+          },
+        };
+      },
+
+      async probeEmbeddingAvailability() {
+        return { ok: true };
+      },
+
+      async probeVectorAvailability() {
+        return true;
+      },
+    },
+  };
+}
+
+export function resolveHonchoMemoryBackendConfig(
+  params: { sessionKey?: string; messageProvider?: string } = {}
+) {
+  const sessionKey = buildSessionKey(params);
+  return {
+    backend: "qmd",
+    qmd: {},
+    sessionKey,
+  };
+}
+
 export function registerHonchoMemoryRuntime(api: any, state: PluginState): void {
   api.registerMemoryRuntime({
-    async getMemorySearchManager(params: { agentId?: string }) {
-      const { agentId = state.resolveDefaultAgentId() } = params ?? {};
-
-      await state.ensureInitialized();
-
-      return {
-        manager: {
-          async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
-            await state.ensureInitialized();
-            const requested = Number.isFinite(opts.maxResults)
-              ? Number(opts.maxResults)
-              : DEFAULT_SEARCH_RESULTS;
-            const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
-            const requestedSessionKey =
-              typeof opts.sessionKey === "string" && opts.sessionKey.length > 0 ? opts.sessionKey : null;
-
-            const raw = await state.ownerPeer.search(query, {
-              limit: requestedSessionKey ? MAX_SEARCH_RESULTS : limit,
-            });
-
-            const filtered = raw
-              .filter((msg: any) => {
-                if (!requestedSessionKey) return true;
-                return msg.sessionId === requestedSessionKey || msg.sessionId.startsWith(`${requestedSessionKey}-`);
-              })
-              .slice(0, limit);
-
-            const transcriptCache = new Map<string, Promise<string>>();
-
-            return Promise.all(
-              filtered.map(async (msg: any) => {
-                const snippet = typeof msg.content === "string" ? msg.content : "";
-                let transcriptPromise = transcriptCache.get(msg.sessionId);
-                if (!transcriptPromise) {
-                  transcriptPromise = buildSessionTranscript(state, agentId, msg.sessionId);
-                  transcriptCache.set(msg.sessionId, transcriptPromise);
-                }
-                const transcript = await transcriptPromise;
-                const { startLine, endLine } = findSnippetLineRange(transcript, snippet);
-                return {
-                  path: normalizeSessionPath(msg.sessionId),
-                  startLine,
-                  endLine,
-                  score: 1,
-                  snippet,
-                  source: "sessions",
-                };
-              })
-            );
-          },
-
-          async readFile(params: { relPath: string; from?: number; lines?: number }) {
-            const sessionId = parseSessionPath(params.relPath);
-            if (!sessionId) {
-              throw new Error(`Unsupported Honcho memory path: ${params.relPath}`);
-            }
-
-            const transcript = await buildSessionTranscript(state, agentId, sessionId);
-            return {
-              path: params.relPath,
-              text: sliceLines(transcript, params.from, params.lines),
-            };
-          },
-
-          status() {
-            return {
-              backend: "qmd",
-              provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
-              model: "n/a",
-              sources: ["sessions"],
-              custom: {
-                searchMode: "semantic",
-                workspaceId: state.cfg.workspaceId,
-                baseUrl: state.cfg.baseUrl,
-              },
-            };
-          },
-
-          async probeEmbeddingAvailability() {
-            return { ok: true };
-          },
-
-          async probeVectorAvailability() {
-            return true;
-          },
-        },
-      };
+    getMemorySearchManager(params: { agentId?: string }) {
+      return getHonchoMemorySearchManager(state, params);
     },
 
     resolveMemoryBackendConfig(params: { sessionKey?: string; messageProvider?: string } = {}) {
-      const sessionKey = buildSessionKey(params);
-      return {
-        backend: "qmd",
-        qmd: {},
-        sessionKey,
-      };
+      return resolveHonchoMemoryBackendConfig(params);
     },
   });
 }
