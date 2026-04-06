@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
+import { buildSessionKey } from "../helpers.js";
 import { getHonchoMemorySearchManager } from "../runtime.js";
 
 const MemorySearchSchema = Type.Object({
@@ -97,15 +98,18 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const maxResults = readNumberParam(params, "maxResults");
         // Keep parity with the generic schema even though Honcho does not use minScore.
         readNumberParam(params, "minScore");
+        const honchoSessionKey = buildSessionKey({
+          sessionKey: ctx.sessionKey,
+        });
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
             agentId: ctx.agentId,
-            sessionKey: ctx.sessionKey,
+            sessionKey: honchoSessionKey,
           });
           const results = await manager.search(query, {
             maxResults: maxResults ?? undefined,
-            sessionKey: ctx.sessionKey,
+            sessionKey: honchoSessionKey,
           });
           const status = manager.status();
           return jsonResult({
@@ -134,11 +138,14 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const relPath = readStringParam(params, "path", { required: true });
         const from = readNumberParam(params, "from", { integer: true });
         const lines = readNumberParam(params, "lines", { integer: true });
+        const honchoSessionKey = buildSessionKey({
+          sessionKey: ctx.sessionKey,
+        });
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
             agentId: ctx.agentId,
-            sessionKey: ctx.sessionKey,
+            sessionKey: honchoSessionKey,
           });
           const result = await manager.readFile({
             relPath,

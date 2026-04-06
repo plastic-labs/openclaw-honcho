@@ -86,11 +86,11 @@ describe("memory passthrough tools", () => {
     expect(getResult.content[0]?.text).toContain("\"text\": \"remembered fact\"");
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, {}, {
       agentId: "main",
-      sessionKey: "agent:main:dashboard:test",
+      sessionKey: "agent-main-dashboard-test-unknown",
     });
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, {}, {
       agentId: "main",
-      sessionKey: "agent:main:dashboard:test",
+      sessionKey: "agent-main-dashboard-test-unknown",
     });
   });
 
@@ -117,5 +117,9 @@ describe("memory passthrough tools", () => {
 
     expect(result.content[0]?.text).toContain("\"disabled\": true");
     expect(result.content[0]?.text).toContain("\"error\": \"auth failed\"");
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "main",
+      sessionKey: "agent-main-dashboard-test-unknown",
+    });
   });
 });
