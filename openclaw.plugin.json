@@ -31,6 +31,12 @@
         "type": "boolean",
         "default": false,
         "description": "When true, built-in noise patterns are not applied — only noisePatterns entries are used."
+      },
+      "ownerSenderIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Platform-specific sender IDs that identify the owner (e.g. Slack user IDs). When set, group chat messages from non-owner senders are attributed to separate Honcho peers instead of the owner."
       }
     }
   },
@@ -65,6 +71,11 @@
       "label": "Disable Default Noise Patterns",
       "advanced": true,
       "help": "When enabled, only custom noisePatterns entries are used — built-in defaults are skipped."
+    },
+    "ownerSenderIds": {
+      "label": "Owner Sender IDs",
+      "advanced": true,
+      "help": "Your platform user IDs (e.g. Slack U...). Messages from other senders in group chats get their own Honcho peer instead of being attributed to you."
     }
   }
 }

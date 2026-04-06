@@ -2,7 +2,7 @@
  * Pure helper functions — no mutable state dependencies.
  */
 
-import type { Peer, MessageInput } from "@honcho-ai/sdk";
+import type { Peer, MessageInput, Honcho } from "@honcho-ai/sdk";
 
 /**
  * Build a Honcho session key from OpenClaw context.
@@ -165,11 +165,71 @@ export function shouldSkipMessage(content: string, noisePatterns: string[]): boo
   });
 }
 
+/**
+ * Parse sender identity from raw message content before metadata is stripped.
+ * Tries (in order): Sender JSON block > Conversation info JSON > System: line.
+ * Returns { id, name } or null if no sender info is found.
+ */
+export function parseSenderInfo(rawContent: string): { id: string | null; name: string | null } | null {
+  if (!rawContent) return null;
+
+  // 1. Try Sender (untrusted metadata) JSON block — most reliable, has id + name
+  const senderBlockMatch = rawContent.match(
+    /Sender \(untrusted metadata\):\s*```json\s*([\s\S]*?)```/
+  );
+  if (senderBlockMatch) {
+    try {
+      const parsed = JSON.parse(senderBlockMatch[1].trim());
+      if (parsed.id) {
+        return { id: String(parsed.id), name: parsed.name || parsed.label || null };
+      }
+    } catch { /* continue to fallbacks */ }
+  }
+
+  // 2. Try Conversation info JSON — has sender_id field
+  const convoBlockMatch = rawContent.match(
+    /Conversation info \(untrusted metadata\):\s*```json\s*([\s\S]*?)```/
+  );
+  if (convoBlockMatch) {
+    try {
+      const parsed = JSON.parse(convoBlockMatch[1].trim());
+      if (parsed.sender_id) {
+        return { id: String(parsed.sender_id), name: parsed.sender || null };
+      }
+    } catch { /* continue to fallbacks */ }
+  }
+
+  // 3. Fallback: System: [timestamp] Platform message in #channel from Name:
+  const systemMatch = rawContent.match(
+    /^System:\s*\[.*?\]\s*\S+\s+message\s+in\s+\S+\s+from\s+([^:]+):/m
+  );
+  if (systemMatch) {
+    return { id: null, name: systemMatch[1].trim() };
+  }
+
+  return null;
+}
+
+export interface MultiPeerOptions {
+  ownerSenderIds: string[];
+  getPeerForSender: (senderId: string, senderName: string | null) => Promise<Peer>;
+}
+
 export function extractMessages(
   rawMessages: unknown[],
   ownerPeer: Peer,
   agentPeer: Peer,
   noisePatterns: string[] = []
+): MessageInput[] {
+  // Synchronous path for backward compatibility (no multi-peer)
+  return extractMessagesSync(rawMessages, ownerPeer, agentPeer, noisePatterns);
+}
+
+function extractMessagesSync(
+  rawMessages: unknown[],
+  ownerPeer: Peer,
+  agentPeer: Peer,
+  noisePatterns: string[]
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -204,6 +264,80 @@ export function extractMessages(
 
     if (content) {
       const peer = role === "user" ? ownerPeer : agentPeer;
+      const ts = typeof m.timestamp === "number" ? new Date(m.timestamp) : undefined;
+      result.push(peer.message(content, ts ? { createdAt: ts } : undefined));
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extended message extraction with multi-peer support for group chats.
+ * Parses sender identity from OpenClaw's inbound metadata before cleaning,
+ * then routes messages to the correct peer based on ownerSenderIds.
+ *
+ * When ownerSenderIds is configured:
+ * - Messages from matching sender IDs → ownerPeer
+ * - Messages from unknown senders → dynamically created peer via getPeerForSender
+ * - Assistant messages → agentPeer (unchanged)
+ *
+ * When ownerSenderIds is empty, falls back to extractMessages() behavior.
+ */
+export async function extractMessagesWithPeers(
+  rawMessages: unknown[],
+  ownerPeer: Peer,
+  agentPeer: Peer,
+  noisePatterns: string[] = [],
+  options: MultiPeerOptions
+): Promise<MessageInput[]> {
+  const { ownerSenderIds, getPeerForSender } = options;
+  const result: MessageInput[] = [];
+
+  for (const msg of rawMessages) {
+    if (!msg || typeof msg !== "object") continue;
+    const m = msg as Record<string, unknown>;
+    const role = m.role as string | undefined;
+
+    if (role !== "user" && role !== "assistant") continue;
+
+    let content = "";
+    if (typeof m.content === "string") {
+      content = m.content;
+    } else if (Array.isArray(m.content)) {
+      content = m.content
+        .filter(
+          (block: unknown) =>
+            typeof block === "object" &&
+            block !== null &&
+            (block as Record<string, unknown>).type === "text"
+        )
+        .map((block: unknown) => (block as Record<string, unknown>).text)
+        .filter((t): t is string => typeof t === "string")
+        .join("\n");
+    }
+
+    // Parse sender identity BEFORE cleaning strips the metadata
+    let peer: Peer;
+    if (role === "assistant") {
+      peer = agentPeer;
+    } else {
+      const sender = parseSenderInfo(content);
+      if (!sender || !sender.id || ownerSenderIds.includes(sender.id)) {
+        // Owner or unidentifiable sender (default to owner for backward compat)
+        peer = ownerPeer;
+      } else {
+        peer = await getPeerForSender(sender.id, sender.name);
+      }
+    }
+
+    content = cleanMessageContent(content);
+    content = content.trim();
+
+    if (!content) continue;
+    if (shouldSkipMessage(content, noisePatterns)) continue;
+
+    if (content) {
       const ts = typeof m.timestamp === "number" ? new Date(m.timestamp) : undefined;
       result.push(peer.message(content, ts ? { createdAt: ts } : undefined));
     }

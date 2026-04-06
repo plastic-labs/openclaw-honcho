@@ -2,10 +2,12 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
+import type { Peer } from "@honcho-ai/sdk";
 import {
   buildSessionKey,
   isSubagentSession,
   extractMessages,
+  extractMessagesWithPeers,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
 
@@ -63,6 +65,19 @@ async function flushMessages(
     peerConfigs.push([parentPeer.id, { observeMe: false, observeOthers: true }]);
   }
 
+  // Dynamic peer cache for multi-peer group chat support
+  const dynamicPeers = new Map<string, Peer>();
+  const getPeerForSender = async (senderId: string, senderName: string | null): Promise<Peer> => {
+    let peer = dynamicPeers.get(senderId);
+    if (peer) return peer;
+    const peerId = `user-${senderId}`;
+    peer = await state.honcho.peer(peerId, {
+      metadata: { senderId, senderName: senderName || senderId, type: "external" },
+    });
+    dynamicPeers.set(senderId, peer);
+    return peer;
+  };
+
   await session.addPeers(peerConfigs);
 
   if (messages.length <= startIndex) {
@@ -70,11 +85,28 @@ async function flushMessages(
   }
 
   const newRawMessages = messages.slice(startIndex);
-  const extracted = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
+  const multiPeerEnabled = state.cfg.ownerSenderIds.length > 0;
+  const extracted = multiPeerEnabled
+    ? await extractMessagesWithPeers(
+        newRawMessages,
+        state.ownerPeer!,
+        agentPeer,
+        state.cfg.noisePatterns,
+        { ownerSenderIds: state.cfg.ownerSenderIds, getPeerForSender },
+      )
+    : extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
 
   if (extracted.length === 0) {
     await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });
     return 0;
+  }
+
+  // Add any dynamically created peers to the session before saving messages
+  for (const [, dynPeer] of dynamicPeers) {
+    peerConfigs.push([dynPeer.id, { observeMe: true, observeOthers: false }]);
+  }
+  if (dynamicPeers.size > 0) {
+    await session.addPeers(peerConfigs);
   }
 
   await session.addMessages(extracted);

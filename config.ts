@@ -16,6 +16,7 @@ export type HonchoConfig = {
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
+  ownerSenderIds: string[];
 };
 
 /**
@@ -68,6 +69,9 @@ export const honchoConfigSchema = {
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
+      ownerSenderIds: Array.isArray(cfg.ownerSenderIds)
+        ? (cfg.ownerSenderIds as unknown[]).filter((s): s is string => typeof s === "string" && s.length > 0)
+        : [],
     };
   },
 };

@@ -16,6 +16,12 @@
       "baseUrl": {
         "type": "string",
         "default": "https://api.honcho.dev"
+      },
+      "ownerSenderIds": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Platform-specific sender IDs that identify the owner. When set, group chat messages from non-owner senders are attributed to separate Honcho peers."
       }
     }
   },
