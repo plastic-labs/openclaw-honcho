@@ -16,6 +16,7 @@ const MemoryGetSchema = Type.Object({
   lines: Type.Optional(Type.Number()),
 }, { additionalProperties: false });
 
+/** Build the generic unavailable payload shape expected by memory_search callers. */
 function buildMemorySearchUnavailableResult(error: string | undefined) {
   const reason = (error ?? "memory search unavailable").trim() || "memory search unavailable";
   return {
@@ -28,6 +29,7 @@ function buildMemorySearchUnavailableResult(error: string | undefined) {
   };
 }
 
+/** Mirror OpenClaw's plain-text JSON tool result shape without depending on runtime helpers. */
 function jsonResult(payload: unknown) {
   return {
     content: [
@@ -40,6 +42,7 @@ function jsonResult(payload: unknown) {
   };
 }
 
+/** Read a required or optional string parameter from a plain tool input object. */
 function readStringParam(
   params: Record<string, unknown>,
   key: string,
@@ -56,6 +59,7 @@ function readStringParam(
   return undefined;
 }
 
+/** Read a numeric tool parameter while tolerating either number or string input. */
 function readNumberParam(
   params: Record<string, unknown>,
   key: string,
@@ -79,6 +83,7 @@ function readNumberParam(
   return options.integer ? Math.trunc(value) : value;
 }
 
+/** Register host-compatible memory_search and memory_get tools for Honcho-backed memory. */
 export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (ctx) => ({

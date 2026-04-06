@@ -4,19 +4,23 @@ import { isLocalHonchoBaseUrl, type PluginState } from "./state.js";
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
 
+/** Convert a Honcho session id into the generic memory tool path shape. */
 function normalizeSessionPath(sessionId: string): string {
   return `sessions/${sessionId}.txt`;
 }
 
+/** Parse the synthetic transcript path used by memory_get back into a session id. */
 function parseSessionPath(relPath: string): string | null {
   const m = /^sessions\/(.+)\.txt$/.exec(relPath);
   return m ? m[1] : null;
 }
 
+/** Allow the active session and Honcho child-session variants for scoped reads/searches. */
 function matchesSessionScope(sessionId: string, activeSessionKey: string): boolean {
   return sessionId === activeSessionKey || sessionId.startsWith(`${activeSessionKey}-`);
 }
 
+/** Return only the requested line window from a synthesized Honcho transcript. */
 function sliceLines(text: string, from = 1, lines?: number): string {
   const all = text.split(/\r?\n/);
   const start = Math.max(1, from) - 1;
@@ -24,6 +28,7 @@ function sliceLines(text: string, from = 1, lines?: number): string {
   return all.slice(start, end).join("\n");
 }
 
+/** Reconstruct a readable session transcript from Honcho session context data. */
 async function buildSessionTranscript(
   state: PluginState,
   agentId: string,
@@ -60,6 +65,7 @@ async function buildSessionTranscript(
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+/** Best-effort map a matched snippet back to transcript line numbers for memory_search. */
 function findSnippetLineRange(transcript: string, snippet: string): { startLine: number; endLine: number } {
   const transcriptLines = transcript.split(/\r?\n/);
   const snippetLines = snippet.split(/\r?\n/);
@@ -92,6 +98,12 @@ function findSnippetLineRange(transcript: string, snippet: string): { startLine:
   return { startLine: 1, endLine: Math.max(1, snippetLines.length) };
 }
 
+/**
+ * Build a Honcho-backed memory manager that satisfies OpenClaw's active-memory contract.
+ *
+ * The returned manager powers both the registered memory runtime and the direct
+ * memory_search / memory_get compatibility tools.
+ */
 export async function getHonchoMemorySearchManager(
   state: PluginState,
   params: { agentId?: string; sessionKey?: string } = {}
@@ -216,6 +228,7 @@ export async function getHonchoMemorySearchManager(
   };
 }
 
+/** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
   params: { sessionKey?: string; messageProvider?: string } = {}
 ) {
@@ -227,6 +240,7 @@ export function resolveHonchoMemoryBackendConfig(
   };
 }
 
+/** Register the Honcho runtime adapter when the host exposes memory runtime registration. */
 export function registerHonchoMemoryRuntime(api: any, state: PluginState): void {
   if (typeof api?.registerMemoryRuntime !== "function") {
     return;
