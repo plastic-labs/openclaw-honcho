@@ -171,4 +171,25 @@ describe("Honcho memory runtime", () => {
       sessionKey: "agent-main-dashboard-test-telegram",
     });
   });
+
+  it("fails cleanly when ownerPeer is unavailable after initialization", async () => {
+    const state = createState();
+    state.ownerPeer = null;
+
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    await expect(
+      manager.search("remember", {
+        sessionKey: "session-1",
+      }),
+    ).rejects.toThrow(/owner peer not initialized/);
+    await expect(
+      manager.readFile({
+        relPath: "sessions/session-1.txt",
+      }),
+    ).rejects.toThrow(/owner peer not initialized/);
+  });
 });

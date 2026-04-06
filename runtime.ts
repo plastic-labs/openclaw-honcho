@@ -35,13 +35,17 @@ async function buildSessionTranscript(
   sessionId: string
 ): Promise<string> {
   await state.ensureInitialized();
+  const ownerPeer = state.ownerPeer;
+  if (!ownerPeer) {
+    throw new Error("Honcho owner peer not initialized");
+  }
 
   const agentPeer = await state.getAgentPeer(agentId);
   const session = await state.honcho.session(sessionId, { metadata: { agentId } });
   const context = await session.context({
     summary: true,
     tokens: 20000,
-    peerTarget: state.ownerPeer,
+    peerTarget: ownerPeer,
     peerPerspective: agentPeer,
   });
 
@@ -53,7 +57,7 @@ async function buildSessionTranscript(
 
   for (const msg of context.messages ?? []) {
     const speaker =
-      msg.peerId === state.ownerPeer.id
+      msg.peerId === ownerPeer.id
         ? "User"
         : msg.peerId === agentPeer.id
           ? `Agent(${agentId})`
@@ -116,6 +120,10 @@ export async function getHonchoMemorySearchManager(
     manager: {
       async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
         await state.ensureInitialized();
+        const ownerPeer = state.ownerPeer;
+        if (!ownerPeer) {
+          throw new Error("Honcho owner peer not initialized");
+        }
         const requested = Number.isFinite(opts.maxResults)
           ? Number(opts.maxResults)
           : DEFAULT_SEARCH_RESULTS;
@@ -173,7 +181,7 @@ export async function getHonchoMemorySearchManager(
             }
           }
         } else {
-          collect(await state.ownerPeer.search(query, { limit }));
+          collect(await ownerPeer.search(query, { limit }));
         }
 
         return Promise.all(
