@@ -251,7 +251,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                   continue;
                 }
                 if (fs.statSync(inputPath).isDirectory()) {
-                  collectDir(inputPath, peerType);
+                  collectDir(inputPath, peerType, peerType === "agent" ? defaultAgentId : undefined);
                   console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
                 } else {
                   detected.push({
