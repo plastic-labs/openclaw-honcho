@@ -128,7 +128,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               ? ((savedConfig.agents as Record<string, unknown>).list as Array<Record<string, unknown>>)
               : [];
             const normalizedAgents = (agentsList.length > 0 ? agentsList : [{ id: "main", default: true }]).map((agent, index) => {
-              const agentId = ((agent?.id as string) ?? (index === 0 ? "main" : `agent-${index + 1}`)).toLowerCase().trim() || "main";
+              const agentId = ((agent?.id as string) ?? (index === 0 ? "main" : `a${index + 1}`)).toLowerCase().trim() || "main";
               return {
                 id: agentId,
                 workspace: agent?.workspace as string | undefined,
