@@ -120,14 +120,23 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
             }
 
-            // Resolve default agent and its workspace from config
+            // Resolve configured agents and their workspaces from config
             let savedConfig: Record<string, unknown> = {};
             try { savedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
 
             const agentsList = Array.isArray((savedConfig?.agents as Record<string, unknown>)?.list)
               ? ((savedConfig.agents as Record<string, unknown>).list as Array<Record<string, unknown>>)
               : [];
-            const defaultAgent = agentsList.find((a) => a?.default) ?? agentsList[0] ?? null;
+            const normalizedAgents = (agentsList.length > 0 ? agentsList : [{ id: "main", default: true }]).map((agent, index) => {
+              const agentId = ((agent?.id as string) ?? (index === 0 ? "main" : `agent-${index + 1}`)).toLowerCase().trim() || "main";
+              return {
+                id: agentId,
+                workspace: agent?.workspace as string | undefined,
+                workspaceDir: agent?.workspaceDir as string | undefined,
+                isDefault: agent?.default === true || (index === 0 && !agentsList.some((a) => a?.default === true)),
+              };
+            });
+            const defaultAgent = normalizedAgents.find((a) => a.isDefault) ?? normalizedAgents[0];
             const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
             const defaultAgentPeerId = `agent-${defaultAgentId}`;
 
@@ -135,66 +144,95 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const AGENT_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
             const OWNER_DIRS = ["memory", "canvas"];
 
-            type FileEntry = { filePath: string; peer: "owner" | "agent" };
+            type FileEntry = { filePath: string; peer: "owner" | "agent"; peerId: string; agentId?: string };
             const detected: FileEntry[] = [];
 
-            function collectDir(dirPath: string, peerType: "owner" | "agent"): void {
+            function hasDetected(filePath: string, peerId: string): boolean {
+              return detected.some((entry) => entry.filePath === filePath && entry.peerId === peerId);
+            }
+
+            function collectDir(dirPath: string, peerType: "owner" | "agent", agentId?: string): void {
               if (!fs.existsSync(dirPath)) return;
               const dirEntries = fs.readdirSync(dirPath, { withFileTypes: true });
+              const peerId = peerType === "owner" ? OWNER_ID : `agent-${agentId ?? defaultAgentId}`;
               for (const e of dirEntries) {
                 const full = path.join(dirPath, e.name);
-                if (e.isDirectory()) collectDir(full, peerType);
-                else detected.push({ filePath: full, peer: peerType });
+                if (e.isDirectory()) collectDir(full, peerType, agentId);
+                else if (!hasDetected(full, peerId)) detected.push({ filePath: full, peer: peerType, peerId, agentId });
               }
             }
 
-            function scanWorkspace(wsDir: string): void {
+            function scanWorkspace(wsDir: string, agentId?: string): void {
               for (const file of OWNER_FILES) {
                 const p = path.join(wsDir, file);
-                if (fs.existsSync(p) && !detected.find((d) => d.filePath === p))
-                  detected.push({ filePath: p, peer: "owner" });
+                if (fs.existsSync(p) && !hasDetected(p, OWNER_ID))
+                  detected.push({ filePath: p, peer: "owner", peerId: OWNER_ID });
               }
-              for (const file of AGENT_FILES) {
-                const p = path.join(wsDir, file);
-                if (fs.existsSync(p) && !detected.find((d) => d.filePath === p))
-                  detected.push({ filePath: p, peer: "agent" });
+              if (agentId) {
+                const peerId = `agent-${agentId}`;
+                for (const file of AGENT_FILES) {
+                  const p = path.join(wsDir, file);
+                  if (fs.existsSync(p) && !hasDetected(p, peerId))
+                    detected.push({ filePath: p, peer: "agent", peerId, agentId });
+                }
               }
               for (const dir of OWNER_DIRS) {
                 collectDir(path.join(wsDir, dir), "owner");
               }
             }
 
-            // Build ordered candidate workspace paths, deduplicated by real path.
             const ocHome = path.join(os.homedir(), ".openclaw");
+            const defaultWorkspace = ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string | undefined;
 
-            const candidateWsPaths: string[] = [
+            function uniqueWorkspacePaths(paths: Array<string | undefined>): string[] {
+              const seen = new Set<string>();
+              return paths.filter((p): p is string => typeof p === "string" && p.length > 0).filter((p) => {
+                const real = fs.existsSync(p) ? fs.realpathSync(p) : p;
+                if (seen.has(real)) return false;
+                seen.add(real);
+                return true;
+              });
+            }
+
+            const ownerCandidateWsPaths = uniqueWorkspacePaths([
               workspaceDir as string,
               defaultAgent?.workspace as string,
               defaultAgent?.workspaceDir as string,
-              ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string,
-              path.join(ocHome, "agents", defaultAgentId, "workspace"),
+              defaultWorkspace,
               path.join(ocHome, "workspace"),
               path.join(os.homedir(), ".clawdbot", "workspace"),
-            ].filter(Boolean);
+            ]);
 
-            // Deduplicate by resolved real path so symlinks / duplicate entries don't double-scan
-            const seen = new Set<string>();
-            const uniqueCandidates = candidateWsPaths.filter((p) => {
-              const real = fs.existsSync(p) ? fs.realpathSync(p) : p;
-              if (seen.has(real)) return false;
-              seen.add(real);
-              return true;
-            });
+            const agentWorkspaceCandidates = normalizedAgents.map((agent) => ({
+              agentId: agent.id,
+              peerId: `agent-${agent.id}`,
+              workspacePaths: uniqueWorkspacePaths([
+                agent.workspace,
+                agent.workspaceDir,
+                agent.isDefault ? (workspaceDir as string) : undefined,
+                agent.isDefault ? defaultWorkspace : undefined,
+                path.join(ocHome, "agents", agent.id, "workspace"),
+                agent.isDefault ? path.join(ocHome, "workspace") : undefined,
+                agent.isDefault ? path.join(os.homedir(), ".clawdbot", "workspace") : undefined,
+              ]),
+            }));
 
-            for (const candidate of uniqueCandidates) {
+            for (const candidate of ownerCandidateWsPaths) {
               scanWorkspace(candidate);
-              if (detected.length > 0) break;
+            }
+            for (const agent of agentWorkspaceCandidates) {
+              for (const candidate of agent.workspacePaths) {
+                scanWorkspace(candidate, agent.agentId);
+              }
             }
 
             // Still nothing — prompt user to enter additional paths manually
             if (detected.length === 0) {
               console.log("\nNo memory files found. Searched:");
-              for (const c of uniqueCandidates) console.log(`  ${c}`);
+              for (const c of ownerCandidateWsPaths) console.log(`  ${c}`);
+              for (const agent of agentWorkspaceCandidates) {
+                for (const c of agent.workspacePaths) console.log(`  ${c} (agent: ${agent.agentId})`);
+              }
               console.log('\nEnter file or directory paths to upload (one per line, empty line to finish):');
               console.log('Format: /path/to/file-or-dir [owner|agent]  (peer defaults to "owner" if omitted)\n');
               while (true) {
@@ -216,7 +254,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                   collectDir(inputPath, peerType);
                   console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
                 } else {
-                  detected.push({ filePath: inputPath, peer: peerType });
+                  detected.push({
+                    filePath: inputPath,
+                    peer: peerType,
+                    peerId: peerType === "owner" ? OWNER_ID : defaultAgentPeerId,
+                    agentId: peerType === "agent" ? defaultAgentId : undefined,
+                  });
                   console.log(`  + ${inputPath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
                 }
               }
@@ -230,10 +273,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
             console.log(`\nFound ${detected.length} memory file(s):`);
             console.log(`Default agent: ${defaultAgentId} (peer: ${defaultAgentPeerId})`);
-            for (const { filePath, peer } of detected) {
+            if (normalizedAgents.length > 1) {
+              console.log(`Configured agents: ${normalizedAgents.map((agent) => `${agent.id} (peer: agent-${agent.id})`).join(", ")}`);
+            }
+            for (const { filePath, peerId } of detected) {
               const size = fs.statSync(filePath).size;
-              const peerLabel = peer === "owner" ? OWNER_ID : defaultAgentPeerId;
-              console.log(`  ${filePath} (${(size / 1024).toFixed(1)} KB) → ${peerLabel}`);
+              console.log(`  ${filePath} (${(size / 1024).toFixed(1)} KB) → ${peerId}`);
             }
             console.log(`\nData destination: ${resolvedBaseUrl}`);
 
@@ -254,12 +299,20 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const existingMeta = await setupHoncho.getMetadata();
             await setupHoncho.setMetadata({ ...existingMeta });
             const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
-            const agentPeerSetup = await setupHoncho.peer(defaultAgentPeerId, { metadata: { agentId: defaultAgentId } });
+            const agentPeerSetupMap = new Map<string, Awaited<ReturnType<typeof setupHoncho.peer>>>();
+            for (const agent of normalizedAgents) {
+              const peerId = `agent-${agent.id}`;
+              const peer = await setupHoncho.peer(peerId, { metadata: { agentId: agent.id } });
+              agentPeerSetupMap.set(agent.id, peer);
+            }
             const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });
-            await migrationSession.addPeers([
-              [ownerPeerSetup, { observeMe: true, observeOthers: false }],
-              [agentPeerSetup, { observeMe: true, observeOthers: true }],
-            ]);
+            await migrationSession.addPeers([ownerPeerSetup, { observeMe: true, observeOthers: false }]);
+            for (const agent of normalizedAgents) {
+              await migrationSession.addPeers([
+                agentPeerSetupMap.get(agent.id)!,
+                { observeMe: true, observeOthers: true },
+              ]);
+            }
 
             // Cooldown after setup calls — the hosted platform (groudon) enforces
             // 5 req/sec per tenant; the 6 calls above consume most of that budget.
@@ -276,7 +329,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const total = detected.length;
 
             for (let i = 0; i < detected.length; i++) {
-              const { filePath, peer } = detected[i];
+              const { filePath, peer, agentId } = detected[i];
               const progress = `[${i + 1}/${total}]`;
 
               const stat = await fs.promises.stat(filePath).catch(() => null);
@@ -295,7 +348,14 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 continue;
               }
 
-              const targetPeer = peer === "owner" ? ownerPeerSetup : agentPeerSetup;
+              const targetPeer = peer === "owner"
+                ? ownerPeerSetup
+                : agentPeerSetupMap.get(agentId ?? defaultAgentId);
+              if (!targetPeer) {
+                console.log(`  ${progress} ✗ Failed: ${filePath}`);
+                failed.push({ filePath, error: `Missing Honcho peer for agent ${agentId ?? defaultAgentId}` });
+                continue;
+              }
               try {
                 const content = await fs.promises.readFile(filePath);
                 const hash = contentHash(content);
