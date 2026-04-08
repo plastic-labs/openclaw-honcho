@@ -127,15 +127,25 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const agentsList = Array.isArray((savedConfig?.agents as Record<string, unknown>)?.list)
               ? ((savedConfig.agents as Record<string, unknown>).list as Array<Record<string, unknown>>)
               : [];
-            const normalizedAgents = (agentsList.length > 0 ? agentsList : [{ id: "main", default: true }]).map((agent, index) => {
-              const agentId = ((agent?.id as string) ?? (index === 0 ? "main" : `a${index + 1}`)).toLowerCase().trim() || "main";
-              return {
-                id: agentId,
-                workspace: agent?.workspace as string | undefined,
-                workspaceDir: agent?.workspaceDir as string | undefined,
-                isDefault: agent?.default === true || (index === 0 && !agentsList.some((a) => a?.default === true)),
-              };
-            });
+            const hasExplicitDefault = agentsList.some((a) => a?.default === true);
+            const normalizedAgents = (agentsList.length > 0 ? agentsList : [{ id: "main", default: true }])
+              .map((agent, index) => {
+                const agentId = ((agent?.id as string) ?? (index === 0 ? "main" : `a${index + 1}`)).toLowerCase().trim() || "main";
+                return {
+                  id: agentId,
+                  workspace: agent?.workspace as string | undefined,
+                  workspaceDir: agent?.workspaceDir as string | undefined,
+                  isDefault: agent?.default === true || (index === 0 && !hasExplicitDefault),
+                };
+              })
+              .filter((agent, index, all) => {
+                const firstIndex = all.findIndex((candidate) => candidate.id === agent.id);
+                if (firstIndex !== index) {
+                  console.log(`  ! Duplicate normalized agent ID "${agent.id}" — skipping later entry during migration setup`);
+                  return false;
+                }
+                return true;
+              });
             const defaultAgent = normalizedAgents.find((a) => a.isDefault) ?? normalizedAgents[0];
             const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
             const defaultAgentPeerId = `agent-${defaultAgentId}`;
