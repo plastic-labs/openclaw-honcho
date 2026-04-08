@@ -17,6 +17,11 @@
         "type": "string",
         "default": "https://api.honcho.dev"
       },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "HTTP timeout in milliseconds for Honcho SDK requests. Useful for slower self-hosted local models."
+      },
       "noisePatterns": {
         "type": "array",
         "items": { "type": "string" },
@@ -50,6 +55,12 @@
       "label": "API Base URL",
       "advanced": true,
       "placeholder": "https://api.honcho.dev"
+    },
+    "timeoutMs": {
+      "label": "HTTP Timeout (ms)",
+      "advanced": true,
+      "placeholder": "60000",
+      "help": "Increase this for self-hosted Honcho deployments backed by slower local models."
     },
     "noisePatterns": {
       "label": "Noise Patterns",

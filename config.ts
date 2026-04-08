@@ -13,6 +13,7 @@ export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
   baseUrl: string;
+  timeoutMs?: number;
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
@@ -65,6 +66,12 @@ export const honchoConfigSchema = {
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
+      timeoutMs:
+        typeof cfg.timeoutMs === "number" && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0
+          ? cfg.timeoutMs
+          : process.env.HONCHO_TIMEOUT_MS
+            ? Number(process.env.HONCHO_TIMEOUT_MS)
+            : undefined,
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
