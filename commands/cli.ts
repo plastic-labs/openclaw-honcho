@@ -217,6 +217,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               ]),
             }));
 
+            // Scan shared/default workspace roots only for owner files. Agent files
+            // must come from an agent-specific workspace path so they can be
+            // assigned to the correct `agent-{id}` peer.
             for (const candidate of ownerCandidateWsPaths) {
               scanWorkspace(candidate);
             }
