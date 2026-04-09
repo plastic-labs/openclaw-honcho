@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.3.1] - 2026-04-09
+
+### Fixed
+- **`honcho setup` now migrates memory files for all configured agents (#53, #46)**: Previously, setup only scanned and uploaded files for the default agent. Now performs two-phase scanning — owner files from shared workspace roots, then agent-specific files (SOUL.md, AGENTS.md, etc.) from each agent's workspace path. Files are routed to the correct `agent-{id}` peer. Deduplicates by (filePath, peerId) to prevent double-uploads. Normalizes agent IDs with duplicate detection and user-facing warnings. Contributed by @jodok.
+
 ## [1.3.0] - 2026-04-09
 
 Minor version bump: this release replaces the memory tool implementation (not just
