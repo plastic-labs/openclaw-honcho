@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "./runtime.js";
 import type { PluginState } from "./state.js";
 
-function createState(baseUrl = "https://api.honcho.dev"): PluginState {
+function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = true }: { crossSessionSearch?: boolean } = {}): PluginState {
   const contexts = new Map<string, { summary: { content: string }; messages: Array<Record<string, unknown>> }>([
     [
       "session-1",
@@ -80,6 +80,10 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
       "session-2",
       [{ id: "msg-3", sessionId: "session-2", content: "Beta\nextra" }],
     ],
+    [
+      "other-session",
+      [{ id: "msg-4", sessionId: "other-session", content: "Other result" }],
+    ],
   ]);
 
   const createSession = (sessionId: string) => ({
@@ -97,6 +101,7 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
       noisePatterns: [],
       disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
+      crossSessionSearch,
     },
     honcho: {
       session: vi.fn(async (sessionId: string) => createSession(sessionId)),
@@ -127,7 +132,7 @@ function createState(baseUrl = "https://api.honcho.dev"): PluginState {
 
 describe("Honcho memory runtime", () => {
   it("filters search results by session key and returns session transcript paths", async () => {
-    const state = createState();
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
@@ -159,8 +164,28 @@ describe("Honcho memory runtime", () => {
     ).rejects.toThrow(/outside the active session/);
   });
 
+  it("allows cross-session search when crossSessionSearch is true", async () => {
+    const state = createState();
+
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    const results = await manager.search("remember", {
+      sessionKey: "other-session",
+    });
+    expect(results.length).toBeGreaterThan(0);
+
+    const file = await manager.readFile({
+      relPath: "sessions/other-session.txt",
+    });
+    expect(file.path).toBe("sessions/other-session.txt");
+    expect(file.text).toContain("Other summary");
+  });
+
   it("reads scoped transcript slices and resolves backend metadata", async () => {
-    const state = createState("http://localhost:8000");
+    const state = createState("http://localhost:8000", { crossSessionSearch: false });
 
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",

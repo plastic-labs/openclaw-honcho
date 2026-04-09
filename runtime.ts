@@ -138,7 +138,9 @@ export async function getHonchoMemorySearchManager(
           typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
             ? opts.sessionKey
             : activeSessionKey ?? null;
+        const scopeEnabled = !state.cfg.crossSessionSearch;
         if (
+          scopeEnabled &&
           activeSessionKey &&
           requestedSessionKey &&
           !matchesSessionScope(requestedSessionKey, activeSessionKey)
@@ -158,7 +160,7 @@ export async function getHonchoMemorySearchManager(
             if (!sessionId || seenSessionIds.has(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`)) {
               continue;
             }
-            if (requestedSessionKey && !matchesSessionScope(sessionId, requestedSessionKey)) {
+            if (scopeEnabled && requestedSessionKey && !matchesSessionScope(sessionId, requestedSessionKey)) {
               continue;
             }
             seenSessionIds.add(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`);
@@ -217,7 +219,7 @@ export async function getHonchoMemorySearchManager(
         if (!sessionId) {
           throw new Error(`Unsupported Honcho memory path: ${params.relPath}`);
         }
-        if (activeSessionKey && !matchesSessionScope(sessionId, activeSessionKey)) {
+        if (!state.cfg.crossSessionSearch && activeSessionKey && !matchesSessionScope(sessionId, activeSessionKey)) {
           throw new Error(`Requested Honcho memory path is outside the active session: ${params.relPath}`);
         }
 

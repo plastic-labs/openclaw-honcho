@@ -68,6 +68,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
+| `crossSessionSearch`   | `boolean`  | `true`                     | Allow `memory_search` and `memory_get` to access any session. Set to `false` to restrict to the active session and its children. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 
 ### Self-Hosted / Local Honcho

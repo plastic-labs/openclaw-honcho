@@ -2,10 +2,22 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
-## Unreleased
+## [1.3.0] - 2026-04-09
+
+Minor version bump: this release replaces the memory tool implementation (not just
+a bug fix) and makes cross-session memory access configurable — both are behavioral
+changes that affect how agents interact with the memory subsystem.
+
+### Added
+- **Honcho-native `memory_search` and `memory_get` tools (#52, #45)**: Self-contained implementations that replace the deleted `api.runtime.tools` passthrough. Tools use TypeBox schemas, return structured JSON with provider/status metadata, and degrade gracefully with structured error payloads when the backend is unavailable. Contributed by @bcdonadio; foundational runtime adapter by @slideshow-dingo.
+- **Configurable `crossSessionSearch` option**: `memory_search` and `memory_get` now default to cross-session access (`crossSessionSearch: true`), matching Honcho's design for cross-session exploration and user representation. Set `crossSessionSearch: false` in plugin config to restrict tools to the active session and its children only. This replaces the previous hardcoded session scoping from #52.
+- **Backward-compatible runtime registration guard (#52)**: `registerHonchoMemoryRuntime()` now checks for `api.registerMemoryRuntime` before calling it, so the plugin loads cleanly on older OpenClaw hosts that don't expose the memory runtime API.
+- **Memory runtime + passthrough test suites (#52)**: 6 tests covering session-scoped search, cross-session rejection, transcript slicing, snippet range clamping, null ownerPeer handling, and tool registration.
 
 ### Fixed
-- **Stale tool names in `workspace_md/AGENTS.md` (#49)**: Default agent template referenced deprecated tool names (`honcho_profile`, `honcho_search`, `honcho_recall`, `honcho_analyze`) that no longer exist since v1.2.0. Agents bootstrapped with the template would fail when calling memory tools. Updated all references to match registered tools and added parameter hints.
+- **Stale tool names in `workspace_md/AGENTS.md` (#49)**: Default agent template referenced deprecated tool names (`honcho_profile`, `honcho_search`, `honcho_recall`, `honcho_analyze`) that no longer exist since v1.2.0. Updated all references to match registered tools and added parameter hints.
+- **Snippet line range could exceed transcript length (#52)**: `sliceLines` and `findSnippetLineRange` now clamp `endLine` to the actual transcript length, preventing out-of-bounds ranges in `memory_search` results.
+- **ownerPeer null access in runtime (#52)**: `buildSessionTranscript` and `search` now guard against uninitialized `ownerPeer`, throwing a descriptive error instead of a `TypeError`.
 
 ## [1.2.2] - 2026-03-31
 
