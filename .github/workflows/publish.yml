@@ -38,7 +38,7 @@ jobs:
           LATEST_VERSION=$(npm view "@honcho-ai/openclaw-honcho" version 2>/dev/null || echo "")
           echo "latest=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
 
-          npx semver@7.7.4 "$LOCAL_VERSION" >/dev/null || {
+          node -e "if(!/^\d+\.\d+\.\d+/.test('$LOCAL_VERSION')){process.exit(1)}" || {
             echo "::error::package.json version \"$LOCAL_VERSION\" is not valid semver"
             exit 1
           }
@@ -49,7 +49,7 @@ jobs:
             exit 0
           fi
 
-          if npx semver "$LOCAL_VERSION" -r ">$LATEST_VERSION" >/dev/null; then
+          if node -e "const[a,b]=['$LOCAL_VERSION','$LATEST_VERSION'].map(v=>v.split('.').map(Number));process.exit(a[0]>b[0]||(a[0]===b[0]&&a[1]>b[1])||(a[0]===b[0]&&a[1]===b[1]&&a[2]>b[2])?0:1)"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Version $LOCAL_VERSION is greater than npm latest $LATEST_VERSION — will publish"
           else
