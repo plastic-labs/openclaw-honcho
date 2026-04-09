@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.3.2] - 2026-04-09
+
+### Added
+- **Configurable HTTP timeout for self-hosted Honcho (#54)**: New `timeoutMs` config option (or `HONCHO_TIMEOUT_MS` env var) sets the HTTP timeout in milliseconds for Honcho SDK requests. Useful for self-hosted deployments backed by slower local models that exceed the SDK's default timeout. Both config and env paths validate for positive finite numbers. Contributed by @ksullivan27.
+
 ## [1.3.1] - 2026-04-09
 
 ### Fixed
