@@ -66,12 +66,16 @@ export const honchoConfigSchema = {
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl
           : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
-      timeoutMs:
-        typeof cfg.timeoutMs === "number" && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0
-          ? cfg.timeoutMs
-          : process.env.HONCHO_TIMEOUT_MS
-            ? Number(process.env.HONCHO_TIMEOUT_MS)
-            : undefined,
+      timeoutMs: (() => {
+        if (typeof cfg.timeoutMs === "number" && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0) {
+          return cfg.timeoutMs;
+        }
+        if (process.env.HONCHO_TIMEOUT_MS !== undefined) {
+          const parsed = Number(process.env.HONCHO_TIMEOUT_MS);
+          if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return undefined;
+      })(),
       noisePatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
