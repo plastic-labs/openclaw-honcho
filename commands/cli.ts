@@ -187,7 +187,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 }
               }
               for (const dir of OWNER_DIRS) {
-                collectDir(path.join(wsDir, dir), "owner");
+                collectDir(path.join(wsDir, dir), agentId ? "agent" : "owner", agentId);
               }
             }
 
