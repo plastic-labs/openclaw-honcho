@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.3.3] - 2026-04-16
+
+### Fixed
+- **Correct owner/agent peer routing for memory files during setup (#61)**: `MEMORY.md`, `memory/`, and `canvas/` were incorrectly routed to the owner peer — they are agent state (session logs, curated memory, working scratch), not user profile data. Only `USER.md` is genuinely about the owner. Moved `MEMORY.md` to the agent file list, renamed `OWNER_DIRS` to `AGENT_DIRS`, and restructured `scanWorkspace` so agent files and dirs are only collected when an `agentId` is known. In shared workspaces, the default agent's candidate list includes shared roots, so nothing is missed. Eliminates the previous double-collection bug where `memory/`/`canvas/` in shared roots were uploaded to both the owner and agent peers.
+
 ## [1.3.2] - 2026-04-09
 
 ### Added
