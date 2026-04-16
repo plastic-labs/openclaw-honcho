@@ -150,9 +150,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
             const defaultAgentPeerId = `agent-${defaultAgentId}`;
 
-            const OWNER_FILES = ["USER.md", "MEMORY.md"];
-            const AGENT_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md"];
-            const OWNER_DIRS = ["memory", "canvas"];
+            const OWNER_FILES = ["USER.md"];
+            const AGENT_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md", "MEMORY.md"];
+            const AGENT_DIRS = ["memory", "canvas"];
 
             type FileEntry = { filePath: string; peer: "owner" | "agent"; peerId: string; agentId?: string };
             const detected: FileEntry[] = [];
@@ -169,25 +169,6 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 const full = path.join(dirPath, e.name);
                 if (e.isDirectory()) collectDir(full, peerType, agentId);
                 else if (!hasDetected(full, peerId)) detected.push({ filePath: full, peer: peerType, peerId, agentId });
-              }
-            }
-
-            function scanWorkspace(wsDir: string, agentId?: string): void {
-              for (const file of OWNER_FILES) {
-                const p = path.join(wsDir, file);
-                if (fs.existsSync(p) && !hasDetected(p, OWNER_ID))
-                  detected.push({ filePath: p, peer: "owner", peerId: OWNER_ID });
-              }
-              if (agentId) {
-                const peerId = `agent-${agentId}`;
-                for (const file of AGENT_FILES) {
-                  const p = path.join(wsDir, file);
-                  if (fs.existsSync(p) && !hasDetected(p, peerId))
-                    detected.push({ filePath: p, peer: "agent", peerId, agentId });
-                }
-              }
-              for (const dir of OWNER_DIRS) {
-                collectDir(path.join(wsDir, dir), agentId ? "agent" : "owner", agentId);
               }
             }
 
@@ -213,6 +194,32 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               path.join(os.homedir(), ".clawdbot", "workspace"),
             ]);
 
+            function scanWorkspace(wsDir: string, agentId?: string): void {
+              // Owner files (USER.md) always route to the owner peer.
+              for (const file of OWNER_FILES) {
+                const p = path.join(wsDir, file);
+                if (fs.existsSync(p) && !hasDetected(p, OWNER_ID))
+                  detected.push({ filePath: p, peer: "owner", peerId: OWNER_ID });
+              }
+              // Agent files, MEMORY.md, and working dirs (memory/, canvas/)
+              // are the agent's state — only collected when we know which
+              // agent to assign them to. The owner-scan loop (no agentId)
+              // skips these; the agent loop picks them up with the correct
+              // peer. For the default agent, shared roots are included in
+              // its candidate list, so nothing is missed.
+              if (agentId) {
+                const peerId = `agent-${agentId}`;
+                for (const file of AGENT_FILES) {
+                  const p = path.join(wsDir, file);
+                  if (fs.existsSync(p) && !hasDetected(p, peerId))
+                    detected.push({ filePath: p, peer: "agent", peerId, agentId });
+                }
+                for (const dir of AGENT_DIRS) {
+                  collectDir(path.join(wsDir, dir), "agent", agentId);
+                }
+              }
+            }
+
             const agentWorkspaceCandidates = normalizedAgents.map((agent) => ({
               agentId: agent.id,
               peerId: `agent-${agent.id}`,
@@ -227,9 +234,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               ]),
             }));
 
-            // Scan shared/default workspace roots only for owner files. Agent files
-            // must come from an agent-specific workspace path so they can be
-            // assigned to the correct `agent-{id}` peer.
+            // Owner loop: shared/default roots — only collects USER.md (owner peer).
+            // Agent loop: each agent's candidate paths — collects agent files,
+            // MEMORY.md, and working dirs (memory/, canvas/) under that agent's
+            // peer. The default agent's candidates include shared roots, so
+            // agent state in shared workspaces routes to the default agent.
             for (const candidate of ownerCandidateWsPaths) {
               scanWorkspace(candidate);
             }
