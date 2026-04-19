@@ -5,6 +5,18 @@ import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 import { getHonchoMemorySearchManager } from "../runtime.js";
 
+/**
+ * Build a Honcho session key from tool context, or return undefined when the
+ * caller has no real session. Skipping the synthesized "default-<provider>"
+ * fallback here lets the runtime fall through to a peer-wide search instead
+ * of scoping to a session that doesn't exist in Honcho.
+ */
+function resolveHonchoSessionScope(ctx: { sessionKey?: string }): string | undefined {
+  const raw = typeof ctx.sessionKey === "string" ? ctx.sessionKey.trim() : "";
+  if (!raw) return undefined;
+  return buildSessionKey({ sessionKey: raw });
+}
+
 const MemorySearchSchema = Type.Object({
   query: Type.String(),
   maxResults: Type.Optional(Type.Number()),
@@ -98,9 +110,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const maxResults = readNumberParam(params, "maxResults");
         // Keep parity with the generic schema even though Honcho does not use minScore.
         readNumberParam(params, "minScore");
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        const honchoSessionKey = resolveHonchoSessionScope(ctx);
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
@@ -109,7 +119,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
           });
           const results = await manager.search(query, {
             maxResults: maxResults ?? undefined,
-            sessionKey: honchoSessionKey,
+            ...(honchoSessionKey ? { sessionKey: honchoSessionKey } : {}),
           });
           const status = manager.status();
           return jsonResult({
@@ -138,9 +148,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const relPath = readStringParam(params, "path", { required: true });
         const from = readNumberParam(params, "from", { integer: true });
         const lines = readNumberParam(params, "lines", { integer: true });
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        const honchoSessionKey = resolveHonchoSessionScope(ctx);
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {

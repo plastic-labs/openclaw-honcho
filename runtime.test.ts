@@ -184,6 +184,52 @@ describe("Honcho memory runtime", () => {
     expect(file.text).toContain("Other summary");
   });
 
+  it("spans every session via the owner peer when crossSessionSearch is true", async () => {
+    const state = createState();
+
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    // Even though activeSessionKey points at session-1, cross-session search
+    // should surface hits from sessions the active key doesn't cover.
+    const results = await manager.search("anything", {
+      maxResults: 10,
+    });
+
+    const paths = results.map((entry) => entry.path);
+    expect(paths).toContain("sessions/session-1.txt");
+    expect(paths).toContain("sessions/session-1-child.txt");
+    expect(paths).toContain("sessions/other-session.txt");
+
+    // Owner peer must drive the search directly — the session-scoped branch
+    // would never surface `other-session` when activeSessionKey is session-1.
+    expect(state.ownerPeer.search).toHaveBeenCalledTimes(1);
+  });
+
+  it("restricts search to the active session when crossSessionSearch is false", async () => {
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
+
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    const results = await manager.search("anything", {
+      maxResults: 10,
+    });
+
+    // Only session-1 and its prefixed children should come back.
+    const paths = results.map((entry) => entry.path);
+    expect(paths).toContain("sessions/session-1.txt");
+    expect(paths).toContain("sessions/session-1-child.txt");
+    expect(paths).not.toContain("sessions/other-session.txt");
+
+    // Owner-peer search must NOT be used in scoped mode.
+    expect(state.ownerPeer.search).not.toHaveBeenCalled();
+  });
+
   it("reads scoped transcript slices and resolves backend metadata", async () => {
     const state = createState("http://localhost:8000", { crossSessionSearch: false });
 
@@ -217,10 +263,28 @@ describe("Honcho memory runtime", () => {
       qmd: {},
       sessionKey: "agent-main-dashboard-test-telegram",
     });
+
+    // When the caller has no real session key, the descriptor must omit
+    // sessionKey rather than synthesize a "default-<provider>" placeholder
+    // that would scope searches to a session that doesn't exist.
+    expect(resolveHonchoMemoryBackendConfig({})).toEqual({
+      backend: "qmd",
+      qmd: {},
+    });
+    expect(resolveHonchoMemoryBackendConfig({ sessionKey: "   " })).toEqual({
+      backend: "qmd",
+      qmd: {},
+    });
+    expect(resolveHonchoMemoryBackendConfig({ messageProvider: "slack" })).toEqual({
+      backend: "qmd",
+      qmd: {},
+    });
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {
-    const state = createState();
+    // Use scoped mode so the session-scoped search path is exercised and
+    // the fallback line-range heuristic runs against a deterministic session.
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
       sessionKey: "session-2",

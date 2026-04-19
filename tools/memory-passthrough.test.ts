@@ -94,6 +94,45 @@ describe("memory passthrough tools", () => {
     });
   });
 
+  it("omits sessionKey from manager calls when ctx has no session key", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    // CLI / cron / skill-driven callers have no ctx.sessionKey. The old
+    // behavior synthesized "default-unknown", which Honcho then scoped every
+    // search to, yielding zero results. The tool must omit sessionKey so the
+    // runtime falls through to peer-wide cross-session search.
+    const ctx = { agentId: "main", config: {} };
+    const searchTool = registrations[0]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    const managerSearchMock = vi.fn(async () => []);
+    getHonchoMemorySearchManagerMock.mockResolvedValueOnce({
+      manager: {
+        search: managerSearchMock,
+        status: vi.fn(() => ({ backend: "qmd", provider: "honcho", model: "n/a", custom: {} })),
+      },
+    });
+
+    await searchTool.execute("call-search", { query: "anything" });
+
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "main",
+      sessionKey: undefined,
+    });
+    expect(managerSearchMock).toHaveBeenCalledWith("anything", {
+      maxResults: undefined,
+    });
+    expect(managerSearchMock.mock.calls[0]?.[1]).not.toHaveProperty("sessionKey");
+  });
+
   it("returns structured unavailable payloads when manager acquisition fails", async () => {
     const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
     const api = {

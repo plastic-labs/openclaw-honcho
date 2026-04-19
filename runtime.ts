@@ -138,6 +138,11 @@ export async function getHonchoMemorySearchManager(
           typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
             ? opts.sessionKey
             : activeSessionKey ?? null;
+        // When crossSessionSearch is true (the default), session scoping is a
+        // soft hint for activeSessionKey membership only: the search itself
+        // spans every session the owner peer can see. When false, we enforce
+        // strict scoping — calls that reach outside the active session throw,
+        // and results from foreign sessions are filtered out.
         const scopeEnabled = !state.cfg.crossSessionSearch;
         if (
           scopeEnabled &&
@@ -168,7 +173,7 @@ export async function getHonchoMemorySearchManager(
           }
         };
 
-        if (requestedSessionKey) {
+        if (scopeEnabled && requestedSessionKey) {
           const exactSession = await state.honcho.session(requestedSessionKey, {
             metadata: { agentId },
           });
@@ -189,6 +194,9 @@ export async function getHonchoMemorySearchManager(
             }
           }
         } else {
+          // Cross-session search: ask the owner peer directly so results
+          // span every session in the workspace. This is also the fallback
+          // when no session key was supplied at all.
           collect(await ownerPeer.search(query, { limit }));
         }
 
@@ -258,13 +266,21 @@ export async function getHonchoMemorySearchManager(
 /** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
   params: { sessionKey?: string; messageProvider?: string } = {}
-) {
-  const sessionKey = buildSessionKey(params);
-  return {
+): { backend: "qmd"; qmd: Record<string, unknown>; sessionKey?: string } {
+  // Only publish a sessionKey when the caller actually provided one. Otherwise
+  // buildSessionKey() would synthesize a "default-<provider>" key that has no
+  // corresponding Honcho session, and every scoped search against it returns
+  // zero rows. Leaving sessionKey unset lets the memory slot resolve it later
+  // from the live request context, or fall through to cross-session search.
+  const raw = typeof params.sessionKey === "string" ? params.sessionKey.trim() : "";
+  const descriptor: { backend: "qmd"; qmd: Record<string, unknown>; sessionKey?: string } = {
     backend: "qmd",
     qmd: {},
-    sessionKey,
   };
+  if (raw) {
+    descriptor.sessionKey = buildSessionKey({ sessionKey: raw, messageProvider: params.messageProvider });
+  }
+  return descriptor;
 }
 
 /** Register the Honcho runtime adapter when the host exposes memory runtime registration. */
