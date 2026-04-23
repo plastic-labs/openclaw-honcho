@@ -435,13 +435,27 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .description("Show Honcho connection status")
         .action(async () => {
           try {
-            await state.ensureInitialized();
-            const defaultPeer = await state.getAgentPeer(state.resolveDefaultAgentId());
+            const defaultAgentId = state.resolveDefaultAgentId();
+            const defaultWs = await state.ensureInitializedFor(defaultAgentId);
+            const defaultPeer = await state.getAgentPeerFor(defaultAgentId);
 
             console.log("Connected to Honcho");
-            console.log(`  Workspace: ${state.cfg.workspaceId}`);
-            console.log(`  Default agent: ${state.resolveDefaultAgentId()} → peer "${defaultPeer.id}"`);
-            console.log(`  Agent peers mapped: ${Object.keys(state.agentPeerMap).join(", ") || "(none)"}`);
+            console.log(`  Default workspace: ${state.cfg.workspaceId}`);
+            console.log(`  Default agent: ${defaultAgentId} → workspace "${defaultWs.workspaceId}", peer "${defaultPeer.id}"`);
+            console.log(`  Default workspace agent peers mapped: ${Object.keys(defaultWs.agentPeerMap).join(", ") || "(none)"}`);
+
+            const agentWorkspaces = state.cfg.agentWorkspaces;
+            if (agentWorkspaces && Object.keys(agentWorkspaces).length > 0) {
+              console.log(`\n  Per-agent workspace routing:`);
+              const entries = Object.entries(agentWorkspaces).sort(([a], [b]) => a.localeCompare(b));
+              for (const [agentId, workspaceId] of entries) {
+                console.log(`    ${agentId} → ${workspaceId}`);
+              }
+              const activeWorkspaces = Array.from(state.workspaces.values())
+                .filter((ws) => ws.initialized)
+                .map((ws) => ws.workspaceId);
+              console.log(`  Active (initialized) workspaces: ${activeWorkspaces.join(", ") || "(none)"}`);
+            }
           } catch (error) {
             console.error(`Failed to connect: ${error}`);
           }
@@ -453,9 +467,10 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .option("-a, --agent <id>", "Agent ID to query as (default: primary agent)")
         .action(async (question: string, options: { agent?: string }) => {
           try {
-            await state.ensureInitialized();
-            const agentPeer = await state.getAgentPeer(options.agent ?? state.resolveDefaultAgentId());
-            const answer = await agentPeer.chat(question, { target: state.ownerPeer! });
+            const agentId = options.agent ?? state.resolveDefaultAgentId();
+            const ws = await state.ensureInitializedFor(agentId);
+            const agentPeer = await state.getAgentPeerFor(agentId);
+            const answer = await agentPeer.chat(question, { target: ws.ownerPeer! });
             console.log(answer ?? "No information available.");
           } catch (error) {
             console.error(`Failed to query: ${error}`);
@@ -467,10 +482,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .description("Semantic search over Honcho memory")
         .option("-k, --top-k <number>", "Number of results to return", "10")
         .option("-d, --max-distance <number>", "Maximum semantic distance (0-1)", "0.5")
-        .action(async (query: string, options: { topK: string; maxDistance: string }) => {
+        .option("-a, --agent <id>", "Agent ID whose workspace to search (default: primary agent)")
+        .action(async (query: string, options: { topK: string; maxDistance: string; agent?: string }) => {
           try {
-            await state.ensureInitialized();
-            const representation = await state.ownerPeer!.representation({
+            const agentId = options.agent ?? state.resolveDefaultAgentId();
+            const ws = await state.ensureInitializedFor(agentId);
+            const representation = await ws.ownerPeer!.representation({
               searchQuery: query,
               searchTopK: parseInt(options.topK, 10),
               searchMaxDistance: parseFloat(options.maxDistance),

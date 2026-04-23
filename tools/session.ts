@@ -51,17 +51,17 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           messageLimit?: number;
         };
 
-        await state.ensureInitialized();
-        const agentPeer = await state.getAgentPeer(toolCtx.agentId);
+        const ws = await state.ensureInitializedFor(toolCtx.agentId);
+        const agentPeer = await state.getAgentPeerFor(toolCtx.agentId);
         const sessionKey = buildSessionKey(toolCtx);
 
         try {
-          const session = await state.honcho.session(sessionKey);
+          const session = await ws.honcho.session(sessionKey);
 
           const context = await session.context({
             summary: includeSummary,
             tokens: messageLimit,
-            peerTarget: state.ownerPeer!,
+            peerTarget: ws.ownerPeer!,
             peerPerspective: agentPeer,
             searchQuery: searchQuery,
           });
@@ -88,7 +88,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
 
           if (includeMessages && context.messages.length > 0) {
             const messageLines = context.messages.map((msg) => {
-              const speaker = msg.peerId === state.ownerPeer!.id ? "User" : "OpenClaw";
+              const speaker = msg.peerId === ws.ownerPeer!.id ? "User" : "OpenClaw";
               const timestamp = msg.createdAt
                 ? new Date(msg.createdAt).toLocaleString()
                 : "";
@@ -107,7 +107,12 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
                   text: "No conversation history available for this session yet.",
                 },
               ],
-              details: { messageCount: 0, hasSummary: false, sessionKey },
+              details: {
+                messageCount: 0,
+                hasSummary: false,
+                sessionKey,
+                workspaceId: ws.workspaceId,
+              },
             };
           }
 
@@ -126,6 +131,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
               messageCount: context.messages.length,
               hasSummary: !!context.summary?.content,
               sessionKey,
+              workspaceId: ws.workspaceId,
             },
           };
         } catch (error) {
@@ -142,7 +148,12 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
                   text: "No conversation history found. This appears to be a new session.",
                 },
               ],
-              details: { messageCount: 0, hasSummary: false, sessionKey },
+              details: {
+                messageCount: 0,
+                hasSummary: false,
+                sessionKey,
+                workspaceId: ws.workspaceId,
+              },
             };
           }
 

@@ -98,9 +98,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const maxResults = readNumberParam(params, "maxResults");
         // Keep parity with the generic schema even though Honcho does not use minScore.
         readNumberParam(params, "minScore");
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        const honchoSessionKey = buildSessionKey(ctx);
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
@@ -138,9 +136,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const relPath = readStringParam(params, "path", { required: true });
         const from = readNumberParam(params, "from", { integer: true });
         const lines = readNumberParam(params, "lines", { integer: true });
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        const honchoSessionKey = buildSessionKey(ctx);
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {

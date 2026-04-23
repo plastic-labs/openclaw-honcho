@@ -17,7 +17,12 @@ async function flushMessages(
   api: OpenClawPluginApi,
   state: PluginState,
   messages: unknown[],
-  ctx: { sessionKey?: string; agentId?: string; messageProvider?: string },
+  ctx: {
+    sessionKey?: string;
+    agentId?: string;
+    messageProvider?: string;
+    messageChannel?: string;
+  },
 ): Promise<number> {
   if (!messages?.length) return 0;
 
@@ -26,11 +31,17 @@ async function flushMessages(
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
 
-  await state.ensureInitialized();
-  const agentPeer = await state.getAgentPeer(agentId);
+  const ws = await state.ensureInitializedFor(agentId);
+  const agentPeer = await state.getAgentPeerFor(agentId);
+  // Parent peer observation only works when parent and child agents share a workspace.
+  // For cross-workspace subagents, we skip adding the parent peer rather than cross
+  // session/peer boundaries between Honcho workspaces.
   const parentPeer =
-    isSubagent && parentAgentId && parentAgentId !== agentId
-      ? await state.getAgentPeer(parentAgentId)
+    isSubagent &&
+    parentAgentId &&
+    parentAgentId !== agentId &&
+    state.resolveWorkspaceIdForAgent(parentAgentId) === ws.workspaceId
+      ? await state.getAgentPeerFor(parentAgentId)
       : null;
 
   const sessionMeta: Record<string, unknown> = {
@@ -41,7 +52,7 @@ async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+  const session = await ws.honcho.session(sessionKey, { metadata: sessionMeta });
   const meta = await session.getMetadata();
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
@@ -70,7 +81,7 @@ async function flushMessages(
   }
 
   const newRawMessages = messages.slice(startIndex);
-  const extracted = extractMessages(newRawMessages, state.ownerPeer!, agentPeer, state.cfg.noisePatterns);
+  const extracted = extractMessages(newRawMessages, ws.ownerPeer!, agentPeer, state.cfg.noisePatterns);
 
   if (extracted.length === 0) {
     await session.setMetadata({ ...existingMeta, ...sessionMeta, lastSavedIndex: messages.length });

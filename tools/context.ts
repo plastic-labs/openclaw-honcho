@@ -5,7 +5,7 @@ import type { PluginState } from "../state.js";
 
 export function registerContextTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
-    {
+    (toolCtx) => ({
       name: "honcho_context",
       label: "Get User Context",
       description:
@@ -25,10 +25,10 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
       async execute(_toolCallId, params) {
         const { detail = "card" } = params as { detail?: "card" | "full" };
 
-        await state.ensureInitialized();
+        const ws = await state.ensureInitializedFor(toolCtx.agentId);
 
         if (detail === "card") {
-          const card = await state.ownerPeer!.card().catch((err) => {
+          const card = await ws.ownerPeer!.card().catch((err) => {
             // Only treat NotFoundError as empty; re-throw others or log
             if (err?.name === "NotFoundError") return null;
             // Optionally log unexpected errors for debugging
@@ -60,7 +60,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
         }
 
         // detail === "full"
-        const representation = await state.ownerPeer!.representation({
+        const representation = await ws.ownerPeer!.representation({
           includeMostFrequent: true,
         });
 
@@ -81,7 +81,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
           details: { detail, representationLength: representation.length },
         };
       },
-    },
+    }),
     { name: "honcho_context" }
   );
 }

@@ -12,6 +12,7 @@ export const DEFAULT_NOISE_PATTERNS: string[] = [
 export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
+  agentWorkspaces?: Record<string, string>;
   baseUrl: string;
   timeoutMs?: number;
   noisePatterns: string[];
@@ -57,12 +58,32 @@ export const honchoConfigSchema = {
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
 
+    let agentWorkspaces: Record<string, string> | undefined;
+    if (cfg.agentWorkspaces !== undefined && cfg.agentWorkspaces !== null) {
+      if (typeof cfg.agentWorkspaces !== "object" || Array.isArray(cfg.agentWorkspaces)) {
+        throw new Error("openclaw-honcho: agentWorkspaces must be an object mapping agentId → workspaceId string");
+      }
+      const entries: Array<[string, string]> = [];
+      for (const [key, value] of Object.entries(cfg.agentWorkspaces as Record<string, unknown>)) {
+        if (typeof value !== "string" || value.length === 0) {
+          throw new Error(`openclaw-honcho: agentWorkspaces["${key}"] must be a non-empty string workspaceId`);
+        }
+        const normalizedKey = key.toLowerCase().trim();
+        if (!normalizedKey) continue;
+        entries.push([normalizedKey, value]);
+      }
+      if (entries.length > 0) {
+        agentWorkspaces = Object.fromEntries(entries);
+      }
+    }
+
     return {
       apiKey,
       workspaceId:
         typeof cfg.workspaceId === "string" && cfg.workspaceId.length > 0
           ? cfg.workspaceId
           : process.env.HONCHO_WORKSPACE_ID ?? "openclaw",
+      agentWorkspaces,
       baseUrl:
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl

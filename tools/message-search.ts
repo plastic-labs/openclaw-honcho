@@ -67,7 +67,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
           limit?: number;
         };
 
-        await state.ensureInitialized();
+        const ws = await state.ensureInitializedFor(toolCtx.agentId);
 
         // Build filters from remaining parameters (metadata, date range)
         const filters: Record<string, unknown> = {};
@@ -90,12 +90,12 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         // Route to the appropriate search method based on `from`
         let messages: Message[];
         if (from === "user") {
-          messages = await state.ownerPeer!.search(query, searchOpts);
+          messages = await ws.ownerPeer!.search(query, searchOpts);
         } else if (from === "agent") {
-          const agentPeer = await state.getAgentPeer(toolCtx.agentId);
+          const agentPeer = await state.getAgentPeerFor(toolCtx.agentId);
           messages = await agentPeer.search(query, searchOpts);
         } else {
-          messages = await state.honcho.search(query, searchOpts);
+          messages = await ws.honcho.search(query, searchOpts);
         }
 
         if (!messages.length) {
@@ -111,7 +111,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         }
 
         const results = messages.map((msg) => {
-          const speaker = msg.peerId === state.ownerPeer!.id ? "User" : "Agent";
+          const speaker = msg.peerId === ws.ownerPeer!.id ? "User" : "Agent";
           return {
             id: msg.id,
             content: msg.content,
