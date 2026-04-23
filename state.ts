@@ -2,6 +2,10 @@
  * Shared mutable state for the Honcho memory plugin.
  * Follows the dependency-injection pattern: createPluginState() returns a
  * PluginState object that gets passed to every module.
+ *
+ * Per-agent workspace routing: each configured workspace (via `agentWorkspaces`)
+ * gets its own `PerWorkspaceState` — dedicated Honcho client, owner peer, and
+ * agent peer cache — so memory reads/writes stay isolated per workspace.
  */
 
 import { Honcho, type Peer } from "@honcho-ai/sdk";
@@ -26,20 +30,38 @@ export function isLocalHonchoBaseUrl(baseUrl?: string): boolean {
   }
 }
 
-export type PluginState = {
+export type PerWorkspaceState = {
+  workspaceId: string;
   honcho: Honcho;
-  cfg: HonchoConfig;
   ownerPeer: Peer | null;
   agentPeers: Map<string, Peer>;
   agentPeerMap: Record<string, string>;
+  initialized: boolean;
+  initPromise: Promise<void> | null;
+};
+
+export type PluginState = {
+  cfg: HonchoConfig;
+  /** Per-workspace state, keyed by resolved Honcho workspaceId. */
+  workspaces: Map<string, PerWorkspaceState>;
   /** Message count recorded at before_prompt_build time, keyed by Honcho session key.
    * Used by the capture hook to determine where the current turn starts in the
-   * accumulated message array, so first-init skips pre-installation history. */
+   * accumulated message array, so first-init skips pre-installation history.
+   * Session keys are globally unique across workspaces. */
   turnStartIndex: Map<string, number>;
-  initialized: boolean;
   api: OpenClawPluginApi;
-  ensureInitialized: () => Promise<void>;
-  getAgentPeer: (agentId?: string) => Promise<Peer>;
+  /** Resolve the workspaceId a given agent should route to (falls back to cfg.workspaceId). */
+  resolveWorkspaceIdForAgent: (agentId?: string) => string;
+  /** Lazy-initialized PerWorkspaceState for the given agent. */
+  getWorkspaceFor: (agentId?: string) => PerWorkspaceState;
+  /** Return the Honcho client for the given agent's workspace. */
+  getHonchoFor: (agentId?: string) => Honcho;
+  /** Ensure the per-workspace client is initialized (owner peer created, metadata read). */
+  ensureInitializedFor: (agentId?: string) => Promise<PerWorkspaceState>;
+  /** Resolve the owner peer for the given agent's workspace (after init). */
+  getOwnerPeerFor: (agentId?: string) => Promise<Peer>;
+  /** Resolve the agent peer for the given agent in its routed workspace. */
+  getAgentPeerFor: (agentId?: string) => Promise<Peer>;
   resolveDefaultAgentId: () => string;
 };
 
@@ -54,26 +76,43 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     );
   }
 
-  const honcho = new Honcho({
-    apiKey: cfg.apiKey,
-    baseURL: cfg.baseUrl,
-    workspaceId: cfg.workspaceId,
-    timeout: cfg.timeoutMs,
-  });
+  const workspaces = new Map<string, PerWorkspaceState>();
+
+  function createWorkspaceState(workspaceId: string): PerWorkspaceState {
+    const honcho = new Honcho({
+      apiKey: cfg.apiKey,
+      baseURL: cfg.baseUrl,
+      workspaceId,
+      timeout: cfg.timeoutMs,
+    });
+    return {
+      workspaceId,
+      honcho,
+      ownerPeer: null,
+      agentPeers: new Map<string, Peer>(),
+      agentPeerMap: {},
+      initialized: false,
+      initPromise: null,
+    };
+  }
 
   const state: PluginState = {
-    honcho,
     cfg,
-    ownerPeer: null,
-    agentPeers: new Map<string, Peer>(),
-    agentPeerMap: {},
+    workspaces,
     turnStartIndex: new Map<string, number>(),
-    initialized: false,
     api,
-    ensureInitialized,
-    getAgentPeer,
+    resolveWorkspaceIdForAgent,
+    getWorkspaceFor,
+    getHonchoFor,
+    ensureInitializedFor,
+    getOwnerPeerFor,
+    getAgentPeerFor,
     resolveDefaultAgentId,
   };
+
+  function normalizeAgentId(agentId?: string): string {
+    return (agentId ?? resolveDefaultAgentId()).toLowerCase().trim() || "main";
+  }
 
   function resolveDefaultAgentId(): string {
     const agents = api.config?.agents?.list;
@@ -82,41 +121,82 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     return (defaultAgent?.id ?? "main").toLowerCase().trim() || "main";
   }
 
-  async function ensureInitialized(): Promise<void> {
-    if (state.initialized) return;
-
-    const wsMeta = await honcho.getMetadata();
-    state.agentPeerMap = (wsMeta.agentPeerMap as Record<string, string>) ?? {};
-
-    const defaultId = resolveDefaultAgentId();
-    if (Object.keys(state.agentPeerMap).length === 0) {
-      state.agentPeerMap[defaultId] = `agent-${defaultId}`;
-      await honcho.setMetadata({ ...wsMeta, agentPeerMap: state.agentPeerMap });
-    } else if (Object.values(state.agentPeerMap).includes(LEGACY_PEER_ID) && !state.agentPeerMap[defaultId]) {
-      state.agentPeerMap[defaultId] = LEGACY_PEER_ID;
-      await honcho.setMetadata({ ...wsMeta, agentPeerMap: state.agentPeerMap });
-    }
-
-    state.ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
-    state.initialized = true;
+  function resolveWorkspaceIdForAgent(agentId?: string): string {
+    const id = normalizeAgentId(agentId);
+    const mapped = cfg.agentWorkspaces?.[id];
+    if (typeof mapped === "string" && mapped.length > 0) return mapped;
+    return cfg.workspaceId;
   }
 
-  async function getAgentPeer(agentId?: string): Promise<Peer> {
-    const id = (agentId || resolveDefaultAgentId()).toLowerCase().trim() || "main";
+  function getWorkspaceFor(agentId?: string): PerWorkspaceState {
+    const workspaceId = resolveWorkspaceIdForAgent(agentId);
+    let ws = workspaces.get(workspaceId);
+    if (!ws) {
+      ws = createWorkspaceState(workspaceId);
+      workspaces.set(workspaceId, ws);
+    }
+    return ws;
+  }
 
-    let peer = state.agentPeers.get(id);
+  function getHonchoFor(agentId?: string): Honcho {
+    return getWorkspaceFor(agentId).honcho;
+  }
+
+  async function initializeWorkspace(ws: PerWorkspaceState): Promise<void> {
+    const wsMeta = await ws.honcho.getMetadata();
+    ws.agentPeerMap = (wsMeta.agentPeerMap as Record<string, string>) ?? {};
+
+    const defaultId = resolveDefaultAgentId();
+    if (Object.keys(ws.agentPeerMap).length === 0) {
+      ws.agentPeerMap[defaultId] = `agent-${defaultId}`;
+      await ws.honcho.setMetadata({ ...wsMeta, agentPeerMap: ws.agentPeerMap });
+    } else if (Object.values(ws.agentPeerMap).includes(LEGACY_PEER_ID) && !ws.agentPeerMap[defaultId]) {
+      ws.agentPeerMap[defaultId] = LEGACY_PEER_ID;
+      await ws.honcho.setMetadata({ ...wsMeta, agentPeerMap: ws.agentPeerMap });
+    }
+
+    ws.ownerPeer = await ws.honcho.peer(OWNER_ID, { metadata: {} });
+    ws.initialized = true;
+  }
+
+  async function ensureInitializedFor(agentId?: string): Promise<PerWorkspaceState> {
+    const ws = getWorkspaceFor(agentId);
+    if (ws.initialized) return ws;
+    if (!ws.initPromise) {
+      ws.initPromise = initializeWorkspace(ws).catch((err) => {
+        ws.initPromise = null;
+        throw err;
+      });
+    }
+    await ws.initPromise;
+    return ws;
+  }
+
+  async function getOwnerPeerFor(agentId?: string): Promise<Peer> {
+    const ws = await ensureInitializedFor(agentId);
+    if (!ws.ownerPeer) {
+      throw new Error(`Honcho owner peer not initialized for workspace "${ws.workspaceId}"`);
+    }
+    return ws.ownerPeer;
+  }
+
+  async function getAgentPeerFor(agentId?: string): Promise<Peer> {
+    const id = normalizeAgentId(agentId);
+    const ws = await ensureInitializedFor(id);
+
+    let peer = ws.agentPeers.get(id);
     if (peer) return peer;
 
-    let peerId = state.agentPeerMap[id];
+    let peerId = ws.agentPeerMap[id];
 
     if (!peerId) {
-      const allPeers = await honcho.peers();
+      const allPeers = await ws.honcho.peers();
       for await (const p of allPeers) {
         if (p.id === OWNER_ID) continue;
         const meta = await p.getMetadata();
         if (meta?.agentId === id) {
           peerId = p.id;
-          api.logger.info(`[honcho] Recovered peer "${peerId}" for renamed agent "${id}"`);
+          api.logger.info(`[honcho] Recovered peer "${peerId}" for renamed agent "${id}" in workspace "${ws.workspaceId}"`);
           break;
         }
       }
@@ -126,14 +206,14 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
       peerId = `agent-${id}`;
     }
 
-    if (state.agentPeerMap[id] !== peerId) {
-      state.agentPeerMap[id] = peerId;
-      const wsMeta = await honcho.getMetadata();
-      await honcho.setMetadata({ ...wsMeta, agentPeerMap: state.agentPeerMap });
+    if (ws.agentPeerMap[id] !== peerId) {
+      ws.agentPeerMap[id] = peerId;
+      const wsMeta = await ws.honcho.getMetadata();
+      await ws.honcho.setMetadata({ ...wsMeta, agentPeerMap: ws.agentPeerMap });
     }
 
-    peer = await honcho.peer(peerId);
-    state.agentPeers.set(id, peer);
+    peer = await ws.honcho.peer(peerId);
+    ws.agentPeers.set(id, peer);
 
     const existingMeta = await peer.getMetadata();
     if (existingMeta.agentId !== id) {

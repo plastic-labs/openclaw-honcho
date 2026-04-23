@@ -11,7 +11,12 @@
       },
       "workspaceId": {
         "type": "string",
-        "description": "Honcho workspace ID (defaults to 'openclaw')"
+        "description": "Honcho workspace ID (defaults to 'openclaw'). Used as the fallback workspace for agents not listed in agentWorkspaces."
+      },
+      "agentWorkspaces": {
+        "type": "object",
+        "description": "Optional mapping of agentId → Honcho workspaceId. Agents listed here route their memory reads/writes to the named workspace. Unmapped agents fall back to workspaceId.",
+        "additionalProperties": { "type": "string" }
       },
       "baseUrl": {
         "type": "string",
@@ -49,7 +54,12 @@
     "workspaceId": {
       "label": "Workspace ID",
       "placeholder": "openclaw",
-      "help": "Honcho workspace ID"
+      "help": "Honcho workspace ID — used as the default and as a fallback for agents not listed in Agent Workspaces."
+    },
+    "agentWorkspaces": {
+      "label": "Agent Workspaces",
+      "advanced": true,
+      "help": "Per-agent workspace routing. Map agentId → Honcho workspaceId so each OpenClaw agent reads/writes memory in its own Honcho workspace. Unlisted agents use Workspace ID."
     },
     "baseUrl": {
       "label": "API Base URL",

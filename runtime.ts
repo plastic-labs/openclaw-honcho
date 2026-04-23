@@ -34,14 +34,14 @@ async function buildSessionTranscript(
   agentId: string,
   sessionId: string
 ): Promise<string> {
-  await state.ensureInitialized();
-  const ownerPeer = state.ownerPeer;
+  const ws = await state.ensureInitializedFor(agentId);
+  const ownerPeer = ws.ownerPeer;
   if (!ownerPeer) {
     throw new Error("Honcho owner peer not initialized");
   }
 
-  const agentPeer = await state.getAgentPeer(agentId);
-  const session = await state.honcho.session(sessionId, { metadata: { agentId } });
+  const agentPeer = await state.getAgentPeerFor(agentId);
+  const session = await ws.honcho.session(sessionId, { metadata: { agentId } });
   const context = await session.context({
     summary: true,
     tokens: 20000,
@@ -120,13 +120,13 @@ export async function getHonchoMemorySearchManager(
 ) {
   const { agentId = state.resolveDefaultAgentId(), sessionKey: activeSessionKey } = params;
 
-  await state.ensureInitialized();
+  const ws = await state.ensureInitializedFor(agentId);
 
   return {
     manager: {
       async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
-        await state.ensureInitialized();
-        const ownerPeer = state.ownerPeer;
+        const wsLocal = await state.ensureInitializedFor(agentId);
+        const ownerPeer = wsLocal.ownerPeer;
         if (!ownerPeer) {
           throw new Error("Honcho owner peer not initialized");
         }
@@ -169,7 +169,7 @@ export async function getHonchoMemorySearchManager(
         };
 
         if (requestedSessionKey) {
-          const exactSession = await state.honcho.session(requestedSessionKey, {
+          const exactSession = await wsLocal.honcho.session(requestedSessionKey, {
             metadata: { agentId },
           });
           collect(await exactSession.search(query, { limit }));
@@ -238,7 +238,7 @@ export async function getHonchoMemorySearchManager(
           sources: ["sessions"],
           custom: {
             searchMode: "semantic",
-            workspaceId: state.cfg.workspaceId,
+            workspaceId: ws.workspaceId,
             baseUrl: state.cfg.baseUrl,
           },
         };
@@ -257,7 +257,7 @@ export async function getHonchoMemorySearchManager(
 
 /** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
-  params: { sessionKey?: string; messageProvider?: string } = {}
+  params: { sessionKey?: string; messageProvider?: string; messageChannel?: string } = {}
 ) {
   const sessionKey = buildSessionKey(params);
   return {
@@ -278,7 +278,9 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
       return getHonchoMemorySearchManager(state, params);
     },
 
-    resolveMemoryBackendConfig(params: { sessionKey?: string; messageProvider?: string } = {}) {
+    resolveMemoryBackendConfig(
+      params: { sessionKey?: string; messageProvider?: string; messageChannel?: string } = {}
+    ) {
       return resolveHonchoMemoryBackendConfig(params);
     },
   });

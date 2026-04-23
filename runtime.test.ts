@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "./runtime.js";
-import type { PluginState } from "./state.js";
+import type { PerWorkspaceState, PluginState } from "./state.js";
 
-function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = true }: { crossSessionSearch?: boolean } = {}): PluginState {
+function createState(
+  baseUrl = "https://api.honcho.dev",
+  { crossSessionSearch = true, workspaceId = "openclaw" }: { crossSessionSearch?: boolean; workspaceId?: string } = {}
+): PluginState {
   const contexts = new Map<string, { summary: { content: string }; messages: Array<Record<string, unknown>> }>([
     [
       "session-1",
@@ -94,45 +97,63 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
 
   const childSession = createSession("session-1-child");
 
+  const ownerPeer = {
+    id: "owner",
+    search: vi.fn(async () => [
+      { sessionId: "session-1", content: "Need to remember this" },
+      { sessionId: "session-1-child", content: "Child transcript hit" },
+      { sessionId: "other-session", content: "Other result" },
+    ]),
+    sessions: vi.fn(async () => ({
+      async *[Symbol.asyncIterator]() {
+        yield childSession;
+      },
+    })),
+  };
+
+  const honcho = {
+    session: vi.fn(async (sessionId: string) => createSession(sessionId)),
+  } as never;
+
+  const workspace: PerWorkspaceState = {
+    workspaceId,
+    honcho,
+    ownerPeer: ownerPeer as never,
+    agentPeers: new Map(),
+    agentPeerMap: {},
+    initialized: true,
+    initPromise: null,
+  };
+
+  const workspaces = new Map<string, PerWorkspaceState>();
+  workspaces.set(workspaceId, workspace);
+
   return {
     cfg: {
-      workspaceId: "openclaw",
+      workspaceId,
       baseUrl,
       noisePatterns: [],
       disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
       crossSessionSearch,
     },
-    honcho: {
-      session: vi.fn(async (sessionId: string) => createSession(sessionId)),
-    } as never,
-    ownerPeer: {
-      id: "owner",
-      search: vi.fn(async () => [
-        { sessionId: "session-1", content: "Need to remember this" },
-        { sessionId: "session-1-child", content: "Child transcript hit" },
-        { sessionId: "other-session", content: "Other result" },
-      ]),
-      sessions: vi.fn(async () => ({
-        async *[Symbol.asyncIterator]() {
-          yield childSession;
-        },
-      })),
-    } as never,
-    agentPeers: new Map(),
-    agentPeerMap: {},
+    workspaces,
     turnStartIndex: new Map(),
-    initialized: true,
     api: {} as never,
-    ensureInitialized: vi.fn(async () => {}),
-    getAgentPeer: vi.fn(async (agentId = "main") => ({ id: `agent-${agentId}` })),
+    resolveWorkspaceIdForAgent: vi.fn(() => workspaceId),
+    getWorkspaceFor: vi.fn(() => workspace),
+    getHonchoFor: vi.fn(() => honcho),
+    ensureInitializedFor: vi.fn(async () => workspace),
+    getOwnerPeerFor: vi.fn(async () => workspace.ownerPeer!),
+    getAgentPeerFor: vi.fn(async (agentId = "main") => ({ id: `agent-${agentId}` } as never)),
     resolveDefaultAgentId: vi.fn(() => "main"),
-  } as unknown as PluginState;
+  };
 }
 
 describe("Honcho memory runtime", () => {
   it("filters search results by session key and returns session transcript paths", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
+    const defaultWs = state.workspaces.get(state.cfg.workspaceId)!;
 
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
@@ -151,7 +172,7 @@ describe("Honcho memory runtime", () => {
     expect(results[0]?.snippet).toBe("Need to remember this");
     expect(results[0]?.startLine).toBeGreaterThan(0);
     expect(results[0]?.endLine).toBeGreaterThanOrEqual(results[0]?.startLine ?? 0);
-    expect((state.ownerPeer.search as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(defaultWs.ownerPeer!.search as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
 
     const implicitScopeResults = await manager.search("remember", {
       maxResults: 10,
@@ -238,7 +259,8 @@ describe("Honcho memory runtime", () => {
 
   it("fails cleanly when ownerPeer is unavailable after initialization", async () => {
     const state = createState();
-    state.ownerPeer = null;
+    const ws = state.workspaces.get(state.cfg.workspaceId)!;
+    ws.ownerPeer = null;
 
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
@@ -255,5 +277,15 @@ describe("Honcho memory runtime", () => {
         relPath: "sessions/session-1.txt",
       }),
     ).rejects.toThrow(/owner peer not initialized/);
+  });
+
+  it("exposes the routed workspaceId through manager.status()", async () => {
+    const state = createState("https://api.honcho.dev", { workspaceId: "personal_workspace" });
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "personal",
+      sessionKey: "session-1",
+    });
+    const status = manager.status();
+    expect((status.custom as { workspaceId?: string }).workspaceId).toBe("personal_workspace");
   });
 });

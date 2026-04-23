@@ -57,6 +57,7 @@ describe("memory passthrough tools", () => {
       agentId: "main",
       config: {},
       sessionKey: "agent:main:dashboard:test",
+      messageProvider: "discord",
     };
 
     const searchTool = registrations[0]!.factory(ctx) as {
@@ -86,12 +87,142 @@ describe("memory passthrough tools", () => {
     expect(getResult.content[0]?.text).toContain("\"text\": \"remembered fact\"");
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, {}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: "agent-main-dashboard-test-discord",
     });
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, {}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: "agent-main-dashboard-test-discord",
     });
+  });
+
+  it("forwards messageProvider into the built Honcho session key for memory_search", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "developer",
+      config: {},
+      sessionKey: "agent-developer-discord-channel-1234567890123456789",
+      messageProvider: "discord",
+    };
+    const searchTool = registrations[0]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    await searchTool.execute("call-search", { query: "Chief" });
+
+    const expectedSessionKey = "agent-developer-discord-channel-1234567890123456789-discord";
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "developer",
+      sessionKey: expectedSessionKey,
+    });
+    expect(expectedSessionKey).not.toContain("-unknown");
+
+    const managerResult = await getHonchoMemorySearchManagerMock.mock.results[0]!.value;
+    const searchCalls = (managerResult.manager.search as ReturnType<typeof vi.fn>).mock.calls;
+    const lastSearchArgs = searchCalls[searchCalls.length - 1];
+    expect(lastSearchArgs?.[1]).toMatchObject({ sessionKey: expectedSessionKey });
+  });
+
+  it("forwards messageProvider into the built Honcho session key for memory_get", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "developer",
+      config: {},
+      sessionKey: "agent-developer-discord-channel-1234567890123456789",
+      messageProvider: "discord",
+    };
+    const getTool = registrations[1]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    await getTool.execute("call-get", { path: "sessions/x.txt" });
+
+    const expectedSessionKey = "agent-developer-discord-channel-1234567890123456789-discord";
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "developer",
+      sessionKey: expectedSessionKey,
+    });
+    expect(expectedSessionKey).not.toContain("-unknown");
+  });
+
+  it("resolves session key from messageChannel for memory_search when tool ctx omits messageProvider", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "developer",
+      config: {},
+      sessionKey: "agent:developer:discord:channel:1234567890123456789",
+      messageChannel: "discord",
+    };
+    const searchTool = registrations[0]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    await searchTool.execute("call-search", { query: "Chief" });
+
+    const expectedSessionKey = "agent-developer-discord-channel-1234567890123456789-discord";
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "developer",
+      sessionKey: expectedSessionKey,
+    });
+    expect(expectedSessionKey).not.toContain("-unknown");
+
+    const managerResult = await getHonchoMemorySearchManagerMock.mock.results[0]!.value;
+    const searchCalls = (managerResult.manager.search as ReturnType<typeof vi.fn>).mock.calls;
+    const lastSearchArgs = searchCalls[searchCalls.length - 1];
+    expect(lastSearchArgs?.[1]).toMatchObject({ sessionKey: expectedSessionKey });
+  });
+
+  it("resolves session key from messageChannel for memory_get when tool ctx omits messageProvider", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "developer",
+      config: {},
+      sessionKey: "agent:developer:discord:channel:1234567890123456789",
+      messageChannel: "discord",
+    };
+    const getTool = registrations[1]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    await getTool.execute("call-get", { path: "sessions/x.txt" });
+
+    const expectedSessionKey = "agent-developer-discord-channel-1234567890123456789-discord";
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+      agentId: "developer",
+      sessionKey: expectedSessionKey,
+    });
+    expect(expectedSessionKey).not.toContain("-unknown");
   });
 
   it("returns structured unavailable payloads when manager acquisition fails", async () => {
@@ -109,6 +240,7 @@ describe("memory passthrough tools", () => {
       agentId: "main",
       config: {},
       sessionKey: "agent:main:dashboard:test",
+      messageProvider: "discord",
     };
     const searchTool = registrations[0]!.factory(ctx) as {
       execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
@@ -119,7 +251,7 @@ describe("memory passthrough tools", () => {
     expect(result.content[0]?.text).toContain("\"error\": \"auth failed\"");
     expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: "agent-main-dashboard-test-discord",
     });
   });
 });

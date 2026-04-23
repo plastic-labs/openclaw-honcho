@@ -14,14 +14,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     state.turnStartIndex.set(sessionKey, event.messages.length);
 
     try {
-      await state.ensureInitialized();
-      const agentPeer = await state.getAgentPeer(agentId);
+      const ws = await state.ensureInitializedFor(agentId);
+      const agentPeer = await state.getAgentPeerFor(agentId);
 
       const sections: string[] = [];
 
       if (isSubagent) {
         try {
-          const peerCtx = await agentPeer.context({ target: state.ownerPeer! });
+          const peerCtx = await agentPeer.context({ target: ws.ownerPeer! });
           if (peerCtx.peerCard?.length) {
             sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
           }
@@ -36,14 +36,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
       } else {
-        const session = await state.honcho.session(sessionKey, { metadata: { agentId } });
+        const session = await ws.honcho.session(sessionKey, { metadata: { agentId } });
 
         let context;
         try {
           context = await session.context({
             summary: true,
             tokens: 2000,
-            peerTarget: state.ownerPeer!,
+            peerTarget: ws.ownerPeer!,
             peerPerspective: agentPeer,
           });
         } catch (e: unknown) {

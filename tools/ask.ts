@@ -31,12 +31,12 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
           depth?: "quick" | "thorough";
         };
 
-        await state.ensureInitialized();
-        const agentPeer = await state.getAgentPeer(toolCtx.agentId);
+        const ws = await state.ensureInitializedFor(toolCtx.agentId);
+        const agentPeer = await state.getAgentPeerFor(toolCtx.agentId);
 
         const reasoningLevel = depth === "thorough" ? "high" : "low";
         const answer = await agentPeer.chat(query, {
-          target: state.ownerPeer!,
+          target: ws.ownerPeer!,
           reasoningLevel,
         });
 

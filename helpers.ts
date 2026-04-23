@@ -6,12 +6,20 @@ import type { Peer, MessageInput } from "@honcho-ai/sdk";
 
 /**
  * Build a Honcho session key from OpenClaw context.
- * Combines sessionKey + messageProvider to create unique sessions per platform.
+ * Combines sessionKey + provider to create unique sessions per platform.
  * Uses hyphens as separators (Honcho requires hyphens, not underscores).
+ *
+ * OpenClaw exposes two different ctx shapes: hook ctx carries `messageProvider`,
+ * tool ctx carries `messageChannel`. Accept either so every call site resolves
+ * to the same session id regardless of which surface invoked it.
  */
-export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
+export function buildSessionKey(ctx?: {
+  sessionKey?: string;
+  messageProvider?: string;
+  messageChannel?: string;
+}): string {
   const baseKey = ctx?.sessionKey ?? "default";
-  const provider = ctx?.messageProvider ?? "unknown";
+  const provider = ctx?.messageProvider ?? ctx?.messageChannel ?? "unknown";
   const combined = `${baseKey}-${provider}`;
   return combined.replace(/[^a-zA-Z0-9-]/g, "-");
 }
