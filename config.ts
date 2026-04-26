@@ -18,6 +18,7 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  ownerId: string;
 };
 
 /**
@@ -81,6 +82,10 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      ownerId:
+        typeof cfg.ownerId === "string" && cfg.ownerId.length > 0
+          ? cfg.ownerId
+          : process.env.HONCHO_OWNER_ID ?? "owner",
     };
   },
 };

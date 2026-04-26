@@ -36,6 +36,10 @@
         "type": "boolean",
         "default": false,
         "description": "When true, built-in noise patterns are not applied — only noisePatterns entries are used."
+      },
+      "ownerId": {
+        "type": "string",
+        "description": "The Honcho peer ID for the owner. Defaults to 'owner'. Set to your Telegram/WhatsApp user ID if using multi-user Honcho workspaces where the owner peer ID is not 'owner'."
       }
     }
   },
@@ -76,6 +80,12 @@
       "label": "Disable Default Noise Patterns",
       "advanced": true,
       "help": "When enabled, only custom noisePatterns entries are used — built-in defaults are skipped."
+    },
+    "ownerId": {
+      "label": "Owner Peer ID",
+      "advanced": true,
+      "placeholder": "owner",
+      "help": "The Honcho peer ID for the owner. Defaults to 'owner'. Set to your Telegram/WhatsApp user ID if using multi-user Honcho workspaces where the owner peer ID is not 'owner'."
     }
   }
 }

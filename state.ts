@@ -97,7 +97,8 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
       await honcho.setMetadata({ ...wsMeta, agentPeerMap: state.agentPeerMap });
     }
 
-    state.ownerPeer = await honcho.peer(OWNER_ID, { metadata: {} });
+    const ownerId = state.cfg.ownerId ?? OWNER_ID;
+    state.ownerPeer = await honcho.peer(ownerId, { metadata: {} });
     state.initialized = true;
   }
 
@@ -110,9 +111,10 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     let peerId = state.agentPeerMap[id];
 
     if (!peerId) {
+      const ownerId = state.cfg.ownerId ?? OWNER_ID;
       const allPeers = await honcho.peers();
       for await (const p of allPeers) {
-        if (p.id === OWNER_ID) continue;
+        if (p.id === ownerId) continue;
         const meta = await p.getMetadata();
         if (meta?.agentId === id) {
           peerId = p.id;
