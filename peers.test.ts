@@ -195,4 +195,38 @@ describe("PeersPersister", () => {
     await p.flushNow();
     await expect(fs.access(file)).rejects.toBeTruthy();
   });
+
+  it("keeps dirty=true and propagates errors when fs.writeFile fails, then retries on next flush", async () => {
+    // Regression test for CodeRabbit comment on #68 (peers.ts:129-158):
+    // flush() must not clear dirty before the write succeeds, and write
+    // failures must propagate so callers can react / retry.
+    const dir = await mktmp();
+    const file = path.join(dir, "peers.json");
+    const p = new PeersPersister(
+      file,
+      { version: PEERS_FILE_VERSION, peers: {} },
+      { debounceMs: 10 },
+    );
+
+    const writeSpy = vi.spyOn(fs, "writeFile");
+    writeSpy.mockRejectedValueOnce(new Error("disk full"));
+
+    p.enqueue("slack:U1");
+
+    // First flush rejects — error must reach the awaiter, not be swallowed.
+    await expect(p.flushNow()).rejects.toThrow(/disk full/);
+
+    // Second flush retries (dirty was preserved across the failed write) and
+    // this time fs.writeFile is the real implementation, so it succeeds.
+    await p.flushNow();
+    expect(writeSpy).toHaveBeenCalledTimes(2);
+
+    const body = JSON.parse(await fs.readFile(file, "utf8"));
+    expect(body).toEqual({
+      version: 1,
+      peers: { "slack:U1": "owner" },
+    });
+
+    writeSpy.mockRestore();
+  });
 });

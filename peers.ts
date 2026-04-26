@@ -128,7 +128,15 @@ export class PeersPersister {
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.chain = this.chain.then(() => this.flush()).catch(() => undefined);
+      // Chain so writes serialize, but do NOT swallow errors here — keep them
+      // visible on the chain so subsequent flushes / flushNow await callers see
+      // the failure. dirty stays true on failure (set inside flush()) so the
+      // next enqueue/flushNow retries the write.
+      this.chain = this.chain.then(() => this.flush());
+      // Detach a non-throwing observer so an unhandled-rejection warning isn't
+      // emitted when no flushNow() is awaited; the underlying chain still
+      // carries the rejection for any future awaiter.
+      this.chain.catch(() => undefined);
     }, this.debounceMs);
     // unref so the timer doesn't block process exit in short-lived runs.
     this.timer.unref?.();
@@ -136,25 +144,37 @@ export class PeersPersister {
 
   /**
    * Flush any pending changes immediately, awaiting completion. Safe to call
-   * concurrently with enqueue().
+   * concurrently with enqueue(). Throws if the underlying write fails so
+   * callers can react (and dirty stays true for the next retry).
    */
   async flushNow(): Promise<void> {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.chain = this.chain.then(() => this.flush()).catch(() => undefined);
-    await this.chain;
+    const next = this.chain.then(() => this.flush());
+    // Reset chain to a resolved state regardless of this flush's outcome so a
+    // single failure doesn't poison every subsequent flush attempt.
+    this.chain = next.catch(() => undefined);
+    await next;
   }
 
   private async flush(): Promise<void> {
     if (!this.dirty) return;
-    this.dirty = false;
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const body: PeersFile = {
-      version: PEERS_FILE_VERSION,
-      peers: this.peers,
-    };
-    await fs.writeFile(this.filePath, JSON.stringify(body, null, 2) + "\n");
+    try {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+      const body: PeersFile = {
+        version: PEERS_FILE_VERSION,
+        peers: this.peers,
+      };
+      await fs.writeFile(this.filePath, JSON.stringify(body, null, 2) + "\n");
+      // Only clear dirty after the write succeeds — a failed write must leave
+      // dirty=true so the next flush retries and we don't lose mappings.
+      this.dirty = false;
+    } catch (err) {
+      // Make the retry intent explicit; dirty was never cleared but be defensive.
+      this.dirty = true;
+      throw err;
+    }
   }
 }

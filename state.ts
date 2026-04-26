@@ -12,7 +12,6 @@ import {
   PeersPersister,
   loadPeersFileSync,
   resolvePeersFilePath,
-  resolveParticipantPeerId,
 } from "./peers.js";
 
 export const OWNER_ID = "owner";
@@ -162,35 +161,56 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
   async function getParticipantPeer(channelPeerId?: string): Promise<Peer> {
     if (!channelPeerId) return ensureOwnerPeer();
 
-    // Known senders resolve via the peers file (plugin auto-seeds unknown
-    // senders to OWNER_ID; user hand-edits to split them off). Unknown
-    // senders enqueue for persistence and fall back to owner.
+    // Known senders resolve via the peers file (user hand-edits to split
+    // specific senders off to dedicated peer IDs).
     let peer = state.participantPeers.get(channelPeerId);
     if (peer) return peer;
 
-    const resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, OWNER_ID);
+    // Distinguish "explicitly persisted mapping" from "first-seen, auto-seeded":
+    //   - explicit mapping → honor it (owner if user mapped to owner, else
+    //     custom peer id).
+    //   - first-seen → create a distinct transient peer namespaced by the
+    //     channelPeerId so we never silently merge a stranger's history into
+    //     the owner peer; enqueue the resulting peer id for persistence.
+    const persistedPeerId = peersPersister.peers[channelPeerId];
 
-    if (resolvedPeerId === OWNER_ID) {
-      peer = await ensureOwnerPeer();
-    } else {
-      peer = await honcho.peer(resolvedPeerId, { metadata: { channelPeerId } });
+    if (persistedPeerId !== undefined) {
+      if (persistedPeerId === OWNER_ID) {
+        peer = await ensureOwnerPeer();
+      } else {
+        peer = await honcho.peer(persistedPeerId, { metadata: { channelPeerId } });
+      }
+      state.participantPeers.set(channelPeerId, peer);
+      return peer;
     }
+
+    // First-seen sender. Give the sender a distinct transient peer namespaced
+    // by the channel id so we never cross-attribute its messages to the owner.
+    // Persist the channel→peer mapping so subsequent runs resolve it as an
+    // explicit mapping (and a user wanting to merge into owner can hand-edit
+    // the file to point this entry at "owner").
+    const transientPeerId = `participant-${channelPeerId}`;
+    peersPersister.enqueue(channelPeerId, transientPeerId);
+    peer = await honcho.peer(transientPeerId, {
+      metadata: { channelPeerId, autoSeeded: true },
+    });
     state.participantPeers.set(channelPeerId, peer);
     return peer;
   }
 
   async function resolveSessionParticipantPeer(sessionKey: string): Promise<Peer> {
-    try {
-      const session = await honcho.session(sessionKey);
-      const meta = await session.getMetadata();
-      if (meta && typeof meta === "object") {
-        const senderId = (meta as Record<string, unknown>).participantSenderId;
-        if (typeof senderId === "string" && senderId.length > 0) {
-          return await getParticipantPeer(senderId);
-        }
+    // Errors from honcho.session() / session.getMetadata() are propagated to
+    // the caller — silently falling back to the owner peer on transient SDK
+    // failures was masking misrouted lookups (CodeRabbit comment on #68). The
+    // default-peer fallback is reserved for the legitimate case: metadata
+    // exists but doesn't carry a participantSenderId yet.
+    const session = await honcho.session(sessionKey);
+    const meta = await session.getMetadata();
+    if (meta && typeof meta === "object") {
+      const senderId = (meta as Record<string, unknown>).participantSenderId;
+      if (typeof senderId === "string" && senderId.length > 0) {
+        return await getParticipantPeer(senderId);
       }
-    } catch {
-      // Fall through to default
     }
     return await getParticipantPeer();
   }
