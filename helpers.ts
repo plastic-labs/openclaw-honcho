@@ -2,18 +2,37 @@
  * Pure helper functions — no mutable state dependencies.
  */
 
+import { createHash } from "node:crypto";
+
 import type { Peer, MessageInput } from "@honcho-ai/sdk";
+
+/**
+ * Honcho enforces a 100-character maximum on session IDs (validated client-side
+ * by the SDK before any HTTP request). OpenClaw session keys for isolated cron
+ * runs and similar surfaces can exceed this — e.g.
+ * `agent:default:cron:<jobUuid>:run:<runUuid>` is 96 chars before the
+ * `-${provider}` suffix is appended, so the resulting key blows past 100.
+ */
+const HONCHO_MAX_SESSION_ID_LEN = 100;
 
 /**
  * Build a Honcho session key from OpenClaw context.
  * Combines sessionKey + messageProvider to create unique sessions per platform.
  * Uses hyphens as separators (Honcho requires hyphens, not underscores).
+ *
+ * Keys longer than the Honcho 100-char limit are truncated and disambiguated
+ * with a short sha1 suffix of the full normalized key, so distinct OpenClaw
+ * sessions don't collide on the truncated prefix.
  */
 export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
   const baseKey = ctx?.sessionKey ?? "default";
   const provider = ctx?.messageProvider ?? "unknown";
   const combined = `${baseKey}-${provider}`;
-  return combined.replace(/[^a-zA-Z0-9-]/g, "-");
+  const normalized = combined.replace(/[^a-zA-Z0-9-]/g, "-");
+  if (normalized.length <= HONCHO_MAX_SESSION_ID_LEN) return normalized;
+  const hash = createHash("sha1").update(normalized).digest("hex").slice(0, 7);
+  const suffix = `-${hash}`;
+  return normalized.slice(0, HONCHO_MAX_SESSION_ID_LEN - suffix.length) + suffix;
 }
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
