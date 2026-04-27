@@ -6,31 +6,10 @@ import {
   buildSessionKey,
   isSubagentSession,
   extractMessages,
-  extractSenderId,
+  getRawMessageContent,
+  resolveSenderIdForMessage,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
-
-/**
- * Extract raw text content from a message object (before cleaning).
- */
-function getRawContent(msg: unknown): string {
-  if (!msg || typeof msg !== "object") return "";
-  const m = msg as Record<string, unknown>;
-  if (typeof m.content === "string") return m.content;
-  if (Array.isArray(m.content)) {
-    return m.content
-      .filter(
-        (block: unknown) =>
-          typeof block === "object" &&
-          block !== null &&
-          (block as Record<string, unknown>).type === "text"
-      )
-      .map((block: unknown) => (block as Record<string, unknown>).text)
-      .filter((t): t is string => typeof t === "string")
-      .join("\n");
-  }
-  return "";
-}
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -88,13 +67,14 @@ async function flushMessages(
   const senderIds = new Set<string>();
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
-  for (const msg of newRawMessages) {
+  for (let index = 0; index < newRawMessages.length; index++) {
+    const msg = newRawMessages[index];
     if (!msg || typeof msg !== "object") continue;
     const m = msg as Record<string, unknown>;
     if (m.role !== "user") continue;
     userMsgCount++;
-    const rawContent = getRawContent(msg);
-    const senderId = extractSenderId(rawContent);
+    const rawContent = getRawMessageContent(msg);
+    const senderId = resolveSenderIdForMessage(rawContent, newRawMessages, index);
     if (senderId) {
       senderIds.add(senderId);
       lastSenderId = senderId;
@@ -141,6 +121,8 @@ async function flushMessages(
     agentPeer,
     state.cfg.noisePatterns,
     (senderId) => resolvedPeers.get(senderId),
+    (rawContent, _msg, index, rawMessages) =>
+      resolveSenderIdForMessage(rawContent, rawMessages, index),
   );
 
   // Store sender IDs in session metadata for tool resolution.
