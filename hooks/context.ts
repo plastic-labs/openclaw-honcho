@@ -4,7 +4,7 @@ import type { PluginState } from "../state.js";
 import {
   buildSessionKey,
   isSubagentSession,
-  resolveSenderIdForCurrentTurn,
+  resolveSenderIdForCurrentTurnStrict,
 } from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
@@ -24,10 +24,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
       // run yet for this turn, so session metadata still reflects the previous
       // speaker. In group chats this would otherwise build context against the
       // prior participant's representation whenever the speaker changes.
-      const currentSenderId = resolveSenderIdForCurrentTurn(
+      const currentSenderId = resolveSenderIdForCurrentTurnStrict(
         event.prompt,
         event.messages ?? [],
       );
+      if (currentSenderId === null) {
+        api.logger.debug?.("[honcho] Skipping context injection: runtime-context exists without sender_id");
+        return;
+      }
       const participantPeer = currentSenderId
         ? await state.getParticipantPeer(currentSenderId)
         : await state.resolveSessionParticipantPeer(sessionKey);

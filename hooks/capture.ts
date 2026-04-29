@@ -7,7 +7,7 @@ import {
   isSubagentSession,
   extractMessages,
   getRawContent,
-  resolveSenderIdForMessage,
+  resolveSenderIdForMessageStrict,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
 
@@ -74,10 +74,12 @@ async function flushMessages(
     if (m.role !== "user") continue;
     userMsgCount++;
     const rawContent = getRawContent(msg);
-    const senderId = resolveSenderIdForMessage(rawContent, newRawMessages, index);
+    const senderId = resolveSenderIdForMessageStrict(rawContent, newRawMessages, index);
     if (senderId) {
       senderIds.add(senderId);
       lastSenderId = senderId;
+    } else if (senderId === null) {
+      api.logger.debug?.(`[honcho] Skipping unattributed user message: runtime-context exists without sender_id (contentLen=${rawContent.length})`);
     } else {
       const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
       api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
@@ -122,7 +124,7 @@ async function flushMessages(
     state.cfg.noisePatterns,
     (senderId) => resolvedPeers.get(senderId),
     (rawContent, _msg, index, rawMessages) =>
-      resolveSenderIdForMessage(rawContent, rawMessages, index),
+      resolveSenderIdForMessageStrict(rawContent, rawMessages, index),
   );
 
   // participantSenderId = last active sender, used by tools to resolve the

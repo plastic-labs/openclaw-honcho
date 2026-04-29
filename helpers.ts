@@ -286,9 +286,19 @@ export function resolveSenderIdForMessage(
   messages: unknown[],
   index: number,
 ): string | undefined {
+  return resolveSenderIdForMessageStrict(rawContent, messages, index) ?? undefined;
+}
+
+export type SenderIdResolution = string | null | undefined;
+
+export function resolveSenderIdForMessageStrict(
+  rawContent: string,
+  messages: unknown[],
+  index: number,
+): SenderIdResolution {
   const runtimeSenderId = findRuntimeContextSenderIdAfter(messages, index);
   if (runtimeSenderId) return runtimeSenderId;
-  if (hasRuntimeContextMessageAfter(messages, index)) return undefined;
+  if (hasRuntimeContextMessageAfter(messages, index)) return null;
   return extractSenderId(rawContent);
 }
 
@@ -320,11 +330,18 @@ export function resolveSenderIdForCurrentTurn(
   prompt: string,
   messages: unknown[],
 ): string | undefined {
+  return resolveSenderIdForCurrentTurnStrict(prompt, messages) ?? undefined;
+}
+
+export function resolveSenderIdForCurrentTurnStrict(
+  prompt: string,
+  messages: unknown[],
+): SenderIdResolution {
   const runtimeSenderId = findRuntimeContextSenderIdForLatestUser(messages);
   if (runtimeSenderId) return runtimeSenderId;
   const latestUserIndex = findLatestUserMessageIndex(messages);
   if (latestUserIndex >= 0 && hasRuntimeContextMessageAfter(messages, latestUserIndex)) {
-    return undefined;
+    return null;
   }
   return extractSenderId(prompt);
 }
@@ -363,7 +380,7 @@ export function extractMessages(
     msg: unknown,
     index: number,
     rawMessages: unknown[],
-  ) => string | undefined = (rawContent) => extractSenderId(rawContent),
+  ) => SenderIdResolution = (rawContent) => extractSenderId(rawContent),
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -381,7 +398,19 @@ export function extractMessages(
     let peer: Peer;
     if (role === "user") {
       const senderId = resolveSenderId(rawContent, msg, index, rawMessages);
-      peer = (senderId && resolvePeer?.(senderId)) || defaultParticipantPeer;
+      if (senderId === null) continue;
+      if (senderId) {
+        const resolvedPeer = resolvePeer?.(senderId);
+        if (resolvedPeer) {
+          peer = resolvedPeer;
+        } else if (resolvePeer) {
+          continue;
+        } else {
+          peer = defaultParticipantPeer;
+        }
+      } else {
+        peer = defaultParticipantPeer;
+      }
     } else {
       peer = agentPeer;
     }
