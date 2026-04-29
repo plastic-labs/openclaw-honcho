@@ -20,14 +20,22 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
               description: "Detail level: 'card' for key facts (default, fast), 'full' for broad representation.",
             })
           ),
+          about: Type.Optional(
+            Type.String({
+              description:
+                "Sender ID of the user to query about. Defaults to the last active sender. Pass a specific sender_id to get context about a different participant.",
+            })
+          ),
         },
         { additionalProperties: false }
       ),
       async execute(_toolCallId, params) {
-        const { detail = "card" } = params as { detail?: "card" | "full" };
+        const { detail = "card", about } = params as { detail?: "card" | "full"; about?: string };
 
         await state.ensureInitialized();
-        const participantPeer = await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
+        const participantPeer = about
+          ? await state.getParticipantPeer(about)
+          : await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
 
         if (detail === "card") {
           const card = await participantPeer.card().catch((err) => {

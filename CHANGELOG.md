@@ -2,31 +2,24 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
-## [1.4.0] - 2026-04-15
+## [1.4.0] - 2026-04-27
 
-Minor version bump: introduces per-sender participant peers for group-chat
-scenarios. Single-user deployments behave the same — messages without a
-`sender_id` still flow to the default owner peer.
+Per-sender participant peers when the channel emits `sender_id` (group chats
+and many 1:1s — see README). No sender metadata → `owner` peer (operator/system
+fallback: CLI runs, webchat-direct, cron, etc.). Routing controlled by
+`defaultUnknownPolicy` in `~/.honcho/openclaw-peers.json`: existing installs
+default to `"owner"` (pre-1.4.0 merge behavior); fresh installs default to
+`"per-sender"`.
 
 ### Added
-- **Multi-peer support for group chats (#68)**: User messages now carry per-sender attribution. `extractSenderId` parses `sender_id` (falling back to `sender`) from the leading `Conversation info (untrusted metadata):` block of an inbound message, and capture resolves a distinct Honcho peer per sender. Each participant is its own peer (the channel peer ID is used directly as the Honcho peer ID). Messages without a `sender_id` continue to go to the default owner peer, so DMs are unaffected.
-- **`-p, --peer <id>` flag on `honcho ask` and `honcho search` CLI commands**: Target a specific participant peer when querying (defaults to owner). Useful for group-chat deployments where the operator wants to inspect memory from the perspective of a single participant.
-- **Manual `peerMappings` config**: A `sender_id` → Honcho peer ID map in the plugin config. Unmapped senders still use their `sender_id` directly (no behavior change), but operators can alias platform IDs to friendlier peer IDs (or merge two channel identities onto one peer). Edits to `openclaw.json` take effect on gateway restart; the plugin does not write the file itself. See `README.md` (Peer Mappings).
-- **`crossSessionSearch` in the plugin manifest (`openclaw.plugin.json`)**: The option existed in code since 1.3.0 but was missing from `configSchema`/`uiHints`, causing OpenClaw config validation to reject it. Now declared with `default: true`.
-- **Session metadata fields `participantSenderId` and `participantSenderIds`**: Capture records the last active sender (for default tool resolution) and the full set of known senders in the session. Named "sender" (not "peer") to keep raw channel IDs distinguishable from resolved Honcho peer IDs.
-- **`extractSenderId` unit tests (`helpers.test.ts`)**: Cover the happy path, missing blocks (DMs), malformed JSON, duplicate sentinels (user-pasted metadata), and `sender_id`/`sender` fallback.
-
-### Changed
-- **`ownerPeer` → participant peer abstraction**: `state.ownerPeer` is replaced by a `participantPeers: Map<string, Peer>` cache plus `getParticipantPeer(channelPeerId?)`, `resolveSessionParticipantPeer(sessionKey)`, and `isParticipantPeerId(peerId)` helpers. Callers that previously reached for `state.ownerPeer!` now resolve through these helpers. The "participant" naming intentionally generalizes over humans and non-agent bots.
-- **Context hook (`before_prompt_build`) uses the inbound message's sender**: Previously it relied on session metadata, which still reflects the prior speaker on turn start. `extractSenderId(event.prompt)` is now consulted first so context is built against the *current* speaker's representation — the prior behavior silently mis-targeted context in group chats whenever the speaker changed.
-- **Capture resolves participant peers in parallel**: `Promise.all` over the unique sender IDs in a batch, avoiding a sequential await bottleneck in group chats.
-- **`extractMessages` signature**: Takes a `defaultParticipantPeer` plus an optional `resolvePeer(senderId)` callback instead of a single `ownerPeer`. Callers outside of capture (tests, future consumers) can pass no resolver to preserve pre-1.4.0 behavior.
+- **Multi-peer**: `extractSenderId` parses `sender_id` from each inbound `Conversation info` block; both capture and `before_prompt_build` resolve a peer per sender from the current message, so the right participant is targeted on every turn — including when the speaker changes between turns. Peer IDs derive from the channel ID, sanitized to `[A-Za-z0-9_-]` and truncated to Honcho's 100-char limit. Switching `defaultUnknownPolicy` after the fact only affects new messages — already-captured messages stay where they originally landed.
+- **`-p, --peer <id>` on `honcho ask` and `honcho search`**: query memory from a specific participant's perspective.
+- **Peers file `~/.honcho/openclaw-peers.json`**: `sender_id` → peer ID map, auto-seeded by the plugin and hand-editable. Top-level `defaultUnknownPolicy` (`per-sender` for fresh installs, `owner` for legacy files without the field) controls auto-seeding; auto-seeded peers get `autoSeeded: true` metadata. Override path via `OPENCLAW_HONCHO_PEERS_FILE`.
+- **Session metadata `participantSenderId`**: last active sender, used by tools to resolve the session's current participant peer.
 
 ### Fixed
-- **Concurrent `ensureInitialized()` races could corrupt workspace metadata**: Init is now guarded by a shared promise so concurrent hook entries await the same initialization; errors propagate to all waiters.
-
-### Migration Notes
-Historical owner-attributed messages in existing sessions are **not** rewritten. After upgrade, context queries against pre-existing sessions will show attribution mixed across the upgrade boundary — e.g., `owner said X, then real-user Y said Z` — because older turns retain their original owner attribution while new turns use per-sender peer IDs. This is acceptable; operators running multi-participant deployments should be aware.
+- **`ensureInitialized()` race could corrupt workspace metadata**: now guarded by a shared init promise.
+- **`crossSessionSearch` rejected by OpenClaw config validation**: option existed in code since 1.3.0 but was missing from the plugin manifest's `configSchema`/`uiHints`. Now declared.
 
 ## [1.3.3] - 2026-04-16
 

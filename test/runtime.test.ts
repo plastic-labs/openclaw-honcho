@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "./runtime.js";
-import type { PluginState } from "./state.js";
+import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "../runtime.js";
+import type { PluginState } from "../state.js";
 
 type TestState = PluginState & {
   participantPeer: {

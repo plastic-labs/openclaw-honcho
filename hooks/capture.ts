@@ -6,7 +6,7 @@ import {
   buildSessionKey,
   isSubagentSession,
   extractMessages,
-  getRawMessageContent,
+  getRawContent,
   resolveSenderIdForMessage,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
@@ -73,7 +73,7 @@ async function flushMessages(
     const m = msg as Record<string, unknown>;
     if (m.role !== "user") continue;
     userMsgCount++;
-    const rawContent = getRawMessageContent(msg);
+    const rawContent = getRawContent(msg);
     const senderId = resolveSenderIdForMessage(rawContent, newRawMessages, index);
     if (senderId) {
       senderIds.add(senderId);
@@ -125,15 +125,9 @@ async function flushMessages(
       resolveSenderIdForMessage(rawContent, rawMessages, index),
   );
 
-  // Store sender IDs in session metadata for tool resolution.
-  // participantSenderId = last active sender (default for tools).
-  // participantSenderIds = all known senders in this session (for future multi-target tools).
-  // Named "sender" (not "peer") to distinguish raw channel IDs from resolved Honcho peer IDs.
-  const previousSenderIds: string[] = Array.isArray(existingMeta.participantSenderIds)
-    ? (existingMeta.participantSenderIds as string[])
-    : [];
-  const allSenderIds = [...new Set([...previousSenderIds, ...senderIds])];
-
+  // participantSenderId = last active sender, used by tools to resolve the
+  // session's current participant peer. Named "sender" (not "peer") to
+  // distinguish raw channel IDs from resolved Honcho peer IDs.
   const updatedMeta: Record<string, unknown> = {
     ...existingMeta,
     ...sessionMeta,
@@ -141,9 +135,6 @@ async function flushMessages(
   };
   if (lastSenderId) {
     updatedMeta.participantSenderId = lastSenderId;
-  }
-  if (allSenderIds.length > 0) {
-    updatedMeta.participantSenderIds = allSenderIds;
   }
 
   if (extracted.length === 0) {

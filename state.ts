@@ -162,35 +162,35 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
   async function getParticipantPeer(channelPeerId?: string): Promise<Peer> {
     if (!channelPeerId) return ensureOwnerPeer();
 
-    // Known senders resolve via the peers file (plugin auto-seeds unknown
-    // senders to OWNER_ID; user hand-edits to split them off). Unknown
-    // senders enqueue for persistence and fall back to owner.
+    // Known senders resolve via the peers file. Unknown senders auto-seed
+    // per the persister's defaultUnknownPolicy: legacy installs merge into
+    // OWNER_ID; fresh installs mint a distinct participant-<sanitized> peer.
     let peer = state.participantPeers.get(channelPeerId);
     if (peer) return peer;
 
+    const wasInFile = channelPeerId in peersPersister.peers;
     const resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, OWNER_ID);
+    const autoSeeded = !wasInFile && resolvedPeerId !== OWNER_ID;
 
     if (resolvedPeerId === OWNER_ID) {
       peer = await ensureOwnerPeer();
     } else {
-      peer = await honcho.peer(resolvedPeerId, { metadata: { channelPeerId } });
+      const metadata: Record<string, unknown> = { channelPeerId };
+      if (autoSeeded) metadata.autoSeeded = true;
+      peer = await honcho.peer(resolvedPeerId, { metadata });
     }
     state.participantPeers.set(channelPeerId, peer);
     return peer;
   }
 
   async function resolveSessionParticipantPeer(sessionKey: string): Promise<Peer> {
-    try {
-      const session = await honcho.session(sessionKey);
-      const meta = await session.getMetadata();
-      if (meta && typeof meta === "object") {
-        const senderId = (meta as Record<string, unknown>).participantSenderId;
-        if (typeof senderId === "string" && senderId.length > 0) {
-          return await getParticipantPeer(senderId);
-        }
+    const session = await honcho.session(sessionKey);
+    const meta = await session.getMetadata();
+    if (meta && typeof meta === "object") {
+      const senderId = (meta as Record<string, unknown>).participantSenderId;
+      if (typeof senderId === "string" && senderId.length > 0) {
+        return await getParticipantPeer(senderId);
       }
-    } catch {
-      // Fall through to default
     }
     return await getParticipantPeer();
   }

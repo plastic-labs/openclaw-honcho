@@ -25,6 +25,12 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
                 "Filter by sender: 'user' for user messages, 'agent' for this agent's messages, 'all' for everything (default: 'all').",
             })
           ),
+          about: Type.Optional(
+            Type.String({
+              description:
+                "Sender ID of the participant whose messages to search. Only used when from='user'. Defaults to the last active sender.",
+            })
+          ),
           metadata: Type.Optional(
             Type.Record(Type.String(), Type.Unknown(), {
               description:
@@ -55,6 +61,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         const {
           query,
           from = "all",
+          about,
           metadata,
           created_after,
           created_before,
@@ -62,6 +69,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         } = params as {
           query: string;
           from?: "user" | "agent" | "all";
+          about?: string;
           metadata?: Record<string, unknown>;
           created_after?: string;
           created_before?: string;
@@ -91,7 +99,9 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         // Route to the appropriate search method based on `from`
         let messages: Message[];
         if (from === "user") {
-          const participantPeer = await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
+          const participantPeer = about
+            ? await state.getParticipantPeer(about)
+            : await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
           messages = await participantPeer.search(query, searchOpts);
         } else if (from === "agent") {
           const agentPeer = await state.getAgentPeer(toolCtx.agentId);

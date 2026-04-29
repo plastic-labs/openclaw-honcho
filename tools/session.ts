@@ -35,6 +35,12 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
               maximum: 32000,
             })
           ),
+          about: Type.Optional(
+            Type.String({
+              description:
+                "Sender ID of the user to get session context for. Defaults to the last active sender. Pass a specific sender_id to get session context about a different participant.",
+            })
+          ),
         },
         { additionalProperties: false }
       ),
@@ -44,17 +50,21 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           includeSummary = true,
           searchQuery,
           messageLimit = 4000,
+          about,
         } = params as {
           includeMessages?: boolean;
           includeSummary?: boolean;
           searchQuery?: string;
           messageLimit?: number;
+          about?: string;
         };
 
         await state.ensureInitialized();
         const agentPeer = await state.getAgentPeer(toolCtx.agentId);
         const sessionKey = buildSessionKey(toolCtx);
-        const participantPeer = await state.resolveSessionParticipantPeer(sessionKey);
+        const participantPeer = about
+          ? await state.getParticipantPeer(about)
+          : await state.resolveSessionParticipantPeer(sessionKey);
 
         try {
           const session = await state.honcho.session(sessionKey);

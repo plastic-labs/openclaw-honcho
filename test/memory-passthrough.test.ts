@@ -8,7 +8,7 @@ vi.mock("../runtime.js", () => ({
   getHonchoMemorySearchManager: getHonchoMemorySearchManagerMock,
 }));
 
-import { registerMemoryPassthrough } from "./memory-passthrough.js";
+import { registerMemoryPassthrough } from "../tools/memory-passthrough.js";
 
 describe("memory passthrough tools", () => {
   beforeEach(() => {
