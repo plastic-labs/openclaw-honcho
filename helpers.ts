@@ -6,6 +6,24 @@ import type { Peer, MessageInput } from "@honcho-ai/sdk";
 
 type ContentBlock = { type?: string; text?: unknown };
 type RawMessage = { role?: string; content?: string | ContentBlock[]; timestamp?: number };
+export type CleanMessageOptions = { stripRuntimeScaffolding?: boolean };
+
+const SESSION_KIND_TOKENS = new Set(["direct", "group", "channel"]);
+const NON_PROVIDER_SESSION_PREFIXES = new Set([
+  "acp",
+  "channel",
+  "cron",
+  "direct",
+  "group",
+  "main",
+  "subagent",
+  "thread",
+]);
+const LEADING_SYSTEM_LINE_RE = /^System(?: \(untrusted\))?: /;
+const STARTUP_CONTEXT_BLOCK_RE =
+  /\[Startup context loaded by runtime\][\s\S]*?(?:Current time:[^\n]*(?:\n|$)|$)/gi;
+const STARTUP_ONLY_LINE_RE =
+  /^(?:A new session was started via \/new or \/reset\..*|Note: The previous agent run was aborted by the user\..*|Current time: .*|Resume carefully or ask for clarification\.)$/gim;
 
 /**
  * Extract plain text from a message's `content` (string or array of content blocks).
@@ -27,17 +45,86 @@ export function getRawContent(msg: unknown): string {
 /**
  * Build a Honcho session key from OpenClaw context.
  * Combines sessionKey + messageProvider to create unique sessions per platform.
+ * When hook contexts omit messageProvider, infer it from canonical OpenClaw
+ * agent session keys before falling back to "unknown".
  * Uses hyphens as separators (Honcho requires hyphens, not underscores).
  */
+function inferProviderFromSessionKey(sessionKey?: string): string | undefined {
+  if (typeof sessionKey !== "string") return undefined;
+  const parts = sessionKey.trim().toLowerCase().split(":").filter(Boolean);
+  if (parts.length < 5 || parts[0] !== "agent") return undefined;
+  const rest = parts.slice(2);
+  const candidate = rest[0];
+  if (!candidate || NON_PROVIDER_SESSION_PREFIXES.has(candidate)) return undefined;
+  if (SESSION_KIND_TOKENS.has(rest[1])) return candidate;
+  if (SESSION_KIND_TOKENS.has(rest[2])) {
+    const accountId = rest[1];
+    if (accountId && !NON_PROVIDER_SESSION_PREFIXES.has(accountId)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
   const baseKey = ctx?.sessionKey ?? "default";
-  const provider = ctx?.messageProvider ?? "unknown";
+  const provider = ctx?.messageProvider ?? inferProviderFromSessionKey(ctx?.sessionKey) ?? "unknown";
   const combined = `${baseKey}-${provider}`;
   return combined.replace(/[^a-zA-Z0-9-]/g, "-");
 }
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return (ctx?.sessionKey ?? "").includes(":subagent:");
+}
+
+function stripLeadingSystemEnvelope(text: string): string {
+  const lines = text.split("\n");
+  let index = 0;
+
+  while (index < lines.length && lines[index].trim() === "") {
+    index += 1;
+  }
+
+  while (index < lines.length && LEADING_SYSTEM_LINE_RE.test(lines[index].trim())) {
+    index += 1;
+    while (
+      index < lines.length &&
+      (lines[index].trim() === "" || LEADING_SYSTEM_LINE_RE.test(lines[index].trim()))
+    ) {
+      index += 1;
+    }
+  }
+
+  return lines.slice(index).join("\n");
+}
+
+function compilePattern(pattern: string): RegExp | null {
+  if (!pattern.startsWith("/")) return null;
+  const lastSlash = pattern.lastIndexOf("/", pattern.length - 1);
+  if (lastSlash <= 0) return null;
+  const source = pattern.slice(1, lastSlash);
+  const flags = pattern.slice(lastSlash + 1);
+  try {
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
+}
+
+function matchesPattern(value: string, pattern: string): boolean {
+  const re = compilePattern(pattern);
+  if (re) return re.test(value);
+  return value.includes(pattern);
+}
+
+export function shouldIsolateSession(
+  ctx?: { sessionKey?: string; messageProvider?: string },
+  patterns: string[] = [],
+): boolean {
+  if (patterns.length === 0) return false;
+  const raw = String(ctx?.sessionKey ?? "");
+  const built = buildSessionKey(ctx);
+  return patterns.some((pattern) => matchesPattern(raw, pattern) || matchesPattern(built, pattern));
 }
 
 /**
@@ -147,13 +234,21 @@ function stripInboundMetadata(text: string): string {
  * Also strips leading OpenClaw reply directive tags (e.g. [[reply_to_current]])
  * so control tokens are never persisted or re-surfaced as user-visible text.
  */
-export function cleanMessageContent(content: string): string {
+export function cleanMessageContent(content: string, options: CleanMessageOptions = {}): string {
+  const { stripRuntimeScaffolding = true } = options;
   let cleaned = content;
   // Strip Honcho memory context tags (prevent re-injection loops).
   cleaned = cleaned.replace(/<honcho-memory[^>]*>[\s\S]*?<\/honcho-memory>\s*/gi, "");
   cleaned = cleaned.replace(/<!--[^>]*honcho[^>]*-->\s*/gi, "");
   // Strip OpenClaw inbound metadata using OpenClaw-equivalent parser logic.
   cleaned = stripInboundMetadata(cleaned);
+  if (stripRuntimeScaffolding) {
+    // Strip runtime/system envelope lines before checking for startup-only content.
+    cleaned = stripLeadingSystemEnvelope(cleaned);
+    // Strip first-turn startup scaffolding and reset-resume hints.
+    cleaned = cleaned.replace(STARTUP_CONTEXT_BLOCK_RE, "");
+    cleaned = cleaned.replace(STARTUP_ONLY_LINE_RE, "");
+  }
   // Strip leading reply directive control tokens.
   cleaned = cleaned.replace(
     /^(\s*\[\[\s*(?:reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/gi,
@@ -212,18 +307,8 @@ export function extractSenderId(content: string): string | undefined {
  */
 export function shouldSkipMessage(content: string, noisePatterns: string[]): boolean {
   return noisePatterns.some((pattern) => {
-    if (pattern.startsWith("/")) {
-      const lastSlash = pattern.lastIndexOf("/", pattern.length - 1);
-      if (lastSlash > 0) {
-        const source = pattern.slice(1, lastSlash);
-        const flags = pattern.slice(lastSlash + 1);
-        try {
-          return new RegExp(source, flags).test(content);
-        } catch {
-          // fall through to literal match if regex is invalid
-        }
-      }
-    }
+    const re = compilePattern(pattern);
+    if (re) return re.test(content);
     return content === pattern || content.startsWith(pattern);
   });
 }
@@ -234,6 +319,7 @@ export function extractMessages(
   agentPeer: Peer,
   noisePatterns: string[] = [],
   resolvePeer?: (senderId: string) => Peer | undefined,
+  cleanOptions: CleanMessageOptions = {},
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -255,7 +341,7 @@ export function extractMessages(
       peer = agentPeer;
     }
 
-    let content = cleanMessageContent(rawContent);
+    let content = cleanMessageContent(rawContent, cleanOptions);
     content = content.trim();
 
     if (!content) continue;

@@ -1,15 +1,76 @@
 // @ts-ignore - resolved by openclaw runtime
+import type { MessageInput, Session } from "@honcho-ai/sdk";
+// @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   isSubagentSession,
+  shouldIsolateSession,
   extractMessages,
   extractSenderId,
   getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
+
+const sessionFlushLocks = new Map<string, Promise<void>>();
+
+function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
+  if (!message?.createdAt) return null;
+  return `${message.peerId}\u0000${message.createdAt}\u0000${message.content}`;
+}
+
+async function withSessionFlushLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
+  const previous = sessionFlushLocks.get(sessionKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sessionFlushLocks.set(sessionKey, current);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (sessionFlushLocks.get(sessionKey) === current) {
+      sessionFlushLocks.delete(sessionKey);
+    }
+  }
+}
+
+async function dedupeAgainstRecentTail(
+  session: Session,
+  extracted: MessageInput[],
+  recentTailSize: number,
+): Promise<MessageInput[]> {
+  const batchSeen = new Set<string>();
+  const batchUnique: MessageInput[] = [];
+
+  for (const message of extracted) {
+    const signature = messageSignature(message) ?? `${message.peerId}\u0000${message.content}`;
+    if (batchSeen.has(signature)) continue;
+    batchSeen.add(signature);
+    batchUnique.push(message);
+  }
+
+  if (batchUnique.length === 0 || recentTailSize <= 0) return batchUnique;
+
+  const recentPage = await session.messages({
+    size: Math.min(Math.max(recentTailSize, 1), 500),
+    reverse: true,
+  });
+  const recentSignatures = new Set(
+    recentPage.items
+      .map((message) => messageSignature(message))
+      .filter((signature): signature is string => typeof signature === "string"),
+  );
+
+  return batchUnique.filter((message) => {
+    const signature = messageSignature(message);
+    return !signature || !recentSignatures.has(signature);
+  });
+}
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -22,6 +83,7 @@ async function flushMessages(
   ctx: { sessionKey?: string; agentId?: string; messageProvider?: string },
 ): Promise<number> {
   if (!messages?.length) return 0;
+  if (shouldIsolateSession(ctx, state.cfg.isolatedSessionPatterns)) return 0;
 
   const sessionKey = buildSessionKey(ctx);
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
@@ -43,105 +105,109 @@ async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
-  const meta = await session.getMetadata();
-  const existingMeta: Record<string, unknown> =
-    meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  return withSessionFlushLock(sessionKey, async () => {
+    const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+    const meta = await session.getMetadata();
+    const existingMeta: Record<string, unknown> =
+      meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-  const turnStartIndex = Math.min(
-    Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
-    messages.length,
-  );
-  const rawLastSavedIndex =
-    typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
-  const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
-  const startIndex = Math.max(turnStartIndex, lastSavedIndex);
+    const turnStartIndex = Math.min(
+      Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
+      messages.length,
+    );
+    const rawLastSavedIndex =
+      typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
+    const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
+    const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
-  if (messages.length <= startIndex) {
-    return 0;
-  }
-
-  const newRawMessages = messages.slice(startIndex);
-
-  // Pre-resolve participant peers for all unique sender IDs in this batch
-  const senderIds = new Set<string>();
-  let lastSenderId: string | undefined;
-  let userMsgCount = 0;
-  for (const msg of newRawMessages) {
-    if (!msg || typeof msg !== "object") continue;
-    const m = msg as Record<string, unknown>;
-    if (m.role !== "user") continue;
-    userMsgCount++;
-    const rawContent = getRawContent(msg);
-    const senderId = extractSenderId(rawContent);
-    if (senderId) {
-      senderIds.add(senderId);
-      lastSenderId = senderId;
-    } else {
-      const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
-      api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
+    if (messages.length <= startIndex) {
+      return 0;
     }
-  }
-  if (senderIds.size > 0) {
-    api.logger.debug?.(`[honcho] Resolved ${senderIds.size} unique sender(s) from ${userMsgCount} user message(s)`);
-  }
 
-  // Parallel peer resolution — avoids sequential await bottleneck in group chats.
-  const resolvedPeers = new Map<string, Awaited<ReturnType<typeof state.getParticipantPeer>>>();
-  const senderIdArray = [...senderIds];
-  const peers = await Promise.all(senderIdArray.map((id) => state.getParticipantPeer(id)));
-  for (let i = 0; i < senderIdArray.length; i++) {
-    resolvedPeers.set(senderIdArray[i], peers[i]);
-  }
+    const newRawMessages = messages.slice(startIndex);
 
-  const defaultParticipantPeer = await state.getParticipantPeer();
-
-  // Build peer configs: default owner + all resolved participant peers + agent + parent
-  const peerConfigMap = new Map<string, { observeMe: boolean; observeOthers: boolean }>();
-  peerConfigMap.set(OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
-  for (const [, peer] of resolvedPeers) {
-    if (peer.id !== OWNER_ID) {
-      peerConfigMap.set(peer.id, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
+    // Pre-resolve participant peers for all unique sender IDs in this batch
+    const senderIds = new Set<string>();
+    let lastSenderId: string | undefined;
+    let userMsgCount = 0;
+    for (const msg of newRawMessages) {
+      if (!msg || typeof msg !== "object") continue;
+      const m = msg as Record<string, unknown>;
+      if (m.role !== "user") continue;
+      userMsgCount++;
+      const rawContent = getRawContent(msg);
+      const senderId = extractSenderId(rawContent);
+      if (senderId) {
+        senderIds.add(senderId);
+        lastSenderId = senderId;
+      } else {
+        const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
+        api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
+      }
     }
-  }
-  peerConfigMap.set(agentPeer.id, { observeMe: true, observeOthers: true });
-  if (parentPeer) {
-    peerConfigMap.set(parentPeer.id, { observeMe: false, observeOthers: true });
-  }
+    if (senderIds.size > 0) {
+      api.logger.debug?.(`[honcho] Resolved ${senderIds.size} unique sender(s) from ${userMsgCount} user message(s)`);
+    }
 
-  const peerConfigs = Array.from(peerConfigMap.entries()) as Array<
-    [string, { observeMe: boolean; observeOthers: boolean }]
-  >;
-  await session.addPeers(peerConfigs);
+    // Parallel peer resolution — avoids sequential await bottleneck in group chats.
+    const resolvedPeers = new Map<string, Awaited<ReturnType<typeof state.getParticipantPeer>>>();
+    const senderIdArray = [...senderIds];
+    const peers = await Promise.all(senderIdArray.map((id) => state.getParticipantPeer(id)));
+    for (let i = 0; i < senderIdArray.length; i++) {
+      resolvedPeers.set(senderIdArray[i], peers[i]);
+    }
 
-  const extracted = extractMessages(
-    newRawMessages,
-    defaultParticipantPeer,
-    agentPeer,
-    state.cfg.noisePatterns,
-    (senderId) => resolvedPeers.get(senderId),
-  );
+    const defaultParticipantPeer = await state.getParticipantPeer();
 
-  // participantSenderId = last active sender, used by tools to resolve the
-  // session's current participant peer. Named "sender" (not "peer") to
-  // distinguish raw channel IDs from resolved Honcho peer IDs.
-  const updatedMeta: Record<string, unknown> = {
-    ...existingMeta,
-    ...sessionMeta,
-    lastSavedIndex: messages.length,
-  };
-  if (lastSenderId) {
-    updatedMeta.participantSenderId = lastSenderId;
-  }
+    // Build peer configs: default owner + all resolved participant peers + agent + parent
+    const peerConfigMap = new Map<string, { observeMe: boolean; observeOthers: boolean }>();
+    peerConfigMap.set(OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
+    for (const [, peer] of resolvedPeers) {
+      if (peer.id !== OWNER_ID) {
+        peerConfigMap.set(peer.id, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers });
+      }
+    }
+    peerConfigMap.set(agentPeer.id, { observeMe: true, observeOthers: true });
+    if (parentPeer) {
+      peerConfigMap.set(parentPeer.id, { observeMe: false, observeOthers: true });
+    }
 
-  if (extracted.length === 0) {
+    const peerConfigs = Array.from(peerConfigMap.entries()) as Array<
+      [string, { observeMe: boolean; observeOthers: boolean }]
+    >;
+    await session.addPeers(peerConfigs);
+
+    const extracted = extractMessages(
+      newRawMessages,
+      defaultParticipantPeer,
+      agentPeer,
+      state.cfg.noisePatterns,
+      (senderId) => resolvedPeers.get(senderId),
+      { stripRuntimeScaffolding: state.cfg.stripRuntimeScaffolding },
+    );
+    const deduped = await dedupeAgainstRecentTail(session, extracted, state.cfg.recentTailDedupeSize);
+
+    // participantSenderId = last active sender, used by tools to resolve the
+    // session's current participant peer. Named "sender" (not "peer") to
+    // distinguish raw channel IDs from resolved Honcho peer IDs.
+    const updatedMeta: Record<string, unknown> = {
+      ...existingMeta,
+      ...sessionMeta,
+      lastSavedIndex: messages.length,
+    };
+    if (lastSenderId) {
+      updatedMeta.participantSenderId = lastSenderId;
+    }
+
+    if (deduped.length === 0) {
+      await session.setMetadata(updatedMeta);
+      return 0;
+    }
+
+    await session.addMessages(deduped);
     await session.setMetadata(updatedMeta);
-    return 0;
-  }
-
-  await session.addMessages(extracted);
-  await session.setMetadata(updatedMeta);
-  return extracted.length;
+    return deduped.length;
+  });
 }
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
