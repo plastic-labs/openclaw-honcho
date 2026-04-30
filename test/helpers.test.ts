@@ -155,4 +155,8 @@ describe("shouldIsolateSession", () => {
   it("keeps normal direct chat sessions in the main bank", () => {
     expect(shouldIsolateSession({ sessionKey: "agent:saber:feishu:default:direct:ou_xxx" }, patterns)).toBe(false);
   });
+
+  it("does not treat invalid regex-like patterns as literal substring matches", () => {
+    expect(shouldIsolateSession({ sessionKey: "agent:saber:cron:job-123" }, ["/[cron/"])).toBe(false);
+  });
 });

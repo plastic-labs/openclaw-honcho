@@ -112,8 +112,10 @@ function compilePattern(pattern: string): RegExp | null {
 }
 
 function matchesPattern(value: string, pattern: string): boolean {
-  const re = compilePattern(pattern);
-  if (re) return re.test(value);
+  if (pattern.startsWith("/")) {
+    const re = compilePattern(pattern);
+    return re ? re.test(value) : false;
+  }
   return value.includes(pattern);
 }
 
