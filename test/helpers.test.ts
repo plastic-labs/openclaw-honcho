@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSenderId } from "../helpers.js";
+import { buildSessionKey, cleanMessageContent, extractSenderId, shouldIsolateSession } from "../helpers.js";
 
 const SENTINEL = "Conversation info (untrusted metadata):";
 
@@ -78,5 +78,85 @@ describe("extractSenderId", () => {
   it("returns undefined when the content has no metadata block", () => {
     expect(extractSenderId("just a normal DM")).toBeUndefined();
     expect(extractSenderId("")).toBeUndefined();
+  });
+});
+
+describe("buildSessionKey", () => {
+  it("preserves explicit messageProvider behavior", () => {
+    expect(
+      buildSessionKey({
+        sessionKey: "agent:saber:feishu:default:direct:ou_xxx",
+        messageProvider: "telegram",
+      })
+    ).toBe("agent-saber-feishu-default-direct-ou-xxx-telegram");
+  });
+
+  it("infers the provider from canonical agent session keys when omitted", () => {
+    expect(
+      buildSessionKey({
+        sessionKey: "agent:saber:feishu:default:direct:ou_xxx",
+      })
+    ).toBe("agent-saber-feishu-default-direct-ou-xxx-feishu");
+  });
+
+  it("infers the provider from per-channel direct session keys", () => {
+    expect(
+      buildSessionKey({
+        sessionKey: "agent:saber:discord:direct:user_123",
+      })
+    ).toBe("agent-saber-discord-direct-user-123-discord");
+  });
+
+  it("keeps unknown as the last-resort fallback", () => {
+    expect(
+      buildSessionKey({
+        sessionKey: "agent:saber:direct:user_123",
+      })
+    ).toBe("agent-saber-direct-user-123-unknown");
+  });
+});
+
+describe("cleanMessageContent", () => {
+  it("drops runtime startup scaffolding entirely", () => {
+    const raw = `System: [2026-04-22 16:07:57 GMT+8] Feishu[default] DM | ou_xxx [msg:om_123]\n\n[Startup context loaded by runtime]\nBootstrap files like SOUL.md are already provided separately.\nA new session was started via /new or /reset. If runtime-provided startup context is included for this first turn, use it before responding to the user.\nCurrent time: Wednesday, April 22nd, 2026 - 4:08 PM (Asia/Shanghai)`;
+    expect(cleanMessageContent(raw)).toBe("");
+  });
+
+  it("keeps the actual user text after stripping leading system envelope", () => {
+    const raw = `System: [2026-04-22 19:17:01 GMT+8] Feishu[saber-cn] DM | ou_xxx [msg:om_456]\n\n\n这个直接删掉，没用了`;
+    expect(cleanMessageContent(raw)).toBe("这个直接删掉，没用了");
+  });
+
+  it("can keep runtime scaffolding when configured", () => {
+    const raw = `System: [2026-04-22 19:17:01 GMT+8] Feishu[saber-cn] DM | ou_xxx [msg:om_456]\n\n正文`;
+    expect(cleanMessageContent(raw, { stripRuntimeScaffolding: false })).toContain("System:");
+  });
+
+  it("drops reply control tags after cleanup", () => {
+    expect(cleanMessageContent("[[reply_to_current]] 已收到")).toBe("已收到");
+  });
+});
+
+describe("shouldIsolateSession", () => {
+  const patterns = [
+    "/(^|[:-])cron([:-]|$)/i",
+    "/(^|[:-])subagent([:-]|$)/i",
+    "/(^|[:-])heartbeat([:-]|$)/i",
+    "/temp[-:]slug[-:]generator/i",
+  ];
+
+  it("isolates cron, subagent, heartbeat, and temp slug sessions", () => {
+    expect(shouldIsolateSession({ sessionKey: "agent:saber:cron:job-123" }, patterns)).toBe(true);
+    expect(shouldIsolateSession({ sessionKey: "agent:saber:subagent:child-123" }, patterns)).toBe(true);
+    expect(shouldIsolateSession({ sessionKey: "agent:main:main-heartbeat" }, patterns)).toBe(true);
+    expect(shouldIsolateSession({ sessionKey: "temp-slug-generator" }, patterns)).toBe(true);
+  });
+
+  it("keeps normal direct chat sessions in the main bank", () => {
+    expect(shouldIsolateSession({ sessionKey: "agent:saber:feishu:default:direct:ou_xxx" }, patterns)).toBe(false);
+  });
+
+  it("does not treat invalid regex-like patterns as literal substring matches", () => {
+    expect(shouldIsolateSession({ sessionKey: "agent:saber:cron:job-123" }, ["/[cron/"])).toBe(false);
   });
 });

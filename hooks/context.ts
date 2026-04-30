@@ -1,11 +1,12 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
+import { buildSessionKey, extractSenderId, isSubagentSession, shouldIsolateSession } from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
+    if (shouldIsolateSession(ctx, state.cfg.isolatedSessionPatterns) && !isSubagentSession(ctx)) return;
 
     const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
@@ -30,10 +31,10 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
       if (isSubagent) {
         try {
           const peerCtx = await agentPeer.context({ target: participantPeer });
-          if (peerCtx.peerCard?.length) {
+          if (state.cfg.contextInjection.peerCard && peerCtx.peerCard?.length) {
             sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
           }
-          if (peerCtx.representation) {
+          if (state.cfg.contextInjection.representation === "full" && peerCtx.representation) {
             sections.push(`User context:\n${peerCtx.representation}`);
           }
         } catch (e: unknown) {
@@ -49,7 +50,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
         let context;
         try {
           context = await session.context({
-            summary: true,
+            summary: state.cfg.contextInjection.sessionSummary,
             tokens: 2000,
             peerTarget: participantPeer,
             peerPerspective: agentPeer,
@@ -62,13 +63,13 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
 
-        if (context.peerCard?.length) {
+        if (state.cfg.contextInjection.peerCard && context.peerCard?.length) {
           sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
         }
-        if (context.peerRepresentation) {
+        if (state.cfg.contextInjection.representation === "full" && context.peerRepresentation) {
           sections.push(`User context:\n${context.peerRepresentation}`);
         }
-        if (context.summary?.content) {
+        if (state.cfg.contextInjection.sessionSummary && context.summary?.content) {
           sections.push(`Earlier in this conversation:\n${context.summary.content}`);
         }
       }

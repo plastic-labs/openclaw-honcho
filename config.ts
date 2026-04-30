@@ -4,10 +4,27 @@
 
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
+  "NO_REPLY",
   "A scheduled reminder has been triggered",
   "Execute your Session Startup sequence now",
   "Queued messages from",
 ];
+
+export const DEFAULT_ISOLATED_SESSION_PATTERNS: string[] = [
+  "/(^|[:-])cron([:-]|$)/i",
+  "/(^|[:-])subagent([:-]|$)/i",
+  "/(^|[:-])heartbeat([:-]|$)/i",
+  "/temp[-:]slug[-:]generator/i",
+];
+
+export type ContextInjectionMode = "off" | "full";
+export type MemoryBackendMode = "qmd" | "builtin";
+
+export type HonchoContextInjectionConfig = {
+  peerCard: boolean;
+  sessionSummary: boolean;
+  representation: ContextInjectionMode;
+};
 
 export type HonchoConfig = {
   apiKey?: string;
@@ -18,6 +35,11 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  contextInjection: HonchoContextInjectionConfig;
+  stripRuntimeScaffolding: boolean;
+  isolatedSessionPatterns: string[];
+  recentTailDedupeSize: number;
+  memoryBackend: MemoryBackendMode;
 };
 
 /**
@@ -34,6 +56,22 @@ function resolveEnvVars(value: string): string {
   });
 }
 
+function parsePositiveInteger(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.trunc(value);
+  }
+  return fallback;
+}
+
+function parseStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((p): p is string => typeof p === "string")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0)
+    : [];
+}
+
 export const honchoConfigSchema = {
   parse(value: unknown): HonchoConfig {
     const cfg = (value ?? {}) as Record<string, unknown>;
@@ -47,15 +85,33 @@ export const honchoConfigSchema = {
     }
 
     const disableDefaultNoisePatterns = cfg.disableDefaultNoisePatterns === true;
-    const userPatterns = Array.isArray(cfg.noisePatterns)
-      ? (cfg.noisePatterns as unknown[])
-          .filter((p): p is string => typeof p === "string")
-          .map((p) => p.trim())
-          .filter((p) => p.length > 0)
-      : [];
+    const userPatterns = parseStringArray(cfg.noisePatterns);
     const noisePatterns = [
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
+
+    const contextInjectionCfg =
+      typeof cfg.contextInjection === "object" && cfg.contextInjection !== null
+        ? (cfg.contextInjection as Record<string, unknown>)
+        : {};
+    const representationRaw =
+      typeof contextInjectionCfg.representation === "string"
+        ? contextInjectionCfg.representation
+        : process.env.HONCHO_CONTEXT_REPRESENTATION;
+    const representation: ContextInjectionMode =
+      representationRaw === "off" || representationRaw === "full" ? representationRaw : "full";
+    const contextInjection: HonchoContextInjectionConfig = {
+      peerCard: typeof contextInjectionCfg.peerCard === "boolean" ? contextInjectionCfg.peerCard : true,
+      sessionSummary:
+        typeof contextInjectionCfg.sessionSummary === "boolean" ? contextInjectionCfg.sessionSummary : true,
+      representation,
+    };
+
+    const isolatedSessionPatterns = [
+      ...new Set([...DEFAULT_ISOLATED_SESSION_PATTERNS, ...parseStringArray(cfg.isolatedSessionPatterns)]),
+    ];
+
+    const memoryBackend: MemoryBackendMode = cfg.memoryBackend === "builtin" ? "builtin" : "qmd";
 
     return {
       apiKey,
@@ -81,6 +137,12 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      contextInjection,
+      stripRuntimeScaffolding:
+        typeof cfg.stripRuntimeScaffolding === "boolean" ? cfg.stripRuntimeScaffolding : true,
+      isolatedSessionPatterns,
+      recentTailDedupeSize: parsePositiveInteger(cfg.recentTailDedupeSize, 200),
+      memoryBackend,
     };
   },
 };
