@@ -15,6 +15,7 @@ import {
 import { subagentParentMap } from "./subagent.js";
 
 const sessionFlushLocks = new Map<string, Promise<void>>();
+export const HONCHO_MESSAGES_LIST_MAX_SIZE = 100;
 
 function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
   if (!message?.createdAt) return null;
@@ -39,7 +40,35 @@ async function withSessionFlushLock<T>(sessionKey: string, fn: () => Promise<T>)
   }
 }
 
-async function dedupeAgainstRecentTail(
+function normalizeRecentTailSize(recentTailSize: number): number {
+  if (!Number.isFinite(recentTailSize) || recentTailSize <= 0) return 0;
+  return Math.trunc(recentTailSize);
+}
+
+async function collectRecentTailMessages(
+  session: Session,
+  recentTailSize: number,
+): Promise<Array<{ peerId: string; createdAt?: string; content: string }>> {
+  const limit = normalizeRecentTailSize(recentTailSize);
+  if (limit <= 0) return [];
+
+  let page = await session.messages({
+    size: Math.min(limit, HONCHO_MESSAGES_LIST_MAX_SIZE),
+    reverse: true,
+  });
+  const messages = [...page.items];
+
+  while (messages.length < limit && page.hasNextPage) {
+    const nextPage = await page.getNextPage();
+    if (!nextPage) break;
+    page = nextPage;
+    messages.push(...page.items);
+  }
+
+  return messages.slice(0, limit);
+}
+
+export async function dedupeAgainstRecentTail(
   session: Session,
   extracted: MessageInput[],
   recentTailSize: number,
@@ -54,14 +83,12 @@ async function dedupeAgainstRecentTail(
     batchUnique.push(message);
   }
 
-  if (batchUnique.length === 0 || recentTailSize <= 0) return batchUnique;
+  const tailSize = normalizeRecentTailSize(recentTailSize);
+  if (batchUnique.length === 0 || tailSize <= 0) return batchUnique;
 
-  const recentPage = await session.messages({
-    size: Math.min(Math.max(recentTailSize, 1), 500),
-    reverse: true,
-  });
+  const recentMessages = await collectRecentTailMessages(session, tailSize);
   const recentSignatures = new Set(
-    recentPage.items
+    recentMessages
       .map((message) => messageSignature(message))
       .filter((signature): signature is string => typeof signature === "string"),
   );
