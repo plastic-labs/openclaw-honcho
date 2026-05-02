@@ -1,7 +1,11 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
+import {
+  buildSessionKey,
+  isSubagentSession,
+  resolveSenderIdForCurrentTurnStrict,
+} from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
@@ -20,7 +24,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
       // run yet for this turn, so session metadata still reflects the previous
       // speaker. In group chats this would otherwise build context against the
       // prior participant's representation whenever the speaker changes.
-      const currentSenderId = extractSenderId(event.prompt);
+      const currentSenderId = resolveSenderIdForCurrentTurnStrict(
+        event.prompt,
+        event.messages ?? [],
+      );
+      if (currentSenderId === null) {
+        api.logger.debug?.("[honcho] Skipping context injection: runtime-context exists without sender_id");
+        return;
+      }
       const participantPeer = currentSenderId
         ? await state.getParticipantPeer(currentSenderId)
         : await state.resolveSessionParticipantPeer(sessionKey);

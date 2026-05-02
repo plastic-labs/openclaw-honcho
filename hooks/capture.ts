@@ -6,8 +6,8 @@ import {
   buildSessionKey,
   isSubagentSession,
   extractMessages,
-  extractSenderId,
   getRawContent,
+  resolveSenderIdForMessageStrict,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
 
@@ -67,16 +67,19 @@ async function flushMessages(
   const senderIds = new Set<string>();
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
-  for (const msg of newRawMessages) {
+  for (let index = 0; index < newRawMessages.length; index++) {
+    const msg = newRawMessages[index];
     if (!msg || typeof msg !== "object") continue;
     const m = msg as Record<string, unknown>;
     if (m.role !== "user") continue;
     userMsgCount++;
     const rawContent = getRawContent(msg);
-    const senderId = extractSenderId(rawContent);
+    const senderId = resolveSenderIdForMessageStrict(rawContent, newRawMessages, index);
     if (senderId) {
       senderIds.add(senderId);
       lastSenderId = senderId;
+    } else if (senderId === null) {
+      api.logger.debug?.(`[honcho] Skipping unattributed user message: runtime-context exists without sender_id (contentLen=${rawContent.length})`);
     } else {
       const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
       api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
@@ -114,13 +117,15 @@ async function flushMessages(
   >;
   await session.addPeers(peerConfigs);
 
-  const extracted = extractMessages(
-    newRawMessages,
+  const extracted = extractMessages({
+    rawMessages: newRawMessages,
     defaultParticipantPeer,
     agentPeer,
-    state.cfg.noisePatterns,
-    (senderId) => resolvedPeers.get(senderId),
-  );
+    noisePatterns: state.cfg.noisePatterns,
+    resolvePeer: (senderId) => resolvedPeers.get(senderId),
+    resolveSenderId: (rawContent, _msg, index, rawMessages) =>
+      resolveSenderIdForMessageStrict(rawContent, rawMessages, index),
+  });
 
   // participantSenderId = last active sender, used by tools to resolve the
   // session's current participant peer. Named "sender" (not "peer") to
