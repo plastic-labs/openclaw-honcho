@@ -24,7 +24,9 @@
       },
       "noisePatterns": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
       "ownerObserveOthers": {
@@ -41,6 +43,12 @@
         "type": "boolean",
         "default": true,
         "description": "When true (default), memory_search/memory_get can return results from any session in the workspace. When false, results are scoped to the active session and its child sessions only."
+      },
+      "recentTailDedupeSize": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "When greater than 0, compare new captured messages against this many recent Honcho messages and skip duplicates. Default 0 disables tail fetching to avoid adding latency on every flush."
       }
     }
   },
@@ -86,6 +94,12 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
+    },
+    "recentTailDedupeSize": {
+      "label": "Recent Tail Dedupe Size",
+      "advanced": true,
+      "placeholder": "0",
+      "help": "Set above 0 to compare captured messages against a recent Honcho tail. Disabled by default to avoid extra flush latency."
     }
   }
 }

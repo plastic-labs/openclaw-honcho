@@ -1,4 +1,6 @@
 // @ts-ignore - resolved by openclaw runtime
+import type { MessageInput, Session } from "@honcho-ai/sdk";
+// @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
@@ -10,6 +12,91 @@ import {
   getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
+
+const sessionFlushLocks = new Map<string, Promise<void>>();
+export const HONCHO_MESSAGES_LIST_MAX_SIZE = 100;
+
+function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
+  if (!message?.createdAt) return null;
+  return `${message.peerId}\u0000${message.createdAt}\u0000${message.content}`;
+}
+
+async function withSessionFlushLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
+  const previous = sessionFlushLocks.get(sessionKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sessionFlushLocks.set(sessionKey, current);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (sessionFlushLocks.get(sessionKey) === current) {
+      sessionFlushLocks.delete(sessionKey);
+    }
+  }
+}
+
+function normalizeRecentTailSize(recentTailSize: number): number {
+  if (!Number.isFinite(recentTailSize) || recentTailSize <= 0) return 0;
+  return Math.trunc(recentTailSize);
+}
+
+async function collectRecentTailMessages(
+  session: Session,
+  recentTailSize: number,
+): Promise<Array<{ peerId: string; createdAt?: string; content: string }>> {
+  const limit = normalizeRecentTailSize(recentTailSize);
+  if (limit <= 0) return [];
+
+  let page = await session.messages({
+    size: Math.min(limit, HONCHO_MESSAGES_LIST_MAX_SIZE),
+    reverse: true,
+  });
+  const messages = [...page.items];
+
+  while (messages.length < limit && page.hasNextPage) {
+    const nextPage = await page.getNextPage();
+    if (!nextPage) break;
+    page = nextPage;
+    messages.push(...page.items);
+  }
+
+  return messages.slice(0, limit);
+}
+
+export async function dedupeAgainstRecentTail(
+  session: Session,
+  extracted: MessageInput[],
+  recentTailSize: number,
+): Promise<MessageInput[]> {
+  const batchSeen = new Set<string>();
+  const batchUnique: MessageInput[] = [];
+
+  for (const message of extracted) {
+    const signature = messageSignature(message) ?? `${message.peerId}\u0000${message.content}`;
+    if (batchSeen.has(signature)) continue;
+    batchSeen.add(signature);
+    batchUnique.push(message);
+  }
+
+  const tailSize = normalizeRecentTailSize(recentTailSize);
+  if (batchUnique.length === 0 || tailSize <= 0) return batchUnique;
+
+  const recentMessages = await collectRecentTailMessages(session, tailSize);
+  const recentSignatures = new Set(
+    recentMessages
+      .map((message) => messageSignature(message))
+      .filter((signature): signature is string => typeof signature === "string"),
+  );
+
+  return batchUnique.filter((message) => {
+    const signature = messageSignature(message);
+    return !signature || !recentSignatures.has(signature);
+  });
+}
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -43,25 +130,26 @@ async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
-  const meta = await session.getMetadata();
-  const existingMeta: Record<string, unknown> =
-    meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  return withSessionFlushLock(sessionKey, async () => {
+    const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+    const meta = await session.getMetadata();
+    const existingMeta: Record<string, unknown> =
+      meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-  const turnStartIndex = Math.min(
-    Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
-    messages.length,
-  );
-  const rawLastSavedIndex =
-    typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
-  const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
-  const startIndex = Math.max(turnStartIndex, lastSavedIndex);
+    const turnStartIndex = Math.min(
+      Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
+      messages.length,
+    );
+    const rawLastSavedIndex =
+      typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
+    const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
+    const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
-  if (messages.length <= startIndex) {
-    return 0;
-  }
+    if (messages.length <= startIndex) {
+      return 0;
+    }
 
-  const newRawMessages = messages.slice(startIndex);
+    const newRawMessages = messages.slice(startIndex);
 
   // Pre-resolve participant peers for all unique sender IDs in this batch
   const senderIds = new Set<string>();
@@ -139,9 +227,17 @@ async function flushMessages(
     return 0;
   }
 
-  await session.addMessages(extracted);
+  const deduped = await dedupeAgainstRecentTail(session, extracted, state.cfg.recentTailDedupeSize);
+
+  if (deduped.length === 0) {
+    await session.setMetadata(updatedMeta);
+    return 0;
+  }
+
+  await session.addMessages(deduped);
   await session.setMetadata(updatedMeta);
-  return extracted.length;
+  return deduped.length;
+  });
 }
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
