@@ -200,17 +200,18 @@ function extractTrustedJsonBlock(
   return undefined;
 }
 
-function pickSenderId(parsed: Record<string, unknown> | undefined): string | undefined {
-  if (!parsed) return undefined;
-  const id =
-    parsed.sender_id ??
-    parsed.senderId ??
-    parsed.SenderId ??
-    parsed.user_id ??
-    parsed.userId ??
-    parsed.id ??
-    parsed.sender;
+function normalizeSenderId(id: unknown): string | undefined {
   return typeof id === "string" && id.trim().length > 0 ? id.trim() : undefined;
+}
+
+function pickConversationSenderId(parsed: Record<string, unknown> | undefined): string | undefined {
+  if (!parsed) return undefined;
+  return normalizeSenderId(parsed.sender_id);
+}
+
+function pickRuntimeSenderId(parsed: Record<string, unknown> | undefined): string | undefined {
+  if (!parsed) return undefined;
+  return normalizeSenderId(parsed.id);
 }
 
 /**
@@ -219,7 +220,7 @@ function pickSenderId(parsed: Record<string, unknown> | undefined): string | und
  */
 export function extractSenderId(content: string): string | undefined {
   const conversationInfo = extractTrustedJsonBlock(content, CONVERSATION_INFO_SENTINEL);
-  return pickSenderId(conversationInfo);
+  return pickConversationSenderId(conversationInfo);
 }
 
 /**
@@ -227,14 +228,14 @@ export function extractSenderId(content: string): string | undefined {
  * Runtime-context rows are not user-authored, so they may carry the newer
  * "Sender" block even when visible user text stays clean.
  */
-export function extractRuntimeContextSenderId(content: string): string | undefined {
+function extractRuntimeContextSenderId(content: string): string | undefined {
   const conversationSenderId = extractSenderId(content);
   if (conversationSenderId) return conversationSenderId;
   const senderInfo = extractTrustedJsonBlock(content, SENDER_INFO_SENTINEL);
-  return pickSenderId(senderInfo);
+  return pickRuntimeSenderId(senderInfo);
 }
 
-export function isRuntimeContextMessage(msg: unknown): boolean {
+function isRuntimeContextMessage(msg: unknown): boolean {
   if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
   const m = msg as Record<string, unknown>;
   return m.type === "custom_message" && m.customType === RUNTIME_CONTEXT_CUSTOM_TYPE;
@@ -248,11 +249,14 @@ function isRuntimeContextSearchBoundary(candidate: unknown): boolean {
   return typeof record.role === "string" || typeof record.type === "string";
 }
 
-export function findRuntimeContextSenderIdAfter(
+function findRuntimeContextSenderIdAfter(
   messages: unknown[],
   index: number,
   maxDistance = 4,
 ): string | undefined {
+  // OpenClaw queues runtime-context immediately after the user row, but system
+  // and compaction markers can sit between them; four slots covers that shape
+  // without crossing into unrelated later turns.
   const lastIndex = Math.min(messages.length - 1, index + maxDistance);
   for (let i = index + 1; i <= lastIndex; i++) {
     const candidate = messages[i];
@@ -272,6 +276,7 @@ function hasRuntimeContextMessageAfter(
   index: number,
   maxDistance = 4,
 ): boolean {
+  // Keep the presence check aligned with findRuntimeContextSenderIdAfter().
   const lastIndex = Math.min(messages.length - 1, index + maxDistance);
   for (let i = index + 1; i <= lastIndex; i++) {
     const candidate = messages[i];
@@ -281,15 +286,7 @@ function hasRuntimeContextMessageAfter(
   return false;
 }
 
-export function resolveSenderIdForMessage(
-  rawContent: string,
-  messages: unknown[],
-  index: number,
-): string | undefined {
-  return resolveSenderIdForMessageStrict(rawContent, messages, index) ?? undefined;
-}
-
-export type SenderIdResolution = string | null | undefined;
+type SenderIdResolution = string | null | undefined;
 
 export function resolveSenderIdForMessageStrict(
   rawContent: string,
@@ -316,7 +313,7 @@ function findLatestUserMessageIndex(
   return -1;
 }
 
-export function findRuntimeContextSenderIdForLatestUser(
+function findRuntimeContextSenderIdForLatestUser(
   messages: unknown[],
   maxLookback = 8,
 ): string | undefined {
@@ -324,13 +321,6 @@ export function findRuntimeContextSenderIdForLatestUser(
   return latestUserIndex >= 0
     ? findRuntimeContextSenderIdAfter(messages, latestUserIndex)
     : undefined;
-}
-
-export function resolveSenderIdForCurrentTurn(
-  prompt: string,
-  messages: unknown[],
-): string | undefined {
-  return resolveSenderIdForCurrentTurnStrict(prompt, messages) ?? undefined;
 }
 
 export function resolveSenderIdForCurrentTurnStrict(
@@ -369,19 +359,28 @@ export function shouldSkipMessage(content: string, noisePatterns: string[]): boo
   });
 }
 
-export function extractMessages(
-  rawMessages: unknown[],
-  defaultParticipantPeer: Peer,
-  agentPeer: Peer,
-  noisePatterns: string[] = [],
-  resolvePeer?: (senderId: string) => Peer | undefined,
-  resolveSenderId: (
+type ExtractMessagesOptions = {
+  rawMessages: unknown[];
+  defaultParticipantPeer: Peer;
+  agentPeer: Peer;
+  noisePatterns?: string[];
+  resolvePeer?: (senderId: string) => Peer | undefined;
+  resolveSenderId?: (
     rawContent: string,
     msg: unknown,
     index: number,
     rawMessages: unknown[],
-  ) => SenderIdResolution = (rawContent) => extractSenderId(rawContent),
-): MessageInput[] {
+  ) => SenderIdResolution;
+};
+
+export function extractMessages({
+  rawMessages,
+  defaultParticipantPeer,
+  agentPeer,
+  noisePatterns = [],
+  resolvePeer,
+  resolveSenderId = (rawContent) => extractSenderId(rawContent),
+}: ExtractMessagesOptions): MessageInput[] {
   const result: MessageInput[] = [];
 
   for (let index = 0; index < rawMessages.length; index++) {

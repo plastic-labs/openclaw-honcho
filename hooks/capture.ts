@@ -117,15 +117,15 @@ async function flushMessages(
   >;
   await session.addPeers(peerConfigs);
 
-  const extracted = extractMessages(
-    newRawMessages,
+  const extracted = extractMessages({
+    rawMessages: newRawMessages,
     defaultParticipantPeer,
     agentPeer,
-    state.cfg.noisePatterns,
-    (senderId) => resolvedPeers.get(senderId),
-    (rawContent, _msg, index, rawMessages) =>
+    noisePatterns: state.cfg.noisePatterns,
+    resolvePeer: (senderId) => resolvedPeers.get(senderId),
+    resolveSenderId: (rawContent, _msg, index, rawMessages) =>
       resolveSenderIdForMessageStrict(rawContent, rawMessages, index),
-  );
+  });
 
   // participantSenderId = last active sender, used by tools to resolve the
   // session's current participant peer. Named "sender" (not "peer") to

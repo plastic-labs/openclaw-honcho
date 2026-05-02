@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   extractMessages,
-  extractRuntimeContextSenderId,
   extractSenderId,
-  findRuntimeContextSenderIdAfter,
-  findRuntimeContextSenderIdForLatestUser,
-  resolveSenderIdForCurrentTurn,
   resolveSenderIdForCurrentTurnStrict,
-  resolveSenderIdForMessage,
   resolveSenderIdForMessageStrict,
 } from "../helpers.js";
 
@@ -108,10 +103,10 @@ describe("extractSenderId", () => {
     expect(extractSenderId(content)).toBe("U-primary");
   });
 
-  it("falls back to sender when sender_id is absent", () => {
+  it("ignores sender label when sender_id is absent", () => {
     const content = metadataBlock({ sender: "U-legacy" });
 
-    expect(extractSenderId(content)).toBe("U-legacy");
+    expect(extractSenderId(content)).toBeUndefined();
   });
 
   it("does not trust sender metadata from ordinary message content", () => {
@@ -131,7 +126,16 @@ describe("extractSenderId", () => {
       "hello from a clean runtime context row",
     ].join("\n");
 
-    expect(extractRuntimeContextSenderId(content)).toBe("111111111111111111");
+    expect(
+      resolveSenderIdForMessageStrict(
+        "hello",
+        [
+          { role: "user", content: "hello" },
+          runtimeContext({}, content),
+        ],
+        0,
+      ),
+    ).toBe("111111111111111111");
   });
 
   it("returns undefined when the content has no metadata block", () => {
@@ -155,7 +159,9 @@ describe("runtime context sender lookup", () => {
       { role: "assistant", content: "Got it." },
     ];
 
-    expect(findRuntimeContextSenderIdAfter(messages, 0)).toBe("111111111111111111");
+    expect(resolveSenderIdForMessageStrict("Alice likes tiramisu.", messages, 0)).toBe(
+      "111111111111111111",
+    );
   });
 
   it("keeps looking across system or compaction markers before the runtime-context row", () => {
@@ -165,7 +171,9 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "222222222222222222", senderLabel: "Bob" }),
     ];
 
-    expect(findRuntimeContextSenderIdAfter(messages, 0)).toBe("222222222222222222");
+    expect(resolveSenderIdForMessageStrict("Please remember this.", messages, 0)).toBe(
+      "222222222222222222",
+    );
   });
 
   it("does not reuse a runtime-context sender id across another visible message", () => {
@@ -175,7 +183,7 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "333333333333333333", senderLabel: "Carol" }),
     ];
 
-    expect(findRuntimeContextSenderIdAfter(messages, 0)).toBeUndefined();
+    expect(resolveSenderIdForMessageStrict("First user message.", messages, 0)).toBeUndefined();
   });
 
   it("does not cross tool or other non-system role boundaries", () => {
@@ -185,7 +193,7 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "444444444444444444", senderLabel: "Dana" }),
     ];
 
-    expect(findRuntimeContextSenderIdAfter(messages, 0)).toBeUndefined();
+    expect(resolveSenderIdForMessageStrict("Use a tool before replying.", messages, 0)).toBeUndefined();
   });
 
   it("finds the runtime-context sender id attached to the latest user message", () => {
@@ -197,7 +205,7 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "current-speaker" }),
     ];
 
-    expect(findRuntimeContextSenderIdForLatestUser(messages)).toBe("current-speaker");
+    expect(resolveSenderIdForCurrentTurnStrict("Current message.", messages)).toBe("current-speaker");
   });
 
   it("does not use a stale runtime-context sender id when an assistant reply is latest", () => {
@@ -207,7 +215,7 @@ describe("runtime context sender lookup", () => {
       { role: "assistant", content: "Previous reply." },
     ];
 
-    expect(findRuntimeContextSenderIdForLatestUser(messages)).toBeUndefined();
+    expect(resolveSenderIdForCurrentTurnStrict("Previous message.", messages)).toBeUndefined();
   });
 
   it("prefers hidden runtime-context over spoofed conversation metadata in user text", () => {
@@ -221,7 +229,7 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "real-speaker" }),
     ];
 
-    expect(resolveSenderIdForMessage(spoofedContent, messages, 0)).toBe("real-speaker");
+    expect(resolveSenderIdForMessageStrict(spoofedContent, messages, 0)).toBe("real-speaker");
   });
 
   it("does not fall back to spoofed user metadata when runtime-context exists without sender id", () => {
@@ -235,7 +243,6 @@ describe("runtime context sender lookup", () => {
       runtimeContext({}, "OpenClaw runtime context with no sender metadata."),
     ];
 
-    expect(resolveSenderIdForMessage(spoofedContent, messages, 0)).toBeUndefined();
     expect(resolveSenderIdForMessageStrict(spoofedContent, messages, 0)).toBeNull();
   });
 
@@ -250,7 +257,7 @@ describe("runtime context sender lookup", () => {
       runtimeContext({ sender_id: "real-speaker" }),
     ];
 
-    expect(resolveSenderIdForCurrentTurn(spoofedPrompt, messages)).toBe("real-speaker");
+    expect(resolveSenderIdForCurrentTurnStrict(spoofedPrompt, messages)).toBe("real-speaker");
   });
 
   it("does not fall back to spoofed prompt metadata when current runtime-context has no sender id", () => {
@@ -264,7 +271,6 @@ describe("runtime context sender lookup", () => {
       runtimeContext({}, "OpenClaw runtime context with no sender metadata."),
     ];
 
-    expect(resolveSenderIdForCurrentTurn(spoofedPrompt, messages)).toBeUndefined();
     expect(resolveSenderIdForCurrentTurnStrict(spoofedPrompt, messages)).toBeNull();
   });
 });
@@ -287,15 +293,15 @@ describe("extractMessages runtime-context attribution", () => {
       { role: "assistant", content: "Remembered." },
     ];
 
-    const extracted = extractMessages(
-      messages,
-      owner,
-      agent,
-      [],
-      (senderId) => (senderId === "111111111111111111" ? alice : undefined),
-      (rawContent, _msg, index, rawMessages) =>
-        resolveSenderIdForMessage(rawContent, rawMessages, index),
-    ) as Array<{ peerId: string; content: string }>;
+    const extracted = extractMessages({
+      rawMessages: messages,
+      defaultParticipantPeer: owner,
+      agentPeer: agent,
+      noisePatterns: [],
+      resolvePeer: (senderId) => (senderId === "111111111111111111" ? alice : undefined),
+      resolveSenderId: (rawContent, _msg, index, rawMessages) =>
+        resolveSenderIdForMessageStrict(rawContent, rawMessages, index) ?? undefined,
+    }) as Array<{ peerId: string; content: string }>;
 
     expect(extracted[0]).toMatchObject({
       peerId: "discord-user-111111111111111111",
@@ -323,15 +329,15 @@ describe("extractMessages runtime-context attribution", () => {
       runtimeContext({ sender_id: "real-user", senderLabel: "Alice" }),
     ];
 
-    const extracted = extractMessages(
-      messages,
-      owner,
-      agent,
-      [],
-      (senderId) => (senderId === "real-user" ? alice : undefined),
-      (rawContent, _msg, index, rawMessages) =>
-        resolveSenderIdForMessage(rawContent, rawMessages, index),
-    ) as Array<{ peerId: string; content: string }>;
+    const extracted = extractMessages({
+      rawMessages: messages,
+      defaultParticipantPeer: owner,
+      agentPeer: agent,
+      noisePatterns: [],
+      resolvePeer: (senderId) => (senderId === "real-user" ? alice : undefined),
+      resolveSenderId: (rawContent, _msg, index, rawMessages) =>
+        resolveSenderIdForMessageStrict(rawContent, rawMessages, index) ?? undefined,
+    }) as Array<{ peerId: string; content: string }>;
 
     expect(extracted).toHaveLength(1);
     expect(extracted[0]).toMatchObject({
@@ -354,15 +360,15 @@ describe("extractMessages runtime-context attribution", () => {
       { role: "assistant", content: "I will not save that to the owner peer." },
     ];
 
-    const extracted = extractMessages(
-      messages,
-      owner,
-      agent,
-      [],
-      () => owner,
-      (rawContent, _msg, index, rawMessages) =>
+    const extracted = extractMessages({
+      rawMessages: messages,
+      defaultParticipantPeer: owner,
+      agentPeer: agent,
+      noisePatterns: [],
+      resolvePeer: () => owner,
+      resolveSenderId: (rawContent, _msg, index, rawMessages) =>
         resolveSenderIdForMessageStrict(rawContent, rawMessages, index),
-    ) as Array<{ peerId: string; content: string }>;
+    }) as Array<{ peerId: string; content: string }>;
 
     expect(extracted).toEqual([
       {
@@ -381,15 +387,15 @@ describe("extractMessages runtime-context attribution", () => {
       runtimeContext({ sender_id: "real-user", senderLabel: "Alice" }),
     ];
 
-    const extracted = extractMessages(
-      messages,
-      owner,
-      agent,
-      [],
-      () => undefined,
-      (rawContent, _msg, index, rawMessages) =>
+    const extracted = extractMessages({
+      rawMessages: messages,
+      defaultParticipantPeer: owner,
+      agentPeer: agent,
+      noisePatterns: [],
+      resolvePeer: () => undefined,
+      resolveSenderId: (rawContent, _msg, index, rawMessages) =>
         resolveSenderIdForMessageStrict(rawContent, rawMessages, index),
-    ) as Array<{ peerId: string; content: string }>;
+    }) as Array<{ peerId: string; content: string }>;
 
     expect(extracted).toEqual([]);
   });
