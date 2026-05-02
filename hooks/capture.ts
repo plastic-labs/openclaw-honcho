@@ -5,6 +5,7 @@ import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   isSubagentSession,
+  shouldIsolateSession,
   extractMessages,
   extractSenderId,
   getRawContent,
@@ -22,6 +23,7 @@ async function flushMessages(
   ctx: { sessionKey?: string; agentId?: string; messageProvider?: string },
 ): Promise<number> {
   if (!messages?.length) return 0;
+  if (shouldIsolateSession(ctx, state.cfg.isolatedSessionPatterns)) return 0;
 
   const sessionKey = buildSessionKey(ctx);
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
@@ -120,6 +122,7 @@ async function flushMessages(
     agentPeer,
     state.cfg.noisePatterns,
     (senderId) => resolvedPeers.get(senderId),
+    { stripRuntimeScaffolding: state.cfg.stripRuntimeScaffolding },
   );
 
   // participantSenderId = last active sender, used by tools to resolve the

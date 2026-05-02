@@ -4,9 +4,16 @@
 
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
+  "NO_REPLY",
   "A scheduled reminder has been triggered",
   "Execute your Session Startup sequence now",
   "Queued messages from",
+];
+
+export const DEFAULT_ISOLATED_SESSION_PATTERNS: string[] = [
+  "/(^|[:-])cron([:-]|$)/i",
+  "/(^|[:-])heartbeat([:-]|$)/i",
+  "/temp[-:]slug[-:]generator/i",
 ];
 
 export type HonchoConfig = {
@@ -18,6 +25,8 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  stripRuntimeScaffolding: boolean;
+  isolatedSessionPatterns: string[];
 };
 
 /**
@@ -34,6 +43,15 @@ function resolveEnvVars(value: string): string {
   });
 }
 
+function parseStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((p): p is string => typeof p === "string")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0)
+    : [];
+}
+
 export const honchoConfigSchema = {
   parse(value: unknown): HonchoConfig {
     const cfg = (value ?? {}) as Record<string, unknown>;
@@ -47,14 +65,12 @@ export const honchoConfigSchema = {
     }
 
     const disableDefaultNoisePatterns = cfg.disableDefaultNoisePatterns === true;
-    const userPatterns = Array.isArray(cfg.noisePatterns)
-      ? (cfg.noisePatterns as unknown[])
-          .filter((p): p is string => typeof p === "string")
-          .map((p) => p.trim())
-          .filter((p) => p.length > 0)
-      : [];
+    const userPatterns = parseStringArray(cfg.noisePatterns)
     const noisePatterns = [
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
+    ];
+    const isolatedSessionPatterns = [
+      ...new Set([...DEFAULT_ISOLATED_SESSION_PATTERNS, ...parseStringArray(cfg.isolatedSessionPatterns)]),
     ];
 
     return {
@@ -81,6 +97,9 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      stripRuntimeScaffolding:
+        typeof cfg.stripRuntimeScaffolding === "boolean" ? cfg.stripRuntimeScaffolding : true,
+      isolatedSessionPatterns,
     };
   },
 };
