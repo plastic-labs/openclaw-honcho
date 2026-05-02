@@ -9,6 +9,15 @@ export const DEFAULT_NOISE_PATTERNS: string[] = [
   "Queued messages from",
 ];
 
+export type ContextInjectionMode = "off" | "full";
+export type MemoryBackendMode = "qmd" | "builtin";
+
+export type HonchoContextInjectionConfig = {
+  peerCard: boolean;
+  sessionSummary: boolean;
+  representation: ContextInjectionMode;
+};
+
 export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
@@ -18,6 +27,8 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  contextInjection: HonchoContextInjectionConfig;
+  memoryBackend: MemoryBackendMode;
 };
 
 /**
@@ -57,6 +68,25 @@ export const honchoConfigSchema = {
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
 
+    const contextInjectionCfg =
+      typeof cfg.contextInjection === "object" && cfg.contextInjection !== null
+        ? (cfg.contextInjection as Record<string, unknown>)
+        : {};
+    const representationRaw =
+      typeof contextInjectionCfg.representation === "string"
+        ? contextInjectionCfg.representation
+        : process.env.HONCHO_CONTEXT_REPRESENTATION;
+    const representation: ContextInjectionMode =
+      representationRaw === "off" || representationRaw === "full" ? representationRaw : "full";
+    const contextInjection: HonchoContextInjectionConfig = {
+      peerCard: typeof contextInjectionCfg.peerCard === "boolean" ? contextInjectionCfg.peerCard : true,
+      sessionSummary:
+        typeof contextInjectionCfg.sessionSummary === "boolean" ? contextInjectionCfg.sessionSummary : true,
+      representation,
+    };
+
+    const memoryBackend: MemoryBackendMode = cfg.memoryBackend === "builtin" ? "builtin" : "qmd";
+
     return {
       apiKey,
       workspaceId:
@@ -81,6 +111,8 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      contextInjection,
+      memoryBackend,
     };
   },
 };
