@@ -1,6 +1,9 @@
 {
   "id": "openclaw-honcho",
   "kind": "memory",
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
