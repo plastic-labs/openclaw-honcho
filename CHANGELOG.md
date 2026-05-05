@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Manifest declares `contracts.tools`**: OpenClaw 2026.5.3-1 strictly enforces that non-bundled plugins declare their agent-callable tools in the manifest before runtime registration. Without this, `honcho_ask`, `honcho_context`, `honcho_search_conclusions`, `honcho_search_messages`, and `honcho_session` were rejected at load time with `plugin must declare contracts.tools before registering agent tools`, leaving the agent unable to query Honcho memory.
+
 ## [1.4.1] - 2026-04-29
 
 ### Fixed
