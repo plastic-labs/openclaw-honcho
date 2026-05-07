@@ -13,11 +13,9 @@ import { subagentParentMap } from "./subagent.js";
 
 const STRUCTURED_SENDER_TTL_MS = 10 * 60 * 1000;
 
-type SenderEntry = {
-  senderId?: string;
-  seenAt: number;
-  ambiguous: boolean;
-};
+type SenderEntry =
+  | { senderId: string; seenAt: number; ambiguous: false }
+  | { seenAt: number; ambiguous: true };
 
 const senderByMessageKey = new Map<string, SenderEntry>();
 const senderByTimestampKey = new Map<string, SenderEntry>();
@@ -92,9 +90,11 @@ function rememberSender(map: Map<string, SenderEntry>, key: string, senderId: st
   }
 
   const existing = map.get(key);
-  if (existing && existing.senderId !== senderId) {
-    map.set(key, { seenAt: now, ambiguous: true });
-    return;
+  if (existing) {
+    if (!("senderId" in existing) || existing.senderId !== senderId) {
+      map.set(key, { seenAt: now, ambiguous: true });
+      return;
+    }
   }
 
   map.set(key, { senderId, seenAt: now, ambiguous: false });
@@ -104,9 +104,8 @@ function takeSender(map: Map<string, SenderEntry>, key: string): string | undefi
   const entry = map.get(key);
   if (!entry) return undefined;
   map.delete(key);
-  if (Date.now() - entry.seenAt > STRUCTURED_SENDER_TTL_MS || entry.ambiguous) {
-    return undefined;
-  }
+  if (Date.now() - entry.seenAt > STRUCTURED_SENDER_TTL_MS) return undefined;
+  if (!("senderId" in entry)) return undefined;
   return entry.senderId;
 }
 
@@ -308,13 +307,17 @@ async function flushMessages(
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("message_received", async (event, ctx) => {
-    const eventRecord = event as Record<string, unknown>;
-    const ctxRecord = ctx as Record<string, unknown>;
-    const senderId = normalizeString(eventRecord.senderId) ?? normalizeString(ctxRecord.senderId);
-    if (!senderId) return;
+    try {
+      const eventRecord = event as Record<string, unknown>;
+      const ctxRecord = ctx as Record<string, unknown>;
+      const senderId = normalizeString(eventRecord.senderId) ?? normalizeString(ctxRecord.senderId);
+      if (!senderId) return;
 
-    for (const sessionKey of getSenderSessionKeys(eventRecord, ctxRecord)) {
-      rememberStructuredSender(sessionKey, eventRecord, ctxRecord, senderId);
+      for (const sessionKey of getSenderSessionKeys(eventRecord, ctxRecord)) {
+        rememberStructuredSender(sessionKey, eventRecord, ctxRecord, senderId);
+      }
+    } catch (error) {
+      api.logger.debug?.(`[honcho] Failed to record structured sender: ${error}`);
     }
   });
 

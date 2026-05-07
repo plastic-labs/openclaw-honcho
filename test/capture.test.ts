@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerCaptureHook } from "../hooks/capture.js";
 import type { PluginState } from "../state.js";
 
 type HookMap = Map<string, (event: any, ctx: any) => Promise<void> | void>;
@@ -16,7 +15,10 @@ function createPeer(id: string, saved: SavedMessage[]) {
   } as never;
 }
 
-function createHarness() {
+async function createHarness() {
+  vi.resetModules();
+  const { registerCaptureHook } = await import("../hooks/capture.js");
+
   const hooks: HookMap = new Map();
   const saved: SavedMessage[] = [];
   const metadataBySession = new Map<string, Record<string, unknown>>();
@@ -85,7 +87,7 @@ function createHarness() {
 
 describe("capture sender attribution", () => {
   it("uses structured message_received senderId when text metadata was stripped", async () => {
-    const { hooks, saved } = createHarness();
+    const { hooks, saved } = await createHarness();
     const ctx = {
       sessionKey: "agent-main-discord-channel-123",
       messageProvider: "discord",
@@ -115,7 +117,7 @@ describe("capture sender attribution", () => {
   });
 
   it("does not guess attribution when no structured key matches", async () => {
-    const { hooks, saved } = createHarness();
+    const { hooks, saved } = await createHarness();
     const ctx = {
       sessionKey: "agent-main-discord-channel-456",
       messageProvider: "discord",
@@ -145,7 +147,7 @@ describe("capture sender attribution", () => {
   });
 
   it("keeps textual Conversation info sender_id authoritative when present", async () => {
-    const { hooks, saved } = createHarness();
+    const { hooks, saved } = await createHarness();
     const ctx = {
       sessionKey: "agent-main-discord-channel-789",
       messageProvider: "discord",
