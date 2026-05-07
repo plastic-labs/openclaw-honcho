@@ -17,8 +17,7 @@ type SenderEntry =
   | { senderId: string; seenAt: number; ambiguous: false }
   | { seenAt: number; ambiguous: true };
 
-const senderByMessageKey = new Map<string, SenderEntry>();
-const senderByTimestampKey = new Map<string, SenderEntry>();
+const senderByStructuredKey = new Map<string, SenderEntry>();
 
 function normalizeString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -59,6 +58,46 @@ function getTimestamp(value: unknown): number | undefined {
     normalizeTimestamp(metadata.timestamp);
 }
 
+function getContentKey(value: unknown): string | undefined {
+  const record = asRecord(value);
+  return normalizeString(record.content) ??
+    normalizeString(record.bodyForAgent) ??
+    normalizeString(record.body) ??
+    normalizeString(record.rawBody);
+}
+
+function isOpenClawRuntimeContext(value: unknown): boolean {
+  const record = asRecord(value);
+  const role = normalizeString(record.role);
+  const type = normalizeString(record.type);
+  const customType = normalizeString(record.customType) ?? normalizeString(record.custom_type);
+  const hasConversationInfo = getRawContent(value).includes("Conversation info (untrusted metadata):");
+
+  return customType === "openclaw.runtime-context" ||
+    (type === "custom_message" && hasConversationInfo) ||
+    (role === "custom" && hasConversationInfo);
+}
+
+function getRuntimeContextSenderId(value: unknown): string | undefined {
+  if (!isOpenClawRuntimeContext(value)) return undefined;
+  return extractSenderId(getRawContent(value));
+}
+
+function getAdjacentRuntimeContextSenderId(messages: unknown[], index: number, userMsg: unknown): string | undefined {
+  const userTimestamp = getTimestamp(userMsg);
+  const adjacent = messages[index + 1];
+  const senderId = getRuntimeContextSenderId(adjacent);
+  if (!senderId) return undefined;
+
+  const contextTimestamp = getTimestamp(adjacent);
+  if (userTimestamp !== undefined && contextTimestamp !== undefined) {
+    const deltaMs = Math.abs(contextTimestamp - userTimestamp);
+    if (deltaMs > 30_000) return undefined;
+  }
+
+  return senderId;
+}
+
 function getMessageProviderCandidates(event: Record<string, unknown>): string[] {
   const metadata = asRecord(event.metadata);
   return [metadata.provider, metadata.surface, metadata.originatingChannel]
@@ -81,29 +120,52 @@ function getSenderSessionKeys(
   return [...keys];
 }
 
-function rememberSender(map: Map<string, SenderEntry>, key: string, senderId: string): void {
+function buildSenderCacheKey(kind: string, sessionKey: string, value: string | number): string {
+  return `${sessionKey}\n${kind}\n${value}`;
+}
+
+function getStructuredSenderKeys(
+  sessionKey: string,
+  value: unknown,
+  fallback?: unknown,
+): string[] {
+  const keys: string[] = [];
+
+  const messageId = getMessageId(value) ?? getMessageId(fallback);
+  if (messageId) keys.push(buildSenderCacheKey("message", sessionKey, messageId));
+
+  const timestamp = getTimestamp(value);
+  if (timestamp !== undefined) keys.push(buildSenderCacheKey("timestamp", sessionKey, timestamp));
+
+  const content = getContentKey(value);
+  if (content) keys.push(buildSenderCacheKey("content", sessionKey, content));
+
+  return keys;
+}
+
+function rememberSender(key: string, senderId: string): void {
   const now = Date.now();
-  for (const [storedKey, entry] of map) {
+  for (const [storedKey, entry] of senderByStructuredKey) {
     if (now - entry.seenAt > STRUCTURED_SENDER_TTL_MS) {
-      map.delete(storedKey);
+      senderByStructuredKey.delete(storedKey);
     }
   }
 
-  const existing = map.get(key);
+  const existing = senderByStructuredKey.get(key);
   if (existing) {
     if (!("senderId" in existing) || existing.senderId !== senderId) {
-      map.set(key, { seenAt: now, ambiguous: true });
+      senderByStructuredKey.set(key, { seenAt: now, ambiguous: true });
       return;
     }
   }
 
-  map.set(key, { senderId, seenAt: now, ambiguous: false });
+  senderByStructuredKey.set(key, { senderId, seenAt: now, ambiguous: false });
 }
 
-function takeSender(map: Map<string, SenderEntry>, key: string): string | undefined {
-  const entry = map.get(key);
+function takeSender(key: string): string | undefined {
+  const entry = senderByStructuredKey.get(key);
   if (!entry) return undefined;
-  map.delete(key);
+  senderByStructuredKey.delete(key);
   if (Date.now() - entry.seenAt > STRUCTURED_SENDER_TTL_MS) return undefined;
   if (!("senderId" in entry)) return undefined;
   return entry.senderId;
@@ -115,29 +177,16 @@ function rememberStructuredSender(
   ctx: Record<string, unknown>,
   senderId: string,
 ): void {
-  const messageId = getMessageId(event) ?? getMessageId(ctx);
-  if (messageId) {
-    rememberSender(senderByMessageKey, `${sessionKey}\n${messageId}`, senderId);
-  }
-
-  const timestamp = getTimestamp(event);
-  if (timestamp !== undefined) {
-    rememberSender(senderByTimestampKey, `${sessionKey}\n${timestamp}`, senderId);
+  for (const key of getStructuredSenderKeys(sessionKey, event, ctx)) {
+    rememberSender(key, senderId);
   }
 }
 
 function takeStructuredSender(sessionKey: string, msg: unknown): string | undefined {
-  const messageId = getMessageId(msg);
-  if (messageId) {
-    const senderId = takeSender(senderByMessageKey, `${sessionKey}\n${messageId}`);
+  for (const key of getStructuredSenderKeys(sessionKey, msg)) {
+    const senderId = takeSender(key);
     if (senderId) return senderId;
   }
-
-  const timestamp = getTimestamp(msg);
-  if (timestamp !== undefined) {
-    return takeSender(senderByTimestampKey, `${sessionKey}\n${timestamp}`);
-  }
-
   return undefined;
 }
 
@@ -213,7 +262,8 @@ async function flushMessages(
   const senderIds = new Set<string>();
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
-  for (const msg of newRawMessages) {
+  for (let i = 0; i < newRawMessages.length; i++) {
+    const msg = newRawMessages[i];
     if (!msg || typeof msg !== "object") {
       adjustedRawMessages.push(msg);
       continue;
@@ -232,6 +282,9 @@ async function flushMessages(
       lastSenderId = senderId;
     } else {
       senderId = takeStructuredSender(sessionKey, msg);
+      if (!senderId) {
+        senderId = getAdjacentRuntimeContextSenderId(newRawMessages, i, msg);
+      }
       if (senderId) {
         senderIds.add(senderId);
         lastSenderId = senderId;

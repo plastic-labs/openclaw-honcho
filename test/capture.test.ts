@@ -4,6 +4,8 @@ import type { PluginState } from "../state.js";
 type HookMap = Map<string, (event: any, ctx: any) => Promise<void> | void>;
 type SavedMessage = { peerId: string; content: string; opts?: unknown };
 
+const DISCORD_SENDER_ID = "425084004937760780";
+
 function createPeer(id: string, saved: SavedMessage[]) {
   return {
     id,
@@ -85,105 +87,149 @@ async function createHarness() {
   return { hooks, saved };
 }
 
+function ctx(sessionKey: string) {
+  return {
+    sessionKey,
+    messageProvider: "discord",
+    agentId: "main",
+  };
+}
+
+function conversationInfo(data: Record<string, unknown>, body = "") {
+  return [
+    "Conversation info (untrusted metadata):",
+    "```json",
+    JSON.stringify(data),
+    "```",
+    body ? "" : undefined,
+    body || undefined,
+  ].filter((line): line is string => typeof line === "string").join("\n");
+}
+
+async function receive(
+  hooks: HookMap,
+  context: ReturnType<typeof ctx>,
+  event: Record<string, unknown> = {},
+) {
+  await hooks.get("message_received")?.({
+    senderId: DISCORD_SENDER_ID,
+    sessionKey: context.sessionKey,
+    messageId: "discord-message-1",
+    metadata: { provider: "discord" },
+    ...event,
+  }, context);
+}
+
+async function endTurn(hooks: HookMap, context: ReturnType<typeof ctx>, messages: unknown[]) {
+  await hooks.get("agent_end")?.({ success: true, messages }, context);
+}
+
+function expectSaved(saved: SavedMessage[], peerId: string, content: string) {
+  expect(saved).toEqual([
+    expect.objectContaining({ peerId, content }),
+  ]);
+}
+
 describe("capture sender attribution", () => {
   it("uses structured message_received senderId when text metadata was stripped", async () => {
     const { hooks, saved } = await createHarness();
-    const ctx = {
-      sessionKey: "agent-main-discord-channel-123",
-      messageProvider: "discord",
-      agentId: "main",
-    };
+    const context = ctx("agent-main-discord-channel-123");
 
-    await hooks.get("message_received")?.({
-      senderId: "425084004937760780",
-      sessionKey: ctx.sessionKey,
-      messageId: "discord-message-1",
-      metadata: { provider: "discord" },
-    }, ctx);
-
-    await hooks.get("agent_end")?.({
-      success: true,
-      messages: [
-        { role: "user", content: "stripped hello", messageId: "discord-message-1" },
-      ],
-    }, ctx);
-
-    expect(saved).toEqual([
-      expect.objectContaining({
-        peerId: "425084004937760780",
-        content: "stripped hello",
-      }),
+    await receive(hooks, context);
+    await endTurn(hooks, context, [
+      { role: "user", content: "stripped hello", messageId: "discord-message-1" },
     ]);
+
+    expectSaved(saved, DISCORD_SENDER_ID, "stripped hello");
   });
 
   it("does not guess attribution when no structured key matches", async () => {
     const { hooks, saved } = await createHarness();
-    const ctx = {
-      sessionKey: "agent-main-discord-channel-456",
-      messageProvider: "discord",
-      agentId: "main",
-    };
+    const context = ctx("agent-main-discord-channel-456");
 
-    await hooks.get("message_received")?.({
-      senderId: "425084004937760780",
-      sessionKey: ctx.sessionKey,
-      messageId: "discord-message-1",
-      metadata: { provider: "discord" },
-    }, ctx);
-
-    await hooks.get("agent_end")?.({
-      success: true,
-      messages: [
-        { role: "user", content: "no matching key", messageId: "different-message" },
-      ],
-    }, ctx);
-
-    expect(saved).toEqual([
-      expect.objectContaining({
-        peerId: "owner",
-        content: "no matching key",
-      }),
+    await receive(hooks, context);
+    await endTurn(hooks, context, [
+      { role: "user", content: "no matching key", messageId: "different-message" },
     ]);
+
+    expectSaved(saved, "owner", "no matching key");
+  });
+
+  it("uses structured senderId by exact content when transcript has no message id", async () => {
+    const { hooks, saved } = await createHarness();
+    const context = ctx("agent-main-discord-channel-content");
+
+    await receive(hooks, context, {
+      content: "live discord text",
+    });
+    await endTurn(hooks, context, [
+      { role: "user", content: "live discord text" },
+    ]);
+
+    expectSaved(saved, DISCORD_SENDER_ID, "live discord text");
+  });
+
+  it("uses adjacent OpenClaw runtime-context sender_id when user message has no metadata", async () => {
+    const { hooks, saved } = await createHarness();
+    const context = ctx("agent-main-discord-channel-runtime-context");
+
+    await endTurn(hooks, context, [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello from discord" }],
+        timestamp: 1778182777904,
+      },
+      {
+        role: "custom",
+        customType: "openclaw.runtime-context",
+        content: conversationInfo({
+          sender_id: DISCORD_SENDER_ID,
+          sender: "rendrag",
+          message_id: "1502032066576122047",
+        }),
+        timestamp: 1778182777919,
+      },
+    ]);
+
+    expectSaved(saved, DISCORD_SENDER_ID, "hello from discord");
+  });
+
+  it("does not use content attribution when duplicate text has conflicting senders", async () => {
+    const { hooks, saved } = await createHarness();
+    const context = ctx("agent-main-discord-channel-duplicate-content");
+
+    await receive(hooks, context, {
+      senderId: "sender-one",
+      messageId: "discord-message-1",
+      content: "same text",
+    });
+    await receive(hooks, context, {
+      senderId: "sender-two",
+      messageId: "discord-message-2",
+      content: "same text",
+    });
+    await endTurn(hooks, context, [
+      { role: "user", content: "same text" },
+    ]);
+
+    expectSaved(saved, "owner", "same text");
   });
 
   it("keeps textual Conversation info sender_id authoritative when present", async () => {
     const { hooks, saved } = await createHarness();
-    const ctx = {
-      sessionKey: "agent-main-discord-channel-789",
-      messageProvider: "discord",
-      agentId: "main",
-    };
+    const context = ctx("agent-main-discord-channel-789");
 
-    await hooks.get("message_received")?.({
+    await receive(hooks, context, {
       senderId: "wrong-sender",
-      sessionKey: ctx.sessionKey,
-      messageId: "discord-message-1",
-      metadata: { provider: "discord" },
-    }, ctx);
-
-    await hooks.get("agent_end")?.({
-      success: true,
-      messages: [
-        {
-          role: "user",
-          messageId: "discord-message-1",
-          content: [
-            "Conversation info (untrusted metadata):",
-            "```json",
-            JSON.stringify({ sender_id: "right-sender" }),
-            "```",
-            "",
-            "metadata hello",
-          ].join("\n"),
-        },
-      ],
-    }, ctx);
-
-    expect(saved).toEqual([
-      expect.objectContaining({
-        peerId: "right-sender",
-        content: "metadata hello",
-      }),
+    });
+    await endTurn(hooks, context, [
+      {
+        role: "user",
+        messageId: "discord-message-1",
+        content: conversationInfo({ sender_id: "right-sender" }, "metadata hello"),
+      },
     ]);
+
+    expectSaved(saved, "right-sender", "metadata hello");
   });
 });
