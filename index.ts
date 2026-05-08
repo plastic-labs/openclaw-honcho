@@ -21,6 +21,7 @@ import { registerContextTool } from "./tools/context.js";
 import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
+import { registerRememberTool } from "./tools/remember.js";
 import { registerCli } from "./commands/cli.js";
 import { registerHonchoMemoryRuntime } from "./runtime.js";
 
@@ -37,8 +38,9 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   const hasSearch = availableTools.has("honcho_search_conclusions");
   const hasAsk = availableTools.has("honcho_ask");
   const hasMessageSearch = availableTools.has("honcho_search_messages");
+  const hasRemember = availableTools.has("honcho_remember");
 
-  const anyTool = hasSession || hasContext || hasSearch || hasAsk || hasMessageSearch;
+  const anyTool = hasSession || hasContext || hasSearch || hasAsk || hasMessageSearch || hasRemember;
   if (!anyTool) return [];
 
   const lines: string[] = ["## Honcho Memory"];
@@ -63,6 +65,11 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
   if (hasMessageSearch) {
     lines.push(
       "- honcho_search_messages: Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata."
+    );
+  }
+  if (hasRemember) {
+    lines.push(
+      "- honcho_remember: Explicitly save a durable fact, preference, decision, or project state when the user asks you to remember something."
     );
   }
   if (hasSession) {
@@ -105,12 +112,13 @@ export default definePluginEntry({
     registerContextHook(api, state);
     registerCaptureHook(api, state);
 
-    // Tools (5 core + 2 passthrough)
+    // Tools (6 core + 2 passthrough)
     registerSessionTool(api, state);
     registerContextTool(api, state);
     registerSearchTool(api, state);
     registerAskTool(api, state);
     registerMessageSearchTool(api, state);
+    registerRememberTool(api, state);
     registerMemoryPassthrough(api, state);
 
     // CLI
