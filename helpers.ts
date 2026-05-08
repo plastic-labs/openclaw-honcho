@@ -2,10 +2,15 @@
  * Pure helper functions — no mutable state dependencies.
  */
 
+import { createHash } from "node:crypto";
+
 import type { Peer, MessageInput } from "@honcho-ai/sdk";
 
 type ContentBlock = { type?: string; text?: unknown };
 type RawMessage = { role?: string; content?: string | ContentBlock[]; timestamp?: number };
+
+const HONCHO_SESSION_ID_MAX_LENGTH = 100;
+const SESSION_KEY_HASH_LENGTH = 16;
 
 /**
  * Extract plain text from a message's `content` (string or array of content blocks).
@@ -28,12 +33,24 @@ export function getRawContent(msg: unknown): string {
  * Build a Honcho session key from OpenClaw context.
  * Combines sessionKey + messageProvider to create unique sessions per platform.
  * Uses hyphens as separators (Honcho requires hyphens, not underscores).
+ * Honcho session IDs are capped at 100 characters, so overlong keys keep a
+ * readable prefix plus a deterministic hash suffix.
  */
 export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
   const baseKey = ctx?.sessionKey ?? "default";
   const provider = ctx?.messageProvider ?? "unknown";
   const combined = `${baseKey}-${provider}`;
-  return combined.replace(/[^a-zA-Z0-9-]/g, "-");
+  const legacyKey = combined.replace(/[^a-zA-Z0-9-]/g, "-");
+
+  if (legacyKey.length <= HONCHO_SESSION_ID_MAX_LENGTH) return legacyKey;
+
+  const digest = createHash("sha256")
+    .update(legacyKey, "utf8")
+    .digest("hex")
+    .slice(0, SESSION_KEY_HASH_LENGTH);
+  const suffix = `-${digest}`;
+
+  return legacyKey.slice(0, HONCHO_SESSION_ID_MAX_LENGTH - suffix.length) + suffix;
 }
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {

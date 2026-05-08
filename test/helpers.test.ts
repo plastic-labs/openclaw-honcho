@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSenderId } from "../helpers.js";
+import { buildSessionKey, extractSenderId } from "../helpers.js";
 
 const SENTINEL = "Conversation info (untrusted metadata):";
 
@@ -11,6 +11,66 @@ function metadataBlock(payload: Record<string, unknown>): string {
     "```",
   ].join("\n");
 }
+
+describe("buildSessionKey", () => {
+  it("preserves existing short session keys byte-for-byte", () => {
+    expect(buildSessionKey({ sessionKey: "agent:main:telegram:direct:8259661815", messageProvider: "telegram" }))
+      .toBe("agent-main-telegram-direct-8259661815-telegram");
+  });
+
+  it("uses existing default values", () => {
+    expect(buildSessionKey()).toBe("default-unknown");
+  });
+
+  it("preserves sanitization behavior for valid-length keys", () => {
+    expect(buildSessionKey({ sessionKey: "agent:main:discord:channel:abc_def", messageProvider: "discord/web" }))
+      .toBe("agent-main-discord-channel-abc-def-discord-web");
+  });
+
+  it("bounds overlong isolated cron run keys to Honcho's session ID limit", () => {
+    const key = buildSessionKey({
+      sessionKey: "agent:main:cron:265fdd54-a132-4076-a87b-bc08b72de2b1:run:2351a6ec-3b5c-4291-bb0a-ac4adfa323cc",
+      messageProvider: "unknown",
+    });
+
+    expect(key.length).toBeLessThanOrEqual(100);
+    expect(key).toMatch(/^agent-main-cron-265fdd54-a132-4076-a87b-bc08b72de2b1-run-/);
+    expect(key).toMatch(/-[0-9a-f]{16}$/);
+  });
+
+  it("shortens long keys deterministically", () => {
+    const ctx = {
+      sessionKey: "agent:main:cron:265fdd54-a132-4076-a87b-bc08b72de2b1:run:2351a6ec-3b5c-4291-bb0a-ac4adfa323cc",
+      messageProvider: "unknown",
+    };
+
+    expect(buildSessionKey(ctx)).toBe(buildSessionKey(ctx));
+  });
+
+  it("keeps long keys distinct via the hash suffix", () => {
+    const first = buildSessionKey({
+      sessionKey: "agent:main:cron:265fdd54-a132-4076-a87b-bc08b72de2b1:run:2351a6ec-3b5c-4291-bb0a-ac4adfa323cc",
+      messageProvider: "unknown",
+    });
+    const second = buildSessionKey({
+      sessionKey: "agent:main:cron:265fdd54-a132-4076-a87b-bc08b72de2b1:run:42f3a913-8a60-4e65-b0aa-985c62ec1583",
+      messageProvider: "unknown",
+    });
+
+    expect(first).not.toBe(second);
+    expect(first.length).toBeLessThanOrEqual(100);
+    expect(second.length).toBeLessThanOrEqual(100);
+    expect(first).toMatch(/-[0-9a-f]{16}$/);
+    expect(second).toMatch(/-[0-9a-f]{16}$/);
+  });
+
+  it("includes the provider in shortened key identity", () => {
+    const sessionKey = "agent:main:cron:265fdd54-a132-4076-a87b-bc08b72de2b1:run:2351a6ec-3b5c-4291-bb0a-ac4adfa323cc";
+
+    expect(buildSessionKey({ sessionKey, messageProvider: "unknown" }))
+      .not.toBe(buildSessionKey({ sessionKey, messageProvider: "cron" }));
+  });
+});
 
 describe("extractSenderId", () => {
   it("reads sender_id from a leading metadata block", () => {
