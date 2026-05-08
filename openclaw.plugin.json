@@ -24,7 +24,9 @@
       },
       "noisePatterns": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
       "ownerObserveOthers": {
@@ -35,7 +37,7 @@
       "disableDefaultNoisePatterns": {
         "type": "boolean",
         "default": false,
-        "description": "When true, built-in noise patterns are not applied — only noisePatterns entries are used."
+        "description": "When true, built-in noise patterns are not applied \u2014 only noisePatterns entries are used."
       },
       "crossSessionSearch": {
         "type": "boolean",
@@ -80,12 +82,23 @@
     "disableDefaultNoisePatterns": {
       "label": "Disable Default Noise Patterns",
       "advanced": true,
-      "help": "When enabled, only custom noisePatterns entries are used — built-in defaults are skipped."
+      "help": "When enabled, only custom noisePatterns entries are used \u2014 built-in defaults are skipped."
     },
     "crossSessionSearch": {
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
     }
+  },
+  "contracts": {
+    "tools": [
+      "honcho_ask",
+      "honcho_context",
+      "honcho_search_conclusions",
+      "honcho_search_messages",
+      "honcho_session",
+      "memory_search",
+      "memory_get"
+    ]
   }
 }
