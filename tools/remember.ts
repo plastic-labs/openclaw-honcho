@@ -21,7 +21,7 @@ export function registerRememberTool(api: OpenClawPluginApi, state: PluginState)
           about: Type.Optional(
             Type.String({
               description:
-                "Sender ID of the participant the memory is about. Defaults to the current session participant.",
+                "Sender ID of the participant the memory is about. Defaults to the current session participant. Ignored when observed is 'agent'.",
             })
           ),
           observed: Type.Optional(
@@ -29,7 +29,7 @@ export function registerRememberTool(api: OpenClawPluginApi, state: PluginState)
               type: "string",
               enum: ["participant", "agent"],
               description:
-                "Who the memory is about. Default: participant. Use agent for assistant/self operating lessons.",
+                "Who the memory is about. Default: participant. Use agent for assistant/self operating lessons; agent memories always use the agent peer and ignore about.",
             })
           ),
           attachToCurrentSession: Type.Optional(
@@ -75,6 +75,9 @@ export function registerRememberTool(api: OpenClawPluginApi, state: PluginState)
 
         const created = await scope.create({ content, ...(sessionId ? { sessionId } : {}) });
         const first = created[0];
+        if (!first) {
+          throw new Error("honcho_remember: Honcho returned no created conclusions; memory was not saved");
+        }
 
         return {
           content: [
