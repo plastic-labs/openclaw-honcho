@@ -1,5 +1,5 @@
 // @ts-ignore - resolved by openclaw runtime
-import type { MessageInput, Session } from "@honcho-ai/sdk";
+import { Message, Page, type MessageInput, type MessageResponse, type PageResponse, type Session } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
@@ -15,6 +15,19 @@ import { subagentParentMap } from "./subagent.js";
 
 const sessionFlushLocks = new Map<string, Promise<void>>();
 export const HONCHO_MESSAGES_LIST_MAX_SIZE = 100;
+const HONCHO_API_VERSION = "v3";
+
+type SessionListInternals = {
+  _ensureWorkspace?: () => Promise<void>;
+  _http?: {
+    post: (
+      path: string,
+      options?: { body?: unknown; query?: Record<string, unknown> },
+    ) => Promise<PageResponse<MessageResponse>>;
+  };
+  workspaceId: string;
+  id: string;
+};
 
 function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
   if (!message?.createdAt) return null;
@@ -51,7 +64,7 @@ async function collectRecentTailMessages(
   const limit = normalizeRecentTailSize(recentTailSize);
   if (limit <= 0) return [];
 
-  let page = await session.messages({
+  let page = await listSessionMessagesPage(session, {
     size: Math.min(limit, HONCHO_MESSAGES_LIST_MAX_SIZE),
     reverse: true,
   });
@@ -65,6 +78,35 @@ async function collectRecentTailMessages(
   }
 
   return messages.slice(0, limit);
+}
+
+async function listSessionMessagesPage(
+  session: Session,
+  options: { page?: number; size: number; reverse: boolean },
+): Promise<Page<Message, MessageResponse>> {
+  const internals = session as unknown as SessionListInternals;
+  if (typeof internals._http?.post !== "function") {
+    throw new Error("Honcho SDK session internals unavailable for paginated message listing");
+  }
+
+  await internals._ensureWorkspace?.();
+
+  const fetchPage = async (page?: number, size?: number): Promise<PageResponse<MessageResponse>> => (
+    internals._http!.post(
+      `/${HONCHO_API_VERSION}/workspaces/${internals.workspaceId}/sessions/${internals.id}/messages/list`,
+      {
+        body: { filters: undefined },
+        query: {
+          page,
+          size,
+          reverse: options.reverse,
+        },
+      },
+    )
+  );
+
+  const data = await fetchPage(options.page, options.size);
+  return new Page(data, Message.fromApiResponse, fetchPage);
 }
 
 export async function dedupeAgainstRecentTail(
