@@ -164,11 +164,11 @@ describe("Honcho memory runtime", () => {
       maxResults: 10,
     });
 
-    expect(results).toHaveLength(2);
-    expect(results.map((entry) => entry.path)).toEqual([
-      "sessions/session-1.txt",
-      "sessions/session-1-child.txt",
-    ]);
+    // Scoped search now matches the exact active session id only — new-scheme
+    // ids have a per-session hash suffix, so prefix-based child discovery is
+    // never load-bearing.
+    expect(results).toHaveLength(1);
+    expect(results[0]?.path).toBe("sessions/session-1.txt");
     expect(results[0]?.snippet).toBe("Need to remember this");
     expect(results[0]?.startLine).toBeGreaterThan(0);
     expect(results[0]?.endLine).toBeGreaterThanOrEqual(results[0]?.startLine ?? 0);
@@ -177,7 +177,7 @@ describe("Honcho memory runtime", () => {
     const implicitScopeResults = await manager.search("remember", {
       maxResults: 10,
     });
-    expect(implicitScopeResults).toHaveLength(2);
+    expect(implicitScopeResults).toHaveLength(1);
     await expect(
       manager.search("remember", {
         sessionKey: "other-session",
@@ -228,16 +228,15 @@ describe("Honcho memory runtime", () => {
       }),
     ).rejects.toThrow(/outside the active session/);
 
-    expect(
-      resolveHonchoMemoryBackendConfig({
-        sessionKey: "agent:main:dashboard:test",
-        messageProvider: "telegram",
-      }),
-    ).toEqual({
-      backend: "qmd",
-      qmd: {},
-      sessionKey: "agent-main-dashboard-test-telegram",
+    const backendConfig = resolveHonchoMemoryBackendConfig({
+      sessionKey: "agent:main:dashboard:test",
+      agentId: "main",
     });
+    expect(backendConfig.backend).toBe("qmd");
+    expect(backendConfig.qmd).toEqual({});
+    expect(backendConfig.sessionKey).toMatch(
+      /^chat-dashboard-main-[0-9a-f]{24}$/,
+    );
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {

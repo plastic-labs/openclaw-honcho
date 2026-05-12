@@ -100,6 +100,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         readNumberParam(params, "minScore");
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
         });
 
         try {
@@ -140,6 +141,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const lines = readNumberParam(params, "lines", { integer: true });
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
         });
 
         try {
