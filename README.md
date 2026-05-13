@@ -163,11 +163,16 @@ Honcho stores durable memory for OpenClaw sessions. If the same agent needs publ
 openclaw plugins install @xquik/tweetclaw
 ```
 
-TweetClaw is also published on [npm](https://www.npmjs.com/package/@xquik/tweetclaw) and [ClawHub](https://clawhub.openclaw.ai/packages/@xquik/tweetclaw). Use it for tweet search, reply search, follower export, user lookup, media upload and download, direct messages, tweet monitors, webhooks, giveaway draws, and approval-gated post tweets or post tweet replies.
+TweetClaw is also published on [npm](https://www.npmjs.com/package/@xquik/tweetclaw) and listed on [ClawHub](https://clawhub.ai/kriptoburak/xquik-tweetclaw). Use it when Honcho-backed research needs:
+
+- Search and lookup: tweet search, reply search, and user lookup
+- Export and media: follower export plus media upload and download
+- Monitoring: tweet monitors, webhooks, and giveaway draws
+- Approval-gated actions: post tweets, post tweet replies, and direct messages
 
 For research workflows, have the agent summarize the useful TweetClaw findings in the session with source tweet URLs, author handles, query terms, and decisions. Honcho will capture that turn like any other OpenClaw conversation, making the X/Twitter evidence available through `honcho_context`, `honcho_search_conclusions`, `honcho_search_messages`, and `honcho_ask`.
 
-Keep Honcho credentials separate from TweetClaw and Xquik credentials. Require OpenClaw approval before posting, replying, direct messaging, following, or unfollowing on X/Twitter.
+Keep Honcho credentials separate from TweetClaw and Xquik credentials. TweetClaw marks write-like calls for OpenClaw approval when approval hooks are available; still show the exact account, endpoint, and payload before posting, replying, direct messaging, following, or unfollowing on X/Twitter.
 
 ## Multi-Agent Support
 
