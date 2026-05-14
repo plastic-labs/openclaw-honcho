@@ -122,4 +122,38 @@ describe("memory passthrough tools", () => {
       sessionKey: "agent-main-dashboard-test-unknown",
     });
   });
+
+  it("returns validation payloads for malformed memory tool input", async () => {
+    const registrations: Array<{ factory: (ctx: Record<string, unknown>) => Record<string, unknown> }> = [];
+    const api = {
+      registerTool: (factory: (ctx: Record<string, unknown>) => Record<string, unknown>) => {
+        registrations.push({ factory });
+      },
+    };
+
+    registerMemoryPassthrough(api as never, {} as never);
+
+    const ctx = {
+      agentId: "main",
+      config: {},
+      sessionKey: "agent:main:dashboard:test",
+    };
+    const searchTool = registrations[0]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+    const getTool = registrations[1]!.factory(ctx) as {
+      execute: (toolCallId: string, params: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>;
+    };
+
+    const searchResult = await searchTool.execute("call-search", {});
+    const getResult = await getTool.execute("call-get", {});
+
+    expect(searchResult.content[0]?.text).toContain("\"validationError\": true");
+    expect(searchResult.content[0]?.text).toContain("\"error\": \"query required\"");
+    expect(searchResult.content[0]?.text).not.toContain("memory provider error");
+    expect(getResult.content[0]?.text).toContain("\"validationError\": true");
+    expect(getResult.content[0]?.text).toContain("\"error\": \"path required\"");
+    expect(getResult.content[0]?.text).not.toContain("memory provider error");
+    expect(getHonchoMemorySearchManagerMock).not.toHaveBeenCalled();
+  });
 });

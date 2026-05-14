@@ -30,6 +30,16 @@ function buildMemorySearchUnavailableResult(error: string | undefined) {
   };
 }
 
+function buildToolInputValidationResult(error: string | undefined) {
+  const reason = (error ?? "invalid tool input").trim() || "invalid tool input";
+  return {
+    validationError: true,
+    error: reason,
+    warning: "Invalid tool input.",
+    action: "Check the required tool parameters and retry.",
+  };
+}
+
 /** Mirror OpenClaw's plain-text JSON tool result shape without depending on runtime helpers. */
 function jsonResult(payload: unknown) {
   return {
@@ -101,14 +111,26 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Search the active memory plugin for relevant prior context and return snippets with path and line numbers.",
       parameters: MemorySearchSchema,
       async execute(_toolCallId, params) {
-        const input = requireToolParams(params);
-        const query = readStringParam(input, "query", { required: true });
-        const maxResults = readNumberParam(input, "maxResults");
-        // Keep parity with the generic schema even though Honcho does not use minScore.
-        readNumberParam(input, "minScore");
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        let query: string;
+        let maxResults: number | undefined;
+        let honchoSessionKey: string;
+
+        try {
+          const input = requireToolParams(params);
+          query = readStringParam(input, "query", { required: true });
+          maxResults = readNumberParam(input, "maxResults");
+          // Keep parity with the generic schema even though Honcho does not use minScore.
+          readNumberParam(input, "minScore");
+          honchoSessionKey = buildSessionKey({
+            sessionKey: ctx.sessionKey,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return jsonResult({
+            results: [],
+            ...buildToolInputValidationResult(message),
+          });
+        }
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
@@ -143,13 +165,27 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Read a specific snippet from the active memory plugin using a path returned by memory_search.",
       parameters: MemoryGetSchema,
       async execute(_toolCallId, params) {
-        const input = requireToolParams(params);
-        const relPath = readStringParam(input, "path", { required: true });
-        const from = readNumberParam(input, "from", { integer: true });
-        const lines = readNumberParam(input, "lines", { integer: true });
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-        });
+        let relPath: string;
+        let from: number | undefined;
+        let lines: number | undefined;
+        let honchoSessionKey: string;
+
+        try {
+          const input = requireToolParams(params);
+          relPath = readStringParam(input, "path", { required: true });
+          from = readNumberParam(input, "from", { integer: true });
+          lines = readNumberParam(input, "lines", { integer: true });
+          honchoSessionKey = buildSessionKey({
+            sessionKey: ctx.sessionKey,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return jsonResult({
+            path: "",
+            text: "",
+            ...buildToolInputValidationResult(message),
+          });
+        }
 
         try {
           const { manager } = await getHonchoMemorySearchManager(state, {
