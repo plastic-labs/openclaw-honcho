@@ -8,7 +8,7 @@
 // @ts-ignore - resolved by openclaw runtime
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 // @ts-ignore - resolved by openclaw runtime
-import type { MemoryPromptSectionBuilder } from "openclaw/plugin-sdk/memory-core";
+import type { MemoryPromptSectionBuilder } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import { honchoConfigSchema } from "./config.js";
 import { createPluginState } from "./state.js";
 import { registerGatewayHook } from "./hooks/gateway.js";

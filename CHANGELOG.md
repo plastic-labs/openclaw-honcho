@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## Unreleased
+
+### Fixed
+- **OpenClaw SDK import compatibility**: Import the memory prompt section type from `openclaw/plugin-sdk/memory-core-host-runtime-core`, matching the package exports available in OpenClaw 2026.4.10+.
+
 ## [1.4.1] - 2026-04-29
 
 ### Fixed

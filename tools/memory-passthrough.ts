@@ -84,6 +84,13 @@ function readNumberParam(
   return options.integer ? Math.trunc(value) : value;
 }
 
+function requireToolParams(params: unknown): Record<string, unknown> {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return {};
+  }
+  return params as Record<string, unknown>;
+}
+
 /** Register host-compatible memory_search and memory_get tools for Honcho-backed memory. */
 export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -94,10 +101,11 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Search the active memory plugin for relevant prior context and return snippets with path and line numbers.",
       parameters: MemorySearchSchema,
       async execute(_toolCallId, params) {
-        const query = readStringParam(params, "query", { required: true });
-        const maxResults = readNumberParam(params, "maxResults");
+        const input = requireToolParams(params);
+        const query = readStringParam(input, "query", { required: true });
+        const maxResults = readNumberParam(input, "maxResults");
         // Keep parity with the generic schema even though Honcho does not use minScore.
-        readNumberParam(params, "minScore");
+        readNumberParam(input, "minScore");
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
         });
@@ -135,9 +143,10 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Read a specific snippet from the active memory plugin using a path returned by memory_search.",
       parameters: MemoryGetSchema,
       async execute(_toolCallId, params) {
-        const relPath = readStringParam(params, "path", { required: true });
-        const from = readNumberParam(params, "from", { integer: true });
-        const lines = readNumberParam(params, "lines", { integer: true });
+        const input = requireToolParams(params);
+        const relPath = readStringParam(input, "path", { required: true });
+        const from = readNumberParam(input, "from", { integer: true });
+        const lines = readNumberParam(input, "lines", { integer: true });
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
         });

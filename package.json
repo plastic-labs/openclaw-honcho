@@ -27,11 +27,12 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "openclaw": "2026.4.10",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.22"
+    "openclaw": ">=2026.4.10"
   },
   "openclaw": {
     "plugin": "./openclaw.plugin.json",
@@ -39,10 +40,10 @@
       "./dist/index.js"
     ],
     "build": {
-      "openclawVersion": ">=2026.3.22"
+      "openclawVersion": ">=2026.4.10"
     },
     "compat": {
-      "pluginApi": ">=2026.3.22"
+      "pluginApi": ">=2026.4.10"
     }
   },
   "scripts": {
@@ -52,4 +53,3 @@
     "test": "vitest"
   }
 }
-

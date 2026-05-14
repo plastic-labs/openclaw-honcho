@@ -311,7 +311,7 @@ brew upgrade openclaw
 openclaw gateway restart
 ```
 
-**Verified working:** OpenClaw 2026.3.22 through 2026.4.4, and 2026.4.6+.
+**Verified working:** OpenClaw 2026.4.10+.
 
 ## Development
 
