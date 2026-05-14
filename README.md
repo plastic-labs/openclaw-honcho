@@ -297,7 +297,7 @@ OpenClaw 2026.4.5 has a plugin loader bug where reentrant provider snapshot load
 - Honcho queue shows 0 pending (deriver has nothing to process)
 - Manual Honcho API calls still work
 
-**Fix:** Update OpenClaw to **2026.4.6 or later**. The upstream fixes landed in the 4.6 changelog:
+**Upstream hook bug fix:** Update OpenClaw to **2026.4.6 or later**. The upstream fixes landed in the 4.6 changelog:
 
 > Plugins/provider hooks: stop recursive provider snapshot loads from overflowing the stack during plugin initialization. (#61922, #61938, #61946, #61951)
 
@@ -311,7 +311,7 @@ brew upgrade openclaw
 openclaw gateway restart
 ```
 
-**Verified working:** OpenClaw 2026.4.10+.
+**Plugin requirement:** This plugin now requires OpenClaw **2026.4.10+** and has been verified on 2026.4.10+.
 
 ## Development
 
