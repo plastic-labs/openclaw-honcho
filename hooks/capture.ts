@@ -175,10 +175,10 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
       }
     } finally {
-      const sessionKey = buildSessionKey({
-        sessionKey: ctx.sessionKey,
-        agentId: ctx.agentId,
-      });
+      const sessionKey = buildSessionKey(
+        { sessionKey: ctx.sessionKey, agentId: ctx.agentId },
+        state.resolveDefaultAgentId,
+      );
       state.turnStartIndex.delete(sessionKey);
       if (isSubagentSession(ctx)) subagentParentMap.delete(ctx.sessionKey ?? "");
     }

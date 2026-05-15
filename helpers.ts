@@ -85,11 +85,19 @@ export function extractProvider(sessionKey: string): string | null {
  * derived from the same inputs as the hash, so they cannot drift independently.
  * `ctx.messageProvider` is intentionally not an input — that field is unstable
  * (missing → "unknown") and lives in session metadata instead.
+ *
+ * When `ctx.agentId` is undefined, callers should pass `resolveDefaultAgentId`
+ * (typically `state.resolveDefaultAgentId`) so the id matches the agent id used
+ * by `flushMessages` / `before_prompt_build`. Without a resolver we fall back
+ * to "main", which only matches workspaces with no configured default agent.
  */
-export function buildSessionKey(ctx?: { sessionKey?: string; agentId?: string }): string {
+export function buildSessionKey(
+  ctx?: { sessionKey?: string; agentId?: string },
+  resolveDefaultAgentId?: () => string,
+): string {
   const normalized = normalizeSessionKey(ctx?.sessionKey);
   const sessionClass = classifySession(normalized);
-  const agentId = (ctx?.agentId ?? "main").toLowerCase();
+  const agentId = (ctx?.agentId ?? resolveDefaultAgentId?.() ?? "main").toLowerCase();
   const provider = extractProvider(normalized);
   // Cron/subagent keys put the session class itself in the provider slot
   // (`agent:<id>:cron:...`, `agent:<id>:subagent:...`); including it would

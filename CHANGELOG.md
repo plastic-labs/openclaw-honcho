@@ -2,6 +2,14 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.5.0] - 2026-05-15
+
+### Changed
+- **Stable session IDs (#96)**: Honcho session IDs are now bounded, hashed, and derived from the normalized OpenClaw session key plus agent ID instead of `messageProvider`.
+- **Session metadata (#96)**: Captured sessions now keep the original OpenClaw session key, session class, provider, and last OpenClaw session ID.
+- **Scoped memory lookup (#96)**: Session-scoped memory search now matches only the active Honcho session.
+- **Honcho SDK usage (#96)**: `honcho_session` now passes representation search through the SDK's `representationOptions` shape.
+
 ## [1.4.1] - 2026-04-29
 
 ### Fixed
