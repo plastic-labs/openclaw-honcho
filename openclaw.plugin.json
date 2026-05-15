@@ -1,6 +1,25 @@
 {
   "id": "openclaw-honcho",
   "kind": "memory",
+  "setup": {
+    "providers": [
+      {
+        "id": "honcho",
+        "envVars": ["HONCHO_API_KEY"]
+      }
+    ]
+  },
+  "contracts": {
+    "tools": [
+      "honcho_session",
+      "honcho_context",
+      "honcho_search_conclusions",
+      "honcho_ask",
+      "honcho_search_messages",
+      "memory_search",
+      "memory_get"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
