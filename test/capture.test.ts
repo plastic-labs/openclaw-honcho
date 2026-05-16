@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { dedupeAgainstRecentTail, HONCHO_MESSAGES_LIST_MAX_SIZE } from "../hooks/capture.js";
+import { addMessagesInBatches, dedupeAgainstRecentTail, HONCHO_MESSAGES_CREATE_MAX_SIZE, HONCHO_MESSAGES_LIST_MAX_SIZE } from "../hooks/capture.js";
 import type { MessageInput, MessageResponse, PageResponse } from "@honcho-ai/sdk";
 
 type FakeMessage = { peerId: string; createdAt?: string; content: string };
@@ -126,5 +126,25 @@ describe("dedupeAgainstRecentTail", () => {
     expect(result).toEqual([
       { peerId: "owner", createdAt: "2026-04-30T00:00:43Z", content: "new" },
     ]);
+  });
+});
+
+
+describe("addMessagesInBatches", () => {
+  it("splits message creation into Honcho's 100-message API limit", async () => {
+    const addMessages = vi.fn(async () => []);
+    const session = { addMessages };
+    const messages: MessageInput[] = Array.from({ length: 205 }, (_, i) => ({
+      peerId: "owner",
+      createdAt: `2026-04-30T00:00:${String(i % 60).padStart(2, "0")}Z`,
+      content: `message ${i}`,
+    }));
+
+    await addMessagesInBatches(session as never, messages);
+
+    expect(addMessages).toHaveBeenCalledTimes(3);
+    expect(addMessages.mock.calls[0][0]).toHaveLength(HONCHO_MESSAGES_CREATE_MAX_SIZE);
+    expect(addMessages.mock.calls[1][0]).toHaveLength(HONCHO_MESSAGES_CREATE_MAX_SIZE);
+    expect(addMessages.mock.calls[2][0]).toHaveLength(5);
   });
 });

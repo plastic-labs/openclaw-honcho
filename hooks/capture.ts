@@ -15,6 +15,7 @@ import { subagentParentMap } from "./subagent.js";
 
 const sessionFlushLocks = new Map<string, Promise<void>>();
 export const HONCHO_MESSAGES_LIST_MAX_SIZE = 100;
+export const HONCHO_MESSAGES_CREATE_MAX_SIZE = 100;
 const HONCHO_API_VERSION = "v3";
 
 type SessionListInternals = {
@@ -32,6 +33,16 @@ type SessionListInternals = {
 function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
   if (!message?.createdAt) return null;
   return `${message.peerId}\u0000${message.createdAt}\u0000${message.content}`;
+}
+
+function formatHonchoError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+
+  const details: string[] = [error.toString()];
+  const anyError = error as unknown as Record<string, unknown>;
+  if (anyError.status) details.push(`status=${String(anyError.status)}`);
+  if (anyError.body) details.push(`body=${JSON.stringify(anyError.body)}`);
+  return details.join(" ");
 }
 
 async function withSessionFlushLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
@@ -140,6 +151,15 @@ export async function dedupeAgainstRecentTail(
   });
 }
 
+export async function addMessagesInBatches(
+  session: Session,
+  messages: MessageInput[],
+): Promise<void> {
+  for (let start = 0; start < messages.length; start += HONCHO_MESSAGES_CREATE_MAX_SIZE) {
+    await session.addMessages(messages.slice(start, start + HONCHO_MESSAGES_CREATE_MAX_SIZE));
+  }
+}
+
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
  * Returns the number of new messages saved (or 0 if none).
@@ -173,7 +193,7 @@ async function flushMessages(
   };
 
   return withSessionFlushLock(sessionKey, async () => {
-    const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+    const session = await state.honcho.session(sessionKey);
     const meta = await session.getMetadata();
     const existingMeta: Record<string, unknown> =
       meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
@@ -276,7 +296,7 @@ async function flushMessages(
     return 0;
   }
 
-  await session.addMessages(deduped);
+  await addMessagesInBatches(session, deduped);
   await session.setMetadata(updatedMeta);
   return deduped.length;
   });
@@ -292,7 +312,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     try {
       await flushMessages(api, state, event.messages, ctx);
     } catch (error) {
-      api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
+      api.logger.error(`[honcho] Failed to save messages to Honcho: ${formatHonchoError(error)}`);
       if (error instanceof Error) {
         api.logger.error(`[honcho] Stack: ${error.stack}`);
         const anyError = error as unknown as Record<string, unknown>;
@@ -321,7 +341,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before compaction`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before compaction: ${error}`);
+      api.logger.warn?.(`[honcho] Failed to flush messages before compaction: ${formatHonchoError(error)}`);
     }
   });
 
@@ -338,7 +358,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before session reset`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before reset: ${error}`);
+      api.logger.warn?.(`[honcho] Failed to flush messages before reset: ${formatHonchoError(error)}`);
     }
   });
 }
