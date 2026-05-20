@@ -15,9 +15,11 @@ function parseSessionPath(relPath: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Allow the active session and Honcho child-session variants for scoped reads/searches. */
+/** Match the active Honcho session for scoped reads/searches. New-scheme ids
+ * embed a per-session hash suffix, so no real id is a prefix of another and
+ * scope-checking collapses to equality. */
 function matchesSessionScope(sessionId: string, activeSessionKey: string): boolean {
-  return sessionId === activeSessionKey || sessionId.startsWith(`${activeSessionKey}-`);
+  return sessionId === activeSessionKey;
 }
 
 /** Return only the requested line window from a synthesized Honcho transcript. */
@@ -171,21 +173,6 @@ export async function getHonchoMemorySearchManager(
             metadata: { agentId },
           });
           collect(await exactSession.search(query, { limit }));
-
-          if (filtered.length < limit) {
-            const sessions = await participantPeer.sessions();
-            for await (const session of sessions) {
-              if (filtered.length >= limit) break;
-              if (
-                typeof session?.id !== "string" ||
-                session.id === requestedSessionKey ||
-                !session.id.startsWith(`${requestedSessionKey}-`)
-              ) {
-                continue;
-              }
-              collect(await session.search(query, { limit: limit - filtered.length }));
-            }
-          }
         } else {
           collect(await participantPeer.search(query, { limit }));
         }
@@ -255,7 +242,7 @@ export async function getHonchoMemorySearchManager(
 
 /** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
-  params: { sessionKey?: string; messageProvider?: string } = {}
+  params: { sessionKey?: string; agentId?: string } = {}
 ) {
   const sessionKey = buildSessionKey(params);
   return {
@@ -276,7 +263,7 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
       return getHonchoMemorySearchManager(state, params);
     },
 
-    resolveMemoryBackendConfig(params: { sessionKey?: string; messageProvider?: string } = {}) {
+    resolveMemoryBackendConfig(params: { sessionKey?: string; agentId?: string } = {}) {
       return resolveHonchoMemoryBackendConfig(params);
     },
   });

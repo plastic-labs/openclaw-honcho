@@ -101,7 +101,9 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         if (from === "user") {
           const participantPeer = about
             ? await state.getParticipantPeer(about)
-            : await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
+            : await state.resolveSessionParticipantPeer(
+                buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
+              );
           messages = await participantPeer.search(query, searchOpts);
         } else if (from === "agent") {
           const agentPeer = await state.getAgentPeer(toolCtx.agentId);
