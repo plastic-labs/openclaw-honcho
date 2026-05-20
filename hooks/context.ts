@@ -7,8 +7,8 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
 
-    const sessionKey = buildSessionKey(ctx);
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
+    const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
     const isSubagent = isSubagentSession(ctx);
 
     state.turnStartIndex.set(sessionKey, event.messages.length);

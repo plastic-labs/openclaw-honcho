@@ -35,9 +35,10 @@ function resolveEnvVars(value: string): string {
   });
 }
 
-function parsePositiveInteger(value: unknown, fallback: number): number {
+function parsePositiveInteger(value: unknown, fallback: number, max?: number): number {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.trunc(value);
+    const parsed = Math.trunc(value);
+    return typeof max === "number" ? Math.min(parsed, max) : parsed;
   }
   return fallback;
 }
@@ -89,7 +90,7 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
-      recentTailDedupeSize: parsePositiveInteger(cfg.recentTailDedupeSize, 0),
+      recentTailDedupeSize: parsePositiveInteger(cfg.recentTailDedupeSize, 0, 1000),
     };
   },
 };
