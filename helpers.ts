@@ -2,10 +2,20 @@
  * Pure helper functions — no mutable state dependencies.
  */
 
+import { createHash } from "node:crypto";
 import type { Peer, MessageInput } from "@honcho-ai/sdk";
+// @ts-ignore - resolved by openclaw runtime
+import {
+  isCronSessionKey,
+  isSubagentSessionKey,
+} from "openclaw/plugin-sdk/routing";
 
 type ContentBlock = { type?: string; text?: unknown };
 type RawMessage = { role?: string; content?: string | ContentBlock[]; timestamp?: number };
+
+export type SessionClass = "chat" | "cron" | "subagent" | "thread" | "unknown";
+
+const SESSION_ID_DIGEST_LEN = 24;
 
 /**
  * Extract plain text from a message's `content` (string or array of content blocks).
@@ -24,20 +34,90 @@ export function getRawContent(msg: unknown): string {
     .join("\n");
 }
 
+export function normalizeSessionKey(raw?: string): string {
+  return (raw ?? "default").trim() || "default";
+}
+
 /**
- * Build a Honcho session key from OpenClaw context.
- * Combines sessionKey + messageProvider to create unique sessions per platform.
- * Uses hyphens as separators (Honcho requires hyphens, not underscores).
+ * Mirrors upstream OpenClaw's parseThreadSessionSuffix detection — looks for a
+ * `:thread:` segment anywhere after the routing prefix. Kept inline because the
+ * helper is not re-exported from `openclaw/plugin-sdk/routing` at the pinned
+ * peer-dep version.
  */
-export function buildSessionKey(ctx?: { sessionKey?: string; messageProvider?: string }): string {
-  const baseKey = ctx?.sessionKey ?? "default";
-  const provider = ctx?.messageProvider ?? "unknown";
-  const combined = `${baseKey}-${provider}`;
-  return combined.replace(/[^a-zA-Z0-9-]/g, "-");
+function hasThreadSuffix(sessionKey: string): boolean {
+  return sessionKey.toLowerCase().includes(":thread:");
+}
+
+/**
+ * Classify a normalized OpenClaw sessionKey into one of the persistence
+ * categories tracked in Honcho session metadata. Cron and subagent
+ * detection delegate to upstream OpenClaw helpers so plugin classification
+ * cannot drift from the routing-key DSL.
+ */
+export function classifySession(sessionKey: string): SessionClass {
+  if (isSubagentSessionKey(sessionKey)) return "subagent";
+  if (isCronSessionKey(sessionKey)) return "cron";
+  if (hasThreadSuffix(sessionKey)) return "thread";
+  // A canonical agent-scoped key has the shape `agent:<agentId>:<provider>:...`;
+  // anything else is a legacy/default key that we tag as unknown.
+  if (/^agent:[^:]+:[^:]+/.test(sessionKey)) return "chat";
+  return "unknown";
+}
+
+/**
+ * Extract the channel/provider segment from a canonical OpenClaw sessionKey
+ * (`agent:<agentId>:<provider>:...`). Returns null when the key does not match
+ * that shape — the caller then elides the provider segment from the id.
+ *
+ * Note: this is sourced from the same string that feeds the hash, so it cannot
+ * disagree with the hash. `ctx.messageProvider` is deliberately not consulted.
+ */
+export function extractProvider(sessionKey: string): string | null {
+  const m = /^agent:[^:]+:([^:]+)/.exec(sessionKey);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Build a Honcho session id of the form
+ * `<sessionClass>-[<provider>-]<agentId>-<24 hex>`.
+ *
+ * The id is decoupled from OpenClaw's routing-key DSL: prefix segments are
+ * derived from the same inputs as the hash, so they cannot drift independently.
+ * `ctx.messageProvider` is intentionally not an input — that field is unstable
+ * (missing → "unknown") and lives in session metadata instead.
+ *
+ * When `ctx.agentId` is undefined, callers should pass `resolveDefaultAgentId`
+ * (typically `state.resolveDefaultAgentId`) so the id matches the agent id used
+ * by `flushMessages` / `before_prompt_build`. Without a resolver we fall back
+ * to "main", which only matches workspaces with no configured default agent.
+ */
+export function buildSessionKey(
+  ctx?: { sessionKey?: string; agentId?: string },
+  resolveDefaultAgentId?: () => string,
+): string {
+  const normalized = normalizeSessionKey(ctx?.sessionKey);
+  const sessionClass = classifySession(normalized);
+  const agentId = (ctx?.agentId ?? resolveDefaultAgentId?.() ?? "main").toLowerCase();
+  const provider = extractProvider(normalized);
+  // Cron/subagent keys put the session class itself in the provider slot
+  // (`agent:<id>:cron:...`, `agent:<id>:subagent:...`); including it would
+  // produce a `cron-cron-` / `subagent-subagent-` duplicate prefix.
+  const includeProvider =
+    provider !== null && sessionClass !== "cron" && sessionClass !== "subagent";
+
+  const digest = createHash("sha256")
+    .update(`${agentId}\0${normalized}`)
+    .digest("hex")
+    .slice(0, SESSION_ID_DIGEST_LEN);
+
+  const parts: string[] = [sessionClass];
+  if (includeProvider) parts.push(provider!);
+  parts.push(agentId, digest);
+  return parts.join("-");
 }
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
-  return (ctx?.sessionKey ?? "").includes(":subagent:");
+  return isSubagentSessionKey(ctx?.sessionKey);
 }
 
 /**

@@ -50,7 +50,9 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
         await state.ensureInitialized();
         const participantPeer = about
           ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(buildSessionKey(toolCtx));
+          : await state.resolveSessionParticipantPeer(
+              buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
+            );
 
         const representation = await participantPeer.representation({
           searchQuery: query,
