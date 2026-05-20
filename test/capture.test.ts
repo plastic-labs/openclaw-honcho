@@ -153,7 +153,8 @@ describe("addMessagesInBatches", () => {
     expect(addMessages.mock.calls[0][0]).toHaveLength(HONCHO_MESSAGES_CREATE_MAX_SIZE);
     expect(addMessages.mock.calls[1][0]).toHaveLength(HONCHO_MESSAGES_CREATE_MAX_SIZE);
     expect(addMessages.mock.calls[2][0]).toHaveLength(5);
-
+  });
+});
 
 const SENTINEL = "Conversation info (untrusted metadata):";
 
@@ -182,8 +183,8 @@ function createMockState(): { state: PluginState; session: SessionStub } {
     addMessages: vi.fn(async () => undefined),
   };
 
-  const agentPeer = { id: "agent-main", message: vi.fn((text: string) => ({ text })) };
-  const ownerPeer = { id: "owner", message: vi.fn((text: string) => ({ text })) };
+  const agentPeer = { id: "agent-main", message: vi.fn((content: string, opts?: { createdAt?: Date }) => ({ peerId: "agent-main", content, createdAt: opts?.createdAt?.toISOString() })) };
+  const ownerPeer = { id: "owner", message: vi.fn((content: string, opts?: { createdAt?: Date }) => ({ peerId: "owner", content, createdAt: opts?.createdAt?.toISOString() })) };
 
   const state = {
     cfg: {
@@ -313,3 +314,5 @@ describe("flushMessages metadata", () => {
 
     expect(session.metadata).not.toHaveProperty("messageProvider");
     expect(session.metadata).not.toHaveProperty("lastSessionId");
+  });
+});
