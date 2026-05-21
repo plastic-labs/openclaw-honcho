@@ -1,5 +1,6 @@
 {
   "id": "openclaw-honcho",
+  "name": "Honcho Memory",
   "kind": "memory",
   "setup": {
     "providers": [
