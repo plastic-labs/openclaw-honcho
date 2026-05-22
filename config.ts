@@ -7,6 +7,8 @@ export const DEFAULT_NOISE_PATTERNS: string[] = [
   "A scheduled reminder has been triggered",
   "Execute your Session Startup sequence now",
   "Queued messages from",
+  "已回复。",
+  "已回复",
 ];
 
 export type HonchoConfig = {

@@ -9,6 +9,7 @@ import {
   normalizeSessionKey,
   extractMessages,
   extractSenderId,
+  getMessageRole,
   getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
@@ -56,18 +57,26 @@ export async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+  const session = await state.honcho.session(sessionKey);
   const meta = await session.getMetadata();
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-  const turnStartIndex = Math.min(
-    Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
-    messages.length,
-  );
+  const rawTurnStartIndex = state.turnStartIndex.get(sessionKey);
+  // Some OpenClaw runtimes pass the full transcript to before_prompt_build,
+  // then pass only the current turn's delta messages to agent_end. In that
+  // shape, a transcript index from before_prompt_build is larger than the
+  // agent_end batch length; treat the agent_end batch as already sliced.
+  const isDeltaBatch =
+    typeof rawTurnStartIndex === "number" && rawTurnStartIndex > messages.length;
+  const turnStartIndex = isDeltaBatch
+    ? 0
+    : Math.min(Math.max(rawTurnStartIndex ?? 0, 0), messages.length);
   const rawLastSavedIndex =
     typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
-  const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
+  const lastSavedIndex = isDeltaBatch
+    ? 0
+    : Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
   const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
   if (messages.length <= startIndex) {
@@ -81,9 +90,7 @@ export async function flushMessages(
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
   for (const msg of newRawMessages) {
-    if (!msg || typeof msg !== "object") continue;
-    const m = msg as Record<string, unknown>;
-    if (m.role !== "user") continue;
+    if (getMessageRole(msg) !== "user") continue;
     userMsgCount++;
     const rawContent = getRawContent(msg);
     const senderId = extractSenderId(rawContent);
@@ -141,7 +148,10 @@ export async function flushMessages(
   const updatedMeta: Record<string, unknown> = {
     ...existingMeta,
     ...sessionMeta,
-    lastSavedIndex: messages.length,
+    lastSavedIndex:
+      isDeltaBatch && typeof rawTurnStartIndex === "number"
+        ? rawTurnStartIndex + messages.length
+        : messages.length,
   };
   if (lastSenderId) {
     updatedMeta.participantSenderId = lastSenderId;

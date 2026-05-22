@@ -3,6 +3,21 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
 
+function resolveTurnStartIndex(messages: unknown[]): number {
+  if (!Array.isArray(messages) || messages.length === 0) return 0;
+  const lastIndex = messages.length - 1;
+  const rawLast = messages[lastIndex];
+  const last =
+    rawLast && typeof rawLast === "object" &&
+    "message" in rawLast && typeof (rawLast as { message?: unknown }).message === "object"
+      ? (rawLast as { message: unknown }).message
+      : rawLast;
+  if (last && typeof last === "object" && (last as { role?: unknown }).role === "user") {
+    return lastIndex;
+  }
+  return messages.length;
+}
+
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
@@ -11,7 +26,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
     const isSubagent = isSubagentSession(ctx);
 
-    state.turnStartIndex.set(sessionKey, event.messages.length);
+    state.turnStartIndex.set(sessionKey, resolveTurnStartIndex(event.messages));
 
     try {
       await state.ensureInitialized();
@@ -44,7 +59,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
       } else {
-        const session = await state.honcho.session(sessionKey, { metadata: { agentId } });
+        const session = await state.honcho.session(sessionKey);
 
         let context;
         try {

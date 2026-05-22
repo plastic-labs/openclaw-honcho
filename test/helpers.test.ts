@@ -4,6 +4,8 @@ import {
   classifySession,
   extractSenderId,
   extractProvider,
+  extractMessages,
+  getRawContent,
   normalizeSessionKey,
 } from "../helpers.js";
 
@@ -268,5 +270,53 @@ describe("extractSenderId", () => {
   it("returns undefined when the content has no metadata block", () => {
     expect(extractSenderId("just a normal DM")).toBeUndefined();
     expect(extractSenderId("")).toBeUndefined();
+  });
+});
+
+describe("message content extraction", () => {
+  const ownerPeer = { id: "owner", message: (content: string) => ({ peer: "owner", content }) };
+  const agentPeer = { id: "agent-main", message: (content: string) => ({ peer: "agent", content }) };
+
+  it("unwraps OpenClaw message wrapper objects", () => {
+    expect(getRawContent({ type: "message", message: { role: "user", content: "hello" } })).toBe("hello");
+  });
+
+  it("extracts visible outbound text from message tool calls", () => {
+    const content = getRawContent({
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          name: "message",
+          arguments: { message: "visible channel reply" },
+        },
+      ],
+    });
+
+    expect(content).toBe("visible channel reply");
+  });
+
+  it("drops default channel delivery placeholders via noise patterns", () => {
+    const extracted = extractMessages(
+      [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              name: "message",
+              arguments: { message: "visible channel reply" },
+            },
+          ],
+        },
+        { role: "assistant", content: "已回复。" },
+      ],
+      ownerPeer as never,
+      agentPeer as never,
+      ["已回复。", "已回复"],
+    );
+
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0]).toEqual({ peer: "agent", content: "visible channel reply" });
   });
 });

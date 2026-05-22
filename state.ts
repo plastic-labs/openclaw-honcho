@@ -26,7 +26,22 @@ export function isLocalHonchoBaseUrl(baseUrl?: string): boolean {
     const { hostname, protocol } = new URL(base);
     if (protocol !== "http:" && protocol !== "https:") return false;
     const normalizedHost = hostname.replace(/^\[(.*)\]$/, "$1");
-    return normalizedHost === "localhost" || normalizedHost === "127.0.0.1" || normalizedHost === "::1";
+    if (normalizedHost === "localhost" || normalizedHost === "127.0.0.1" || normalizedHost === "::1") {
+      return true;
+    }
+
+    const octets = normalizedHost.split(".").map((part) => Number(part));
+    if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+      return false;
+    }
+
+    const [a, b] = octets;
+    return (
+      a === 10 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
   } catch {
     return false;
   }
