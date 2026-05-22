@@ -40,7 +40,7 @@ async function buildSessionTranscript(
 
   const participantPeer = await state.resolveSessionParticipantPeer(sessionId);
   const agentPeer = await state.getAgentPeer(agentId);
-  const session = await state.honcho.session(sessionId, { metadata: { agentId } });
+  const session = await state.honcho.session(sessionId);
   const context = await session.context({
     summary: true,
     tokens: 20000,

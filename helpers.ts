@@ -10,28 +10,71 @@ import {
   isSubagentSessionKey,
 } from "openclaw/plugin-sdk/routing";
 
-type ContentBlock = { type?: string; text?: unknown };
-type RawMessage = { role?: string; content?: string | ContentBlock[]; timestamp?: number };
+type ContentBlock = { type?: string; text?: unknown; name?: unknown; arguments?: unknown };
+type RawMessage = {
+  role?: string;
+  content?: string | ContentBlock[];
+  timestamp?: number;
+  message?: unknown;
+};
 
 export type SessionClass = "chat" | "cron" | "subagent" | "thread" | "unknown";
 
 const SESSION_ID_DIGEST_LEN = 24;
 
+function unwrapMessage(msg: unknown): unknown {
+  if (!msg || typeof msg !== "object") return msg;
+  const wrapped = msg as RawMessage;
+  if (wrapped.message && typeof wrapped.message === "object") {
+    return wrapped.message;
+  }
+  return msg;
+}
+
+export function getMessageRole(msg: unknown): string | undefined {
+  const unwrapped = unwrapMessage(msg);
+  if (!unwrapped || typeof unwrapped !== "object") return undefined;
+  return (unwrapped as RawMessage).role;
+}
+
+export function getMessageTimestamp(msg: unknown): number | undefined {
+  const unwrapped = unwrapMessage(msg);
+  if (!unwrapped || typeof unwrapped !== "object") return undefined;
+  return (unwrapped as RawMessage).timestamp;
+}
+
+function extractMessageToolText(blocks: ContentBlock[]): string {
+  const texts: string[] = [];
+  for (const block of blocks) {
+    if (!block || block.type !== "toolCall" || block.name !== "message") continue;
+    const args = block.arguments;
+    if (!args || typeof args !== "object") continue;
+    const message = (args as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) {
+      texts.push(message);
+    }
+  }
+  return texts.join("\n");
+}
+
 /**
  * Extract plain text from a message's `content` (string or array of content blocks).
- * Returns "" for non-message inputs or messages with no text blocks.
+ * Returns "" for non-message inputs or messages with no text/tool-call blocks.
  */
 export function getRawContent(msg: unknown): string {
-  if (!msg || typeof msg !== "object") return "";
-  const { content } = msg as RawMessage;
+  const unwrapped = unwrapMessage(msg);
+  if (!unwrapped || typeof unwrapped !== "object") return "";
+  const { content } = unwrapped as RawMessage;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  return content
+  const textContent = content
     .filter((b): b is ContentBlock & { text: string } =>
       !!b && b.type === "text" && typeof b.text === "string",
     )
     .map((b) => b.text)
     .join("\n");
+  if (textContent) return textContent;
+  return extractMessageToolText(content);
 }
 
 export function normalizeSessionKey(raw?: string): string {
@@ -318,9 +361,7 @@ export function extractMessages(
   const result: MessageInput[] = [];
 
   for (const msg of rawMessages) {
-    if (!msg || typeof msg !== "object") continue;
-    const m = msg as Record<string, unknown>;
-    const role = m.role as string | undefined;
+    const role = getMessageRole(msg);
 
     if (role !== "user" && role !== "assistant") continue;
 
@@ -341,7 +382,8 @@ export function extractMessages(
     if (!content) continue;
     if (shouldSkipMessage(content, noisePatterns)) continue;
 
-    const ts = typeof m.timestamp === "number" ? new Date(m.timestamp) : undefined;
+    const timestamp = getMessageTimestamp(msg);
+    const ts = typeof timestamp === "number" ? new Date(timestamp) : undefined;
     result.push(peer.message(content, ts ? { createdAt: ts } : undefined));
   }
 

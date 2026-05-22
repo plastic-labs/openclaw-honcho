@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { flushMessages } from "../hooks/capture.js";
+import { buildSessionKey } from "../helpers.js";
 import type { PluginState } from "../state.js";
 
 const SENTINEL = "Conversation info (untrusted metadata):";
@@ -160,5 +161,65 @@ describe("flushMessages metadata", () => {
 
     expect(session.metadata).not.toHaveProperty("messageProvider");
     expect(session.metadata).not.toHaveProperty("lastSessionId");
+  });
+
+  it("treats agent_end delta batches as already sliced when turnStartIndex exceeds batch length", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+    const ctx = {
+      sessionKey: "agent:main:openclaw-weixin:direct:user-1",
+      agentId: "main",
+    };
+    const honchoSessionKey = buildSessionKey(ctx);
+    state.turnStartIndex.set(honchoSessionKey, 80);
+
+    const saved = await flushMessages(
+      api,
+      state,
+      [
+        { role: "user", content: "current turn", timestamp: 1 },
+        { role: "assistant", content: "current reply", timestamp: 2 },
+      ],
+      ctx,
+    );
+
+    expect(saved).toBe(2);
+    expect(session.addMessages).toHaveBeenCalledOnce();
+    expect(session.metadata.lastSavedIndex).toBe(82);
+  });
+
+  it("extracts wrapped OpenClaw messages during sender resolution and capture", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+
+    await flushMessages(
+      api,
+      state,
+      [
+        {
+          type: "message",
+          message: {
+            role: "user",
+            content: `${metadataBlock({ sender_id: "U-wrapped" })}\n\nwrapped hello`,
+            timestamp: 1,
+          },
+        },
+        {
+          type: "message",
+          message: {
+            role: "assistant",
+            content: "wrapped reply",
+            timestamp: 2,
+          },
+        },
+      ],
+      {
+        sessionKey: "agent:main:discord:group:c-1",
+        agentId: "main",
+      },
+    );
+
+    expect(session.metadata.participantSenderId).toBe("U-wrapped");
+    expect(session.addMessages).toHaveBeenCalledOnce();
   });
 });
