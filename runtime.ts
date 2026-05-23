@@ -1,3 +1,4 @@
+import { execFile } from "child_process";
 import { buildSessionKey } from "./helpers.js";
 import { isLocalHonchoBaseUrl, type PluginState } from "./state.js";
 
@@ -123,9 +124,103 @@ export async function getHonchoMemorySearchManager(
 
   await state.ensureInitialized();
 
+  /** Check if QMD backend is configured in OpenClaw config. */
+  function isQmdConfigured(): boolean {
+    return state.api?.config?.memory?.backend === "qmd";
+  }
+
+  /** Read the QMD search mode from config (search | vsearch | query), defaulting to query. */
+  function qmdSearchMode(): string {
+    return state.api?.config?.memory?.qmd?.searchMode || "query";
+  }
+
+  /** Read the QMD binary path from config, or fall back to PATH. */
+  function qmdCommand(): string {
+    return state.api?.config?.memory?.qmd?.command || "qmd";
+  }
+
+  /** Optional QMD path allowlist (qmd:// prefixes). Null means allow all paths. */
+  function qmdAllowedPrefixes(): string[] | null {
+    const cfg = state.api?.config?.memory?.qmd as Record<string, unknown> | undefined;
+    const prefixes = cfg?.allowedPrefixes;
+    if (!Array.isArray(prefixes)) {
+      return null;
+    }
+    return prefixes.filter((prefix): prefix is string => typeof prefix === "string");
+  }
+
+  /** Run qmd via CLI with timeout and return stdout, or null on failure. */
+  async function runQmdCli(args: string[]): Promise<string | null> {
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        execFile(
+          qmdCommand(),
+          args,
+          {
+            encoding: "utf-8",
+            signal: AbortSignal.timeout(30000),
+          },
+          (err, out) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve(out);
+          }
+        );
+      });
+      return stdout;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Run qmd via CLI and parse results into memory-search shape. */
+  async function qmdSearch(query: string, limit: number): Promise<Array<Record<string, unknown>> | null> {
+    const stdout = await runQmdCli([qmdSearchMode(), query, "--json", "-n", String(limit)]);
+    if (stdout === null) {
+      return null;
+    }
+    try {
+      const raw = JSON.parse(stdout.trim());
+      if (!Array.isArray(raw)) return null;
+      return raw.map((r: Record<string, unknown>) => ({
+        path: r.file ?? r.path ?? "",
+        startLine: r.line ?? r.startLine ?? 1,
+        endLine: r.line ?? r.endLine ?? 1,
+        score: r.score ?? 0,
+        snippet: r.snippet ?? "",
+        title: r.title ?? "",
+        source: "qmd",
+      }));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Run qmd get via CLI and return raw file content. */
+  async function qmdGet(path: string): Promise<string | null> {
+    return runQmdCli(["get", path]);
+  }
+
   return {
     manager: {
+      /** Search across QMD-indexed files and Honcho session transcripts, merging results. */
       async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
+        // Always try QMD in parallel when configured
+        const qmdPromise = isQmdConfigured()
+          ? (async () => {
+              try {
+                const r = Number.isFinite(opts.maxResults)
+                  ? Number(opts.maxResults)
+                  : DEFAULT_SEARCH_RESULTS;
+                const l = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(r)));
+                return await qmdSearch(query, l);
+              } catch {
+                return null;
+              }
+            })()
+          : Promise.resolve(null);
         await state.ensureInitialized();
         const participantPeer = activeSessionKey
           ? await state.resolveSessionParticipantPeer(activeSessionKey)
@@ -134,8 +229,7 @@ export async function getHonchoMemorySearchManager(
           ? Number(opts.maxResults)
           : DEFAULT_SEARCH_RESULTS;
         const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
-        const requestedSessionKey =
-          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
+        const requestedSessionKey =          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
             ? opts.sessionKey
             : activeSessionKey ?? null;
         const scopeEnabled = !state.cfg.crossSessionSearch;
@@ -173,11 +267,13 @@ export async function getHonchoMemorySearchManager(
             metadata: { agentId },
           });
           collect(await exactSession.search(query, { limit }));
-        } else {
+        } else if (filtered.length < limit) {
           collect(await participantPeer.search(query, { limit }));
         }
 
-        return Promise.all(
+        // Merge QMD results (with real scores) above Honcho session results (clamped)
+        const [qmdResults] = await Promise.all([qmdPromise]);
+        const honchoResults = await Promise.all(
           filtered.map(async (msg: any) => {
             const snippet = typeof msg.content === "string" ? msg.content : "";
             let transcriptPromise = transcriptCache.get(msg.sessionId);
@@ -197,34 +293,68 @@ export async function getHonchoMemorySearchManager(
             };
           })
         );
+        const clampedSessions = honchoResults.map((r) => ({ ...r, score: Math.min(r.score, 0.5) }));
+        const merged =
+          qmdResults && qmdResults.length > 0
+            ? [...qmdResults, ...clampedSessions].slice(0, limit)
+            : clampedSessions;
+        return merged;
       },
 
+      /** Read a file from QMD (qmd:// paths) or a Honcho session transcript. */
       async readFile(params: { relPath: string; from?: number; lines?: number }) {
-        const sessionId = parseSessionPath(params.relPath);
+        const relPath = params.relPath;
+        // Handle qmd:// paths by delegating to qmd get
+        if (typeof relPath === "string" && relPath.startsWith("qmd://")) {
+          const allowedPrefixes = qmdAllowedPrefixes();
+          if (
+            allowedPrefixes &&
+            !allowedPrefixes.some((prefix) => relPath.startsWith(prefix))
+          ) {
+            throw new Error(`QMD memory path is not allowed by configured prefixes: ${relPath}`);
+          }
+          const qmdText = await qmdGet(relPath);
+          if (qmdText !== null) {
+            return {
+              path: relPath,
+              text: sliceLines(qmdText, params.from, params.lines),
+              source: "qmd",
+            };
+          }
+          throw new Error(`Failed to retrieve qmd:// path: ${relPath} - qmd CLI returned no content`);
+        }
+        const sessionId = parseSessionPath(relPath);
         if (!sessionId) {
-          throw new Error(`Unsupported Honcho memory path: ${params.relPath}`);
+          throw new Error(`Unsupported Honcho memory path: ${relPath}`);
         }
         if (!state.cfg.crossSessionSearch && activeSessionKey && !matchesSessionScope(sessionId, activeSessionKey)) {
-          throw new Error(`Requested Honcho memory path is outside the active session: ${params.relPath}`);
+          throw new Error(`Requested Honcho memory path is outside the active session: ${relPath}`);
         }
 
         const transcript = await buildSessionTranscript(state, agentId, sessionId);
         return {
-          path: params.relPath,
+          path: relPath,
           text: sliceLines(transcript, params.from, params.lines),
         };
       },
 
+      /** Return status descriptor including QMD availability and provider info. */
       status() {
+        const qmdAvailable = isQmdConfigured();
         return {
           backend: "qmd",
-          provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
+          provider: qmdAvailable
+            ? "honcho+qmd"
+            : isLocalHonchoBaseUrl(state.cfg.baseUrl)
+              ? "honcho-selfhosted"
+              : "honcho",
           model: "n/a",
-          sources: ["sessions"],
+          sources: qmdAvailable ? ["sessions", "qmd"] : ["sessions"],
           custom: {
             searchMode: "semantic",
             workspaceId: state.cfg.workspaceId,
             baseUrl: state.cfg.baseUrl,
+            ...(qmdAvailable ? { qmd: true } : {}),
           },
         };
       },

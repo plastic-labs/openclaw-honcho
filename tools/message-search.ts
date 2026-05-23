@@ -5,6 +5,7 @@ import type { Message } from "@honcho-ai/sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 
+/** Register the honcho_search_messages tool — hybrid semantic + full-text search over Honcho messages across sessions. */
 export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({

@@ -4,6 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 
+/** Register the honcho_context tool — retrieves stored user profile (card) or full Honcho representation across sessions. */
 export function registerContextTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({
@@ -43,8 +44,8 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
           const card = await participantPeer.card().catch((err) => {
             // Only treat NotFoundError as empty; re-throw others or log
             if (err?.name === "NotFoundError") return null;
-            // Optionally log unexpected errors for debugging
-            console.warn("honcho_context card() error:", err);
+            // Log unexpected errors for debugging
+            api.logger.warn?.(`honcho_context card() error: ${err}`);
             return null;
           });
 

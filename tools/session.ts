@@ -4,6 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey, cleanMessageContent } from "../helpers.js";
 
+/** Register the honcho_session tool — retrieves conversation history and summary for the current Honcho session. */
 export function registerSessionTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({

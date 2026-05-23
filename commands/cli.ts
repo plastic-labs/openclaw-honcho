@@ -16,6 +16,7 @@ type UploadManifest = Record<string, ManifestEntry>;
 
 const MANIFEST_PATH = () => path.join(os.homedir(), ".openclaw", ".upload-manifest.json");
 
+/** Load the upload manifest from disk (empty object on failure). */
 function loadManifest(): UploadManifest {
   try {
     return JSON.parse(fs.readFileSync(MANIFEST_PATH(), "utf-8"));
@@ -24,16 +25,19 @@ function loadManifest(): UploadManifest {
   }
 }
 
+/** Write the upload manifest to disk, creating parent directories as needed. */
 function saveManifest(manifest: UploadManifest): void {
   const dir = path.dirname(MANIFEST_PATH());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(MANIFEST_PATH(), JSON.stringify(manifest, null, 2));
 }
 
+/** Compute SHA-256 hex digest of a buffer. */
 function contentHash(content: Buffer): string {
   return crypto.createHash("sha256").update(content).digest("hex");
 }
 
+/** Register the `honcho` CLI command group (setup, status, ask, search) with the OpenClaw CLI. */
 export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
   api.registerCli(
     ({ program, workspaceDir }) => {
@@ -157,10 +161,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             type FileEntry = { filePath: string; peer: "owner" | "agent"; peerId: string; agentId?: string };
             const detected: FileEntry[] = [];
 
+            /** Return true if the given file path is already tracked in the detected list for a peer. */
             function hasDetected(filePath: string, peerId: string): boolean {
               return detected.some((entry) => entry.filePath === filePath && entry.peerId === peerId);
             }
 
+            /** Recursively collect files from a directory, tagging them with the given peer type and optional agent ID. */
             function collectDir(dirPath: string, peerType: "owner" | "agent", agentId?: string): void {
               if (!fs.existsSync(dirPath)) return;
               const dirEntries = fs.readdirSync(dirPath, { withFileTypes: true });
@@ -175,10 +181,16 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const ocHome = path.join(os.homedir(), ".openclaw");
             const defaultWorkspace = ((savedConfig?.agents as Record<string, unknown>)?.defaults as Record<string, unknown>)?.workspace as string | undefined;
 
+            /** Deduplicate workspace paths by realpath — returns unique, non-empty paths only. */
             function uniqueWorkspacePaths(paths: Array<string | undefined>): string[] {
               const seen = new Set<string>();
               return paths.filter((p): p is string => typeof p === "string" && p.length > 0).filter((p) => {
-                const real = fs.existsSync(p) ? fs.realpathSync(p) : p;
+                let real: string;
+                try {
+                  real = fs.existsSync(p) ? fs.realpathSync(p) : p;
+                } catch {
+                  real = p;
+                }
                 if (seen.has(real)) return false;
                 seen.add(real);
                 return true;
@@ -194,6 +206,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               path.join(os.homedir(), ".clawdbot", "workspace"),
             ]);
 
+            /** Scan a workspace directory for owner files (USER.md) and — if agentId provided — agent files and working dirs (memory/, canvas/). */
             function scanWorkspace(wsDir: string, agentId?: string): void {
               // Owner files (USER.md) always route to the owner peer.
               for (const file of OWNER_FILES) {
@@ -474,10 +487,14 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
           try {
             await state.ensureInitialized();
             const participantPeer = await state.getParticipantPeer(options.peer);
+            const topK = parseInt(options.topK, 10);
+            const maxDistance = parseFloat(options.maxDistance);
+            const searchTopK = Number.isFinite(topK) && topK > 0 ? Math.min(topK, 100) : 10;
+            const searchMaxDistance = Number.isFinite(maxDistance) && maxDistance >= 0 && maxDistance <= 1 ? maxDistance : 0.5;
             const representation = await participantPeer.representation({
               searchQuery: query,
-              searchTopK: parseInt(options.topK, 10),
-              searchMaxDistance: parseFloat(options.maxDistance),
+              searchTopK,
+              searchMaxDistance,
             });
 
             if (!representation) {

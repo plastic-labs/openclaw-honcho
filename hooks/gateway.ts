@@ -2,6 +2,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 
+/** Register gateway_start hook — initializes Honcho connection on gateway startup and logs peer map status. */
 export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("gateway_start", async (_event, _ctx) => {
     api.logger.info("Initializing Honcho memory...");

@@ -4,6 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 
+/** Register the honcho_ask tool — asks Honcho a direct question about a participant and returns a synthesized answer. */
 export function registerAskTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({
@@ -54,7 +55,7 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
         });
 
         return {
-          content: [{ type: "text", text: answer! }],
+          content: [{ type: "text", text: answer ?? "No answer available." }],
           details: { query, depth },
         };
       },

@@ -2,6 +2,7 @@
  * Configuration schema and parsing for the Honcho memory plugin.
  */
 
+/** Default patterns that indicate noise messages (heartbeat, scheduled reminders, queue notices). These are stripped from Honcho capture. */
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
   "A scheduled reminder has been triggered",
@@ -24,6 +25,7 @@ export type HonchoConfig = {
  * Resolve environment variable references in config values.
  * Supports ${ENV_VAR} syntax.
  */
+/** Resolve ${ENV_VAR} references in a config value string. Throws if a referenced variable is unset. */
 function resolveEnvVars(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_, envVar) => {
     const envValue = process.env[envVar];
@@ -34,6 +36,7 @@ function resolveEnvVars(value: string): string {
   });
 }
 
+/** Schema parser for Honcho plugin config — resolves env var references, normalizes noise patterns, and applies defaults. */
 export const honchoConfigSchema = {
   parse(value: unknown): HonchoConfig {
     const cfg = (value ?? {}) as Record<string, unknown>;

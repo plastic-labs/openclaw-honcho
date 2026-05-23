@@ -157,6 +157,7 @@ export async function flushMessages(
   return extracted.length;
 }
 
+/** Register capture hooks — saves conversation messages to Honcho via agent_end, before_compaction, and before_reset events. */
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
   /**
    * agent_end — primary capture hook. Saves conversation messages after each turn.

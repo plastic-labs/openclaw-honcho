@@ -28,12 +28,17 @@ export type PeersFile = {
   peers: Record<string, string>;
 };
 
+/** Resolve path to the peers file — env override OPENCLAW_HONCHO_PEERS_FILE or ~/.honcho/openclaw-peers.json. */
 export function resolvePeersFilePath(): string {
   const envPath = process.env.OPENCLAW_HONCHO_PEERS_FILE;
   if (envPath && envPath.trim().length > 0) return envPath.trim();
   return path.join(os.homedir(), ".honcho", "openclaw-peers.json");
 }
 
+/**
+ * Parse a raw JSON string into a PeersFile structure.
+ * Falls back to legacy owner policy with empty map on parse failure.
+ */
 function parsePeersJson(raw: string, filePath: string): PeersFile {
   try {
     const parsed = JSON.parse(raw);
@@ -62,6 +67,7 @@ function parsePeersJson(raw: string, filePath: string): PeersFile {
 }
 
 /** Read the peers file. Missing → per-sender (fresh install); anything else → owner (legacy). */
+/** Read peers file from disk. Missing file → per-sender (fresh install); anything else → owner (legacy). */
 export async function loadPeersFile(filePath: string): Promise<PeersFile> {
   try {
     return parsePeersJson(await fs.readFile(filePath, "utf8"), filePath);
@@ -72,6 +78,7 @@ export async function loadPeersFile(filePath: string): Promise<PeersFile> {
   }
 }
 
+/** Synchronous version of loadPeersFile — used during boot before async context is available. */
 export function loadPeersFileSync(filePath: string): PeersFile {
   try {
     return parsePeersJson(readFileSync(filePath, "utf8"), filePath);
@@ -82,6 +89,7 @@ export function loadPeersFileSync(filePath: string): PeersFile {
   }
 }
 
+/** Filter a record to keep only string values with nonzero length. */
 function coerceStringMap(value: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(value)) {
@@ -106,7 +114,11 @@ export function resolveParticipantPeerId(
   if (mapped !== undefined) return mapped;
   const seedPeerId =
     persister.defaultUnknownPolicy === "per-sender"
-      ? senderId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, HONCHO_PEER_ID_MAX_LEN)
+      ? (() => {
+          const sanitized = senderId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, HONCHO_PEER_ID_MAX_LEN);
+          // Guard against empty sanitized IDs (e.g. senderId is all non-alphanumeric)
+          return sanitized.length > 0 ? sanitized : `sender_${Buffer.from(senderId).toString("base64url").slice(0, 32)}`;
+        })()
       : ownerPeerId;
   persister.enqueue(senderId, seedPeerId);
   return seedPeerId;
@@ -197,6 +209,7 @@ export class PeersPersister {
 }
 
 /** Sync `target` to equal `source` (same keys and values). */
+/** Sync `target` to equal `source` (same keys and values) in-place. */
 function replaceRecordInPlace(target: Record<string, string>, source: Record<string, string>): void {
   for (const k of Object.keys(target)) {
     if (!(k in source)) delete target[k];
@@ -208,6 +221,11 @@ function replaceRecordInPlace(target: Record<string, string>, source: Record<str
  * Same as reading the peers file for parsing, except a missing file uses
  * `memoryPolicy` instead of the fresh-install default (`per-sender`), so the
  * first write does not clobber the policy loaded at boot from an in-memory-only state.
+ */
+/**
+ * Load peers file for merge, using `memoryPolicy` as the default when the file is missing
+ * (instead of the fresh-install "per-sender" default), so the first write does not clobber
+ * the boot-loaded policy.
  */
 async function loadPeersFileForMerge(filePath: string, memoryPolicy: DefaultUnknownPolicy): Promise<PeersFile> {
   try {

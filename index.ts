@@ -89,6 +89,7 @@ export default definePluginEntry({
   kind: "memory",
   configSchema: honchoConfigSchema,
 
+  /** Plugin entry point — registers Honcho memory hooks, tools, CLI commands, and the memory runtime adapter. */
   register(api) {
     const state = createPluginState(api);
 

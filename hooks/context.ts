@@ -3,6 +3,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
 
+/** Register before_prompt_build hook — injects Honcho user context (profile, history summary) into the prompt before each agent turn. */
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;

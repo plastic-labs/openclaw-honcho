@@ -4,6 +4,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 
+/** Register the honcho_search_conclusions tool — semantic vector search over Honcho conclusions about a participant. */
 export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
     (toolCtx) => ({

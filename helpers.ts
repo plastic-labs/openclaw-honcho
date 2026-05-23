@@ -34,6 +34,7 @@ export function getRawContent(msg: unknown): string {
     .join("\n");
 }
 
+/** Normalize a raw session key: trim whitespace, default to "default" if empty. */
 export function normalizeSessionKey(raw?: string): string {
   return (raw ?? "default").trim() || "default";
 }
@@ -44,6 +45,7 @@ export function normalizeSessionKey(raw?: string): string {
  * helper is not re-exported from `openclaw/plugin-sdk/routing` at the pinned
  * peer-dep version.
  */
+/** Check whether a session key contains a `:thread:` suffix (mirrors upstream parseThreadSessionSuffix). */
 function hasThreadSuffix(sessionKey: string): boolean {
   return sessionKey.toLowerCase().includes(":thread:");
 }
@@ -53,6 +55,11 @@ function hasThreadSuffix(sessionKey: string): boolean {
  * categories tracked in Honcho session metadata. Cron and subagent
  * detection delegate to upstream OpenClaw helpers so plugin classification
  * cannot drift from the routing-key DSL.
+ */
+/**
+ * Classify a normalized OpenClaw sessionKey into one of the persistence
+ * categories tracked in Honcho session metadata. Cron and subagent
+ * detection delegate to upstream OpenClaw helpers.
  */
 export function classifySession(sessionKey: string): SessionClass {
   if (isSubagentSessionKey(sessionKey)) return "subagent";
@@ -72,6 +79,10 @@ export function classifySession(sessionKey: string): SessionClass {
  * Note: this is sourced from the same string that feeds the hash, so it cannot
  * disagree with the hash. `ctx.messageProvider` is deliberately not consulted.
  */
+/**
+ * Extract the channel/provider segment from a canonical OpenClaw sessionKey
+ * (`agent:<agentId>:<provider>:...`). Returns null for non-canonical keys.
+ */
 export function extractProvider(sessionKey: string): string | null {
   const m = /^agent:[^:]+:([^:]+)/.exec(sessionKey);
   return m ? m[1].toLowerCase() : null;
@@ -90,6 +101,12 @@ export function extractProvider(sessionKey: string): string | null {
  * (typically `state.resolveDefaultAgentId`) so the id matches the agent id used
  * by `flushMessages` / `before_prompt_build`. Without a resolver we fall back
  * to "main", which only matches workspaces with no configured default agent.
+ */
+/**
+ * Build a Honcho session id of the form
+ * `<sessionClass>-[<provider>-]<agentId>-<24 hex>`.
+ * Decoupled from OpenClaw's routing-key DSL — prefix segments are derived
+ * from the same inputs as the hash, so they cannot drift independently.
  */
 export function buildSessionKey(
   ctx?: { sessionKey?: string; agentId?: string },
@@ -116,6 +133,7 @@ export function buildSessionKey(
   return parts.join("-");
 }
 
+/** Convenience wrapper: returns true when the session context indicates a subagent session. */
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return isSubagentSessionKey(ctx?.sessionKey);
 }
@@ -156,17 +174,24 @@ const SENTINEL_FAST_RE = new RegExp(
     .join("|")
 );
 
+/** Return true when the given line matches one of the inbound metadata sentinel strings (Conversation info, Sender, Thread starter, etc.). */
 function isInboundMetaSentinelLine(line: string): boolean {
   const trimmed = line.trim();
   return INBOUND_META_SENTINELS.some((sentinel) => sentinel === trimmed);
 }
 
+/** Return true when a line starts the untrusted-context JSON fence block that should be stripped from memory storage. */
 function shouldStripTrailingUntrustedContext(lines: string[], index: number): boolean {
   if (lines[index]?.trim() !== UNTRUSTED_CONTEXT_HEADER) return false;
   const probe = lines.slice(index + 1, Math.min(lines.length, index + 8)).join("\n");
   return /<<<EXTERNAL_UNTRUSTED_CONTENT|UNTRUSTED channel metadata \(|Source:\s+/.test(probe);
 }
 
+/**
+ * Strip OpenClaw's inbound metadata blocks (Conversation info, Sender, Thread starter, etc.)
+ * from raw message text. These are AI-facing only and must not be stored in Honcho.
+ * Also strips leading timestamps injected by OpenClaw's injectTimestamp.
+ */
 function stripInboundMetadata(text: string): string {
   if (!text) return text;
 
@@ -227,6 +252,11 @@ function stripInboundMetadata(text: string): string {
  * Also strips leading OpenClaw reply directive tags (e.g. [[reply_to_current]])
  * so control tokens are never persisted or re-surfaced as user-visible text.
  */
+/**
+ * Strip Honcho's own injected context and OpenClaw's inbound metadata from
+ * message content to prevent feedback loops and persistence of AI-facing
+ * control tokens.
+ */
 export function cleanMessageContent(content: string): string {
   let cleaned = content;
   // Strip Honcho memory context tags (prevent re-injection loops).
@@ -251,6 +281,11 @@ const CONVERSATION_INFO_SENTINEL = "Conversation info (untrusted metadata):";
  *
  * Only considers the FIRST occurrence of the sentinel to prevent user-pasted or quoted
  * metadata blocks from poisoning sender attribution.
+ */
+/**
+ * Extract sender_id from a raw message's untrusted metadata block.
+ * Must be called BEFORE cleanMessageContent() which strips these blocks.
+ * Returns undefined for DMs or on parse failure.
  */
 export function extractSenderId(content: string): string | undefined {
   if (!content || !content.includes(CONVERSATION_INFO_SENTINEL)) return undefined;
@@ -308,6 +343,11 @@ export function shouldSkipMessage(content: string, noisePatterns: string[]): boo
   });
 }
 
+/**
+ * Convert raw inbound messages (with role, content, metadata) into Honcho
+ * MessageInput objects — stripping noise, resolving senders to Honcho peers,
+ * and cleaning metadata. Filters out skipped/empty messages.
+ */
 export function extractMessages(
   rawMessages: unknown[],
   defaultParticipantPeer: Peer,
@@ -322,13 +362,13 @@ export function extractMessages(
     const m = msg as Record<string, unknown>;
     const role = m.role as string | undefined;
 
-    if (role !== "user" && role !== "assistant") continue;
+    if (role !== "user" && role !== "assistant" && role !== "custom_message") continue;
 
     const rawContent = getRawContent(msg);
 
-    // For user messages, extract sender ID before cleaning strips metadata
+    // For user and custom messages, extract sender ID before cleaning strips metadata
     let peer: Peer;
-    if (role === "user") {
+    if (role === "user" || role === "custom_message") {
       const senderId = extractSenderId(rawContent);
       peer = (senderId && resolvePeer?.(senderId)) || defaultParticipantPeer;
     } else {
@@ -341,7 +381,10 @@ export function extractMessages(
     if (!content) continue;
     if (shouldSkipMessage(content, noisePatterns)) continue;
 
-    const ts = typeof m.timestamp === "number" ? new Date(m.timestamp) : undefined;
+    const ts =
+      typeof m.timestamp === "number" && Number.isFinite(m.timestamp) && m.timestamp > 0
+        ? new Date(m.timestamp)
+        : undefined;
     result.push(peer.message(content, ts ? { createdAt: ts } : undefined));
   }
 

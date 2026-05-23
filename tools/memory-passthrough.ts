@@ -8,7 +8,6 @@ import { getHonchoMemorySearchManager } from "../runtime.js";
 const MemorySearchSchema = Type.Object({
   query: Type.String(),
   maxResults: Type.Optional(Type.Number()),
-  minScore: Type.Optional(Type.Number()),
 }, { additionalProperties: false });
 
 const MemoryGetSchema = Type.Object({
@@ -97,7 +96,6 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const p = params as Record<string, unknown>;
         const query = readStringParam(p, "query", { required: true });
         const maxResults = readNumberParam(p, "maxResults");
-        readNumberParam(p, "minScore");
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
           agentId: ctx.agentId,

@@ -4,6 +4,7 @@
  * PluginState object that gets passed to every module.
  */
 
+import { createHash } from "node:crypto";
 import { Honcho, type Peer } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
@@ -18,6 +19,7 @@ import {
 export const OWNER_ID = "owner";
 export const LEGACY_PEER_ID = "openclaw";
 
+/** Return true when the Honcho base URL points to localhost / 127.0.0.1 / ::1 (self-hosted mode). */
 export function isLocalHonchoBaseUrl(baseUrl?: string): boolean {
   const base = String(baseUrl ?? "").trim();
   if (!base) return false;
@@ -63,6 +65,7 @@ export type PluginState = {
   resolveDefaultAgentId: () => string;
 };
 
+/** Build the shared PluginState object — wires Honcho SDK, peer management, and init gating. Follows DI pattern: every module receives the same state ref. */
 export function createPluginState(api: OpenClawPluginApi): PluginState {
   const cfg = honchoConfigSchema.parse(api.pluginConfig);
 
@@ -110,6 +113,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     resolveDefaultAgentId,
   };
 
+/** Resolve the default agent ID from the OpenClaw config (first default agent, or "main"). */
   function resolveDefaultAgentId(): string {
     const agents = api.config?.agents?.list;
     if (!Array.isArray(agents) || agents.length === 0) return "main";
@@ -117,6 +121,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     return (defaultAgent?.id ?? "main").toLowerCase().trim() || "main";
   }
 
+/** Ensure the Honcho workspace and peers are initialized. Guards against concurrent init races. */
   async function ensureInitialized(): Promise<void> {
     if (state.initialized) return;
     if (initPromise) return initPromise;
@@ -130,6 +135,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     }
   }
 
+/** Core initialization: load workspace metadata, agent peer map, and create the default owner peer. */
   async function doInit(): Promise<void> {
 
     const wsMeta = await honcho.getMetadata();
@@ -151,14 +157,17 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     state.initialized = true;
   }
 
+/** Get or create the default "owner" participant peer. */
   async function ensureOwnerPeer(): Promise<Peer> {
     let peer = state.participantPeers.get(OWNER_ID);
     if (peer) return peer;
     peer = await honcho.peer(OWNER_ID, { metadata: {} });
     state.participantPeers.set(OWNER_ID, peer);
+    participantPeerIdCache = null;
     return peer;
   }
 
+  /** Resolve or mint a participant Honcho peer for a given channel sender ID. Unknown IDs auto-seed per peers file policy. */
   async function getParticipantPeer(channelPeerId?: string): Promise<Peer> {
     if (!channelPeerId) return ensureOwnerPeer();
 
@@ -169,7 +178,11 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     if (peer) return peer;
 
     const wasInFile = channelPeerId in peersPersister.peers;
-    const resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, OWNER_ID);
+    let resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, OWNER_ID);
+    // Guard against empty sanitized peer IDs (e.g. sender_id is all non-alphanumeric)
+    if (!resolvedPeerId || resolvedPeerId.length === 0) {
+      resolvedPeerId = `sender_${createHash("sha256").update(channelPeerId).digest("base64url").slice(0, 32)}`;
+    }
     const autoSeeded = !wasInFile && resolvedPeerId !== OWNER_ID;
 
     if (resolvedPeerId === OWNER_ID) {
@@ -180,9 +193,11 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
       peer = await honcho.peer(resolvedPeerId, { metadata });
     }
     state.participantPeers.set(channelPeerId, peer);
+    participantPeerIdCache = null;
     return peer;
   }
 
+  /** Read participantSenderId from session metadata and resolve the corresponding Honcho peer. Falls back to default owner. */
   async function resolveSessionParticipantPeer(sessionKey: string): Promise<Peer> {
     const session = await honcho.session(sessionKey);
     const meta = await session.getMetadata();
@@ -195,15 +210,23 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     return await getParticipantPeer();
   }
 
-  function isParticipantPeerId(peerId: string): boolean {
-    if (peerId === OWNER_ID) return true;
-    // Check if this peer ID is a known participant peer
+  // Cache of participant peer IDs for O(1) lookup in transcript building.
+  let participantPeerIdCache: Set<string> | null = null;
+
+  function rebuildParticipantPeerIdCache(): void {
+    participantPeerIdCache = new Set<string>([OWNER_ID]);
     for (const [, peer] of state.participantPeers) {
-      if (peer.id === peerId) return true;
+      participantPeerIdCache.add(peer.id);
     }
-    return false;
   }
 
+  /** Return true if the given Honcho peer ID belongs to any known participant (owner or per-sender). */
+  function isParticipantPeerId(peerId: string): boolean {
+    if (!participantPeerIdCache) rebuildParticipantPeerIdCache();
+    return participantPeerIdCache!.has(peerId);
+  }
+
+  /** Get or create the agent Honcho peer for a given agent ID, persisting the agentPeerMap on first discovery. */
   async function getAgentPeer(agentId?: string): Promise<Peer> {
     const id = (agentId || resolveDefaultAgentId()).toLowerCase().trim() || "main";
 
