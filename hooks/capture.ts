@@ -13,6 +13,200 @@ import {
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
 
+const STRUCTURED_SENDER_TTL_MS = 10 * 60 * 1000;
+
+type SenderEntry =
+  | { senderId: string; seenAt: number; ambiguous: false }
+  | { seenAt: number; ambiguous: true };
+
+const senderByStructuredKey = new Map<string, SenderEntry>();
+
+function normalizeString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value);
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.round(parsed);
+    const date = Date.parse(value);
+    if (Number.isFinite(date)) return date;
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function getMessageId(value: unknown): string | undefined {
+  const record = asRecord(value);
+  const openclaw = asRecord(record.__openclaw);
+  const metadata = asRecord(record.metadata);
+  return normalizeString(record.messageId) ??
+    normalizeString(record.message_id) ??
+    normalizeString(record.id) ??
+    normalizeString(openclaw.id) ??
+    normalizeString(metadata.messageId);
+}
+
+function getTimestamp(value: unknown): number | undefined {
+  const record = asRecord(value);
+  const metadata = asRecord(record.metadata);
+  return normalizeTimestamp(record.timestamp) ??
+    normalizeTimestamp(record.createdAt) ??
+    normalizeTimestamp(record.ts) ??
+    normalizeTimestamp(metadata.timestamp);
+}
+
+function getContentKey(value: unknown): string | undefined {
+  const record = asRecord(value);
+  return normalizeString(record.content) ??
+    normalizeString(record.bodyForAgent) ??
+    normalizeString(record.body) ??
+    normalizeString(record.rawBody);
+}
+
+function isOpenClawRuntimeContext(value: unknown): boolean {
+  const record = asRecord(value);
+  const role = normalizeString(record.role);
+  const type = normalizeString(record.type);
+  const customType = normalizeString(record.customType) ?? normalizeString(record.custom_type);
+  const hasConversationInfo = getRawContent(value).includes("Conversation info (untrusted metadata):");
+
+  return customType === "openclaw.runtime-context" ||
+    (type === "custom_message" && hasConversationInfo) ||
+    (role === "custom" && hasConversationInfo);
+}
+
+function getRuntimeContextSenderId(value: unknown): string | undefined {
+  if (!isOpenClawRuntimeContext(value)) return undefined;
+  return extractSenderId(getRawContent(value));
+}
+
+function getAdjacentRuntimeContextSenderId(messages: unknown[], index: number, userMsg: unknown): string | undefined {
+  const userTimestamp = getTimestamp(userMsg);
+  const adjacent = messages[index + 1];
+  const senderId = getRuntimeContextSenderId(adjacent);
+  if (!senderId) return undefined;
+
+  const contextTimestamp = getTimestamp(adjacent);
+  if (userTimestamp !== undefined && contextTimestamp !== undefined) {
+    const deltaMs = Math.abs(contextTimestamp - userTimestamp);
+    if (deltaMs > 30_000) return undefined;
+  }
+
+  return senderId;
+}
+
+function getMessageProviderCandidates(event: Record<string, unknown>): string[] {
+  const metadata = asRecord(event.metadata);
+  return [metadata.provider, metadata.surface, metadata.originatingChannel]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+}
+
+function getSenderSessionKeys(
+  event: Record<string, unknown>,
+  ctx: Record<string, unknown>,
+): string[] {
+  const sessionKey = normalizeString(event.sessionKey) ?? normalizeString(ctx.sessionKey);
+  if (!sessionKey) return [];
+
+  const keys = new Set([sessionKey]);
+  for (const messageProvider of getMessageProviderCandidates(event)) {
+    keys.add(buildSessionKey({ sessionKey, messageProvider }));
+  }
+  return [...keys];
+}
+
+function buildSenderCacheKey(kind: string, sessionKey: string, value: string | number): string {
+  return `${sessionKey}\n${kind}\n${value}`;
+}
+
+function getStructuredSenderKeys(
+  sessionKey: string,
+  value: unknown,
+  fallback?: unknown,
+): string[] {
+  const keys: string[] = [];
+
+  const messageId = getMessageId(value) ?? getMessageId(fallback);
+  if (messageId) keys.push(buildSenderCacheKey("message", sessionKey, messageId));
+
+  const timestamp = getTimestamp(value);
+  if (timestamp !== undefined) keys.push(buildSenderCacheKey("timestamp", sessionKey, timestamp));
+
+  const content = getContentKey(value);
+  if (content) keys.push(buildSenderCacheKey("content", sessionKey, content));
+
+  return keys;
+}
+
+function rememberSender(key: string, senderId: string): void {
+  const now = Date.now();
+  for (const [storedKey, entry] of senderByStructuredKey) {
+    if (now - entry.seenAt > STRUCTURED_SENDER_TTL_MS) {
+      senderByStructuredKey.delete(storedKey);
+    }
+  }
+
+  const existing = senderByStructuredKey.get(key);
+  if (existing) {
+    if (!("senderId" in existing) || existing.senderId !== senderId) {
+      senderByStructuredKey.set(key, { seenAt: now, ambiguous: true });
+      return;
+    }
+  }
+
+  senderByStructuredKey.set(key, { senderId, seenAt: now, ambiguous: false });
+}
+
+function takeSender(key: string): string | undefined {
+  const entry = senderByStructuredKey.get(key);
+  if (!entry) return undefined;
+  senderByStructuredKey.delete(key);
+  if (Date.now() - entry.seenAt > STRUCTURED_SENDER_TTL_MS) return undefined;
+  if (!("senderId" in entry)) return undefined;
+  return entry.senderId;
+}
+
+function rememberStructuredSender(
+  sessionKey: string,
+  event: Record<string, unknown>,
+  ctx: Record<string, unknown>,
+  senderId: string,
+): void {
+  for (const key of getStructuredSenderKeys(sessionKey, event, ctx)) {
+    rememberSender(key, senderId);
+  }
+}
+
+function takeStructuredSender(sessionKey: string, msg: unknown): string | undefined {
+  for (const key of getStructuredSenderKeys(sessionKey, msg)) {
+    const senderId = takeSender(key);
+    if (senderId) return senderId;
+  }
+  return undefined;
+}
+
+function prependSenderMetadata(msg: unknown, senderId: string): unknown {
+  const rawContent = getRawContent(msg);
+  const metadata = [
+    "Conversation info (untrusted metadata):",
+    "```json",
+    JSON.stringify({ sender_id: senderId }),
+    "```",
+    "",
+  ].join("\n");
+  return {
+    ...(msg as Record<string, unknown>),
+    content: `${metadata}${rawContent}`,
+  };
+}
+
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
  * Returns the number of new messages saved (or 0 if none).
@@ -75,25 +269,45 @@ export async function flushMessages(
   }
 
   const newRawMessages = messages.slice(startIndex);
+  const adjustedRawMessages: unknown[] = [];
 
   // Pre-resolve participant peers for all unique sender IDs in this batch
   const senderIds = new Set<string>();
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
-  for (const msg of newRawMessages) {
-    if (!msg || typeof msg !== "object") continue;
+  for (let i = 0; i < newRawMessages.length; i++) {
+    const msg = newRawMessages[i];
+    if (!msg || typeof msg !== "object") {
+      adjustedRawMessages.push(msg);
+      continue;
+    }
     const m = msg as Record<string, unknown>;
-    if (m.role !== "user") continue;
+    if (m.role !== "user") {
+      adjustedRawMessages.push(msg);
+      continue;
+    }
     userMsgCount++;
     const rawContent = getRawContent(msg);
-    const senderId = extractSenderId(rawContent);
+    let senderId = extractSenderId(rawContent);
     if (senderId) {
+      takeStructuredSender(sessionKey, msg);
       senderIds.add(senderId);
       lastSenderId = senderId;
     } else {
+      senderId = takeStructuredSender(sessionKey, msg);
+      if (!senderId) {
+        senderId = getAdjacentRuntimeContextSenderId(newRawMessages, i, msg);
+      }
+      if (senderId) {
+        senderIds.add(senderId);
+        lastSenderId = senderId;
+        adjustedRawMessages.push(prependSenderMetadata(msg, senderId));
+        continue;
+      }
       const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
       api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
     }
+    adjustedRawMessages.push(msg);
   }
   if (senderIds.size > 0) {
     api.logger.debug?.(`[honcho] Resolved ${senderIds.size} unique sender(s) from ${userMsgCount} user message(s)`);
@@ -128,7 +342,7 @@ export async function flushMessages(
   await session.addPeers(peerConfigs);
 
   const extracted = extractMessages(
-    newRawMessages,
+    adjustedRawMessages,
     defaultParticipantPeer,
     agentPeer,
     state.cfg.noisePatterns,
@@ -158,6 +372,21 @@ export async function flushMessages(
 }
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
+  api.on("message_received", async (event, ctx) => {
+    try {
+      const eventRecord = event as Record<string, unknown>;
+      const ctxRecord = ctx as Record<string, unknown>;
+      const senderId = normalizeString(eventRecord.senderId) ?? normalizeString(ctxRecord.senderId);
+      if (!senderId) return;
+
+      for (const sessionKey of getSenderSessionKeys(eventRecord, ctxRecord)) {
+        rememberStructuredSender(sessionKey, eventRecord, ctxRecord, senderId);
+      }
+    } catch (error) {
+      api.logger.debug?.(`[honcho] Failed to record structured sender: ${error}`);
+    }
+  });
+
   /**
    * agent_end — primary capture hook. Saves conversation messages after each turn.
    */
