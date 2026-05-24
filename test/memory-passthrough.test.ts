@@ -86,11 +86,11 @@ describe("memory passthrough tools", () => {
     expect(getResult.content[0]?.text).toContain("\"text\": \"remembered fact\"");
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, {}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
     });
     expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, {}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
     });
   });
 
@@ -119,7 +119,7 @@ describe("memory passthrough tools", () => {
     expect(result.content[0]?.text).toContain("\"error\": \"auth failed\"");
     expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
       agentId: "main",
-      sessionKey: "agent-main-dashboard-test-unknown",
+      sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
     });
   });
 });

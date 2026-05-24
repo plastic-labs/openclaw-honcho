@@ -1,235 +1,164 @@
 import { describe, expect, it, vi } from "vitest";
+import { flushMessages } from "../hooks/capture.js";
 import type { PluginState } from "../state.js";
 
-type HookMap = Map<string, (event: any, ctx: any) => Promise<void> | void>;
-type SavedMessage = { peerId: string; content: string; opts?: unknown };
+const SENTINEL = "Conversation info (untrusted metadata):";
 
-const DISCORD_SENDER_ID = "425084004937760780";
-
-function createPeer(id: string, saved: SavedMessage[]) {
-  return {
-    id,
-    message(content: string, opts?: unknown) {
-      return { peerId: id, content, opts };
-    },
-    getMetadata: vi.fn(async () => ({})),
-    setMetadata: vi.fn(async () => {}),
-  } as never;
+function metadataBlock(payload: Record<string, unknown>): string {
+  return [SENTINEL, "```json", JSON.stringify(payload, null, 2), "```"].join("\n");
 }
 
-async function createHarness() {
-  vi.resetModules();
-  const { registerCaptureHook } = await import("../hooks/capture.js");
+type CapturedMeta = Record<string, unknown>;
 
-  const hooks: HookMap = new Map();
-  const saved: SavedMessage[] = [];
-  const metadataBySession = new Map<string, Record<string, unknown>>();
-  const peers = new Map<string, ReturnType<typeof createPeer>>();
+type SessionStub = {
+  metadata: CapturedMeta;
+  setMetadata: ReturnType<typeof vi.fn>;
+  getMetadata: ReturnType<typeof vi.fn>;
+  addPeers: ReturnType<typeof vi.fn>;
+  addMessages: ReturnType<typeof vi.fn>;
+};
 
-  function peer(id: string) {
-    if (!peers.has(id)) peers.set(id, createPeer(id, saved));
-    return peers.get(id)!;
-  }
-
-  const sessions = new Map<string, Record<string, unknown>>();
-  function session(name: string) {
-    if (!sessions.has(name)) {
-      sessions.set(name, {
-        getMetadata: vi.fn(async () => metadataBySession.get(name) ?? {}),
-        setMetadata: vi.fn(async (meta: Record<string, unknown>) => {
-          metadataBySession.set(name, meta);
-        }),
-        addPeers: vi.fn(async () => {}),
-        addMessages: vi.fn(async (messages: SavedMessage[]) => {
-          saved.push(...messages);
-        }),
-      });
-    }
-    return sessions.get(name)!;
-  }
-
-  const api = {
-    on(name: string, handler: HookMap extends Map<string, infer H> ? H : never) {
-      hooks.set(name, handler);
-    },
-    logger: {
-      debug: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
+function createMockState(): { state: PluginState; session: SessionStub } {
+  const session: SessionStub = {
+    metadata: {},
+    getMetadata: vi.fn(async () => session.metadata),
+    setMetadata: vi.fn(async (next: CapturedMeta) => {
+      session.metadata = next;
+    }),
+    addPeers: vi.fn(async () => undefined),
+    addMessages: vi.fn(async () => undefined),
   };
+
+  const agentPeer = { id: "agent-main", message: vi.fn((text: string) => ({ text })) };
+  const ownerPeer = { id: "owner", message: vi.fn((text: string) => ({ text })) };
 
   const state = {
     cfg: {
-      workspaceId: "openclaw",
-      baseUrl: "http://localhost:8000",
       noisePatterns: [],
-      disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
       crossSessionSearch: true,
+      workspaceId: "openclaw",
+      baseUrl: "https://api.honcho.dev",
     },
-    honcho: { session: vi.fn(async (name: string) => session(name)) },
-    participantPeers: new Map(),
-    agentPeers: new Map(),
-    agentPeerMap: {},
+    honcho: {
+      session: vi.fn(async () => session),
+    },
     turnStartIndex: new Map<string, number>(),
-    initialized: true,
-    api: api as never,
-    ensureInitialized: vi.fn(async () => {}),
-    getAgentPeer: vi.fn(async (agentId = "main") => peer(`agent-${agentId}`)),
-    getParticipantPeer: vi.fn(async (senderId = "owner") => peer(senderId)),
-    resolveSessionParticipantPeer: vi.fn(async () => peer("owner")),
-    isParticipantPeerId: vi.fn((peerId: string) => peerId === "owner"),
+    ensureInitialized: vi.fn(async () => undefined),
+    getAgentPeer: vi.fn(async () => agentPeer),
+    getParticipantPeer: vi.fn(async () => ownerPeer),
     resolveDefaultAgentId: vi.fn(() => "main"),
   } as unknown as PluginState;
 
-  registerCaptureHook(api as never, state);
-  return { hooks, saved };
+  return { state, session };
 }
 
-function ctx(sessionKey: string) {
+function loggerStub() {
   return {
-    sessionKey,
-    messageProvider: "discord",
-    agentId: "main",
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
   };
 }
 
-function conversationInfo(data: Record<string, unknown>, body = "") {
-  return [
-    "Conversation info (untrusted metadata):",
-    "```json",
-    JSON.stringify(data),
-    "```",
-    body ? "" : undefined,
-    body || undefined,
-  ].filter((line): line is string => typeof line === "string").join("\n");
-}
+describe("flushMessages metadata", () => {
+  it("writes openclawSessionKey, sessionClass, messageProvider, and lastSessionId", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
 
-async function receive(
-  hooks: HookMap,
-  context: ReturnType<typeof ctx>,
-  event: Record<string, unknown> = {},
-) {
-  await hooks.get("message_received")?.({
-    senderId: DISCORD_SENDER_ID,
-    sessionKey: context.sessionKey,
-    messageId: "discord-message-1",
-    metadata: { provider: "discord" },
-    ...event,
-  }, context);
-}
-
-async function endTurn(hooks: HookMap, context: ReturnType<typeof ctx>, messages: unknown[]) {
-  await hooks.get("agent_end")?.({ success: true, messages }, context);
-}
-
-function expectSaved(saved: SavedMessage[], peerId: string, content: string) {
-  expect(saved).toEqual([
-    expect.objectContaining({ peerId, content }),
-  ]);
-}
-
-describe("capture sender attribution", () => {
-  it("uses structured message_received senderId when text metadata was stripped", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-123");
-
-    await receive(hooks, context);
-    await endTurn(hooks, context, [
-      { role: "user", content: "stripped hello", messageId: "discord-message-1" },
-    ]);
-
-    expectSaved(saved, DISCORD_SENDER_ID, "stripped hello");
-  });
-
-  it("does not guess attribution when no structured key matches", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-456");
-
-    await receive(hooks, context);
-    await endTurn(hooks, context, [
-      { role: "user", content: "no matching key", messageId: "different-message" },
-    ]);
-
-    expectSaved(saved, "owner", "no matching key");
-  });
-
-  it("uses structured senderId by exact content when transcript has no message id", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-content");
-
-    await receive(hooks, context, {
-      content: "live discord text",
-    });
-    await endTurn(hooks, context, [
-      { role: "user", content: "live discord text" },
-    ]);
-
-    expectSaved(saved, DISCORD_SENDER_ID, "live discord text");
-  });
-
-  it("uses adjacent OpenClaw runtime-context sender_id when user message has no metadata", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-runtime-context");
-
-    await endTurn(hooks, context, [
+    const saved = await flushMessages(
+      api,
+      state,
+      [
+        { role: "user", content: "hello", timestamp: 1 },
+        { role: "assistant", content: "hi there", timestamp: 2 },
+      ],
       {
-        role: "user",
-        content: [{ type: "text", text: "hello from discord" }],
-        timestamp: 1778182777904,
+        sessionKey: "agent:main:discord:dm:user-1",
+        agentId: "main",
+        sessionId: "uuid-current",
+        messageProvider: "discord",
       },
-      {
-        role: "custom",
-        customType: "openclaw.runtime-context",
-        content: conversationInfo({
-          sender_id: DISCORD_SENDER_ID,
-          sender: "rendrag",
-          message_id: "1502032066576122047",
-        }),
-        timestamp: 1778182777919,
-      },
-    ]);
+    );
 
-    expectSaved(saved, DISCORD_SENDER_ID, "hello from discord");
+    expect(saved).toBe(2);
+    expect(session.setMetadata).toHaveBeenCalled();
+    const meta = session.metadata;
+    expect(meta.openclawSessionKey).toBe("agent:main:discord:dm:user-1");
+    expect(meta.sessionClass).toBe("chat");
+    expect(meta.messageProvider).toBe("discord");
+    expect(meta.lastSessionId).toBe("uuid-current");
+    expect(meta.agentId).toBe("main");
   });
 
-  it("does not use content attribution when duplicate text has conflicting senders", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-duplicate-content");
+  it("records participantSenderId from the latest user message in the batch", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
 
-    await receive(hooks, context, {
-      senderId: "sender-one",
-      messageId: "discord-message-1",
-      content: "same text",
-    });
-    await receive(hooks, context, {
-      senderId: "sender-two",
-      messageId: "discord-message-2",
-      content: "same text",
-    });
-    await endTurn(hooks, context, [
-      { role: "user", content: "same text" },
-    ]);
+    await flushMessages(
+      api,
+      state,
+      [
+        {
+          role: "user",
+          content: `${metadataBlock({ sender_id: "U-alice" })}\n\nhi`,
+          timestamp: 1,
+        },
+        {
+          role: "user",
+          content: `${metadataBlock({ sender_id: "U-bob" })}\n\nhello`,
+          timestamp: 2,
+        },
+        { role: "assistant", content: "reply", timestamp: 3 },
+      ],
+      {
+        sessionKey: "agent:main:discord:group:c-1",
+        agentId: "main",
+      },
+    );
 
-    expectSaved(saved, "owner", "same text");
+    expect(session.metadata.participantSenderId).toBe("U-bob");
   });
 
-  it("keeps textual Conversation info sender_id authoritative when present", async () => {
-    const { hooks, saved } = await createHarness();
-    const context = ctx("agent-main-discord-channel-789");
+  it("classifies cron and subagent sessions in the metadata block", async () => {
+    {
+      const { state, session } = createMockState();
+      const api = { logger: loggerStub() } as never;
+      await flushMessages(
+        api,
+        state,
+        [{ role: "user", content: "tick", timestamp: 1 }],
+        { sessionKey: "agent:main:cron:nightly:run:7", agentId: "main" },
+      );
+      expect(session.metadata.sessionClass).toBe("cron");
+    }
+    {
+      const { state, session } = createMockState();
+      const api = { logger: loggerStub() } as never;
+      await flushMessages(
+        api,
+        state,
+        [{ role: "user", content: "spawn", timestamp: 1 }],
+        { sessionKey: "agent:main:subagent:research-1", agentId: "main" },
+      );
+      expect(session.metadata.sessionClass).toBe("subagent");
+      expect(session.metadata.isSubagent).toBe(true);
+    }
+  });
 
-    await receive(hooks, context, {
-      senderId: "wrong-sender",
-    });
-    await endTurn(hooks, context, [
-      {
-        role: "user",
-        messageId: "discord-message-1",
-        content: conversationInfo({ sender_id: "right-sender" }, "metadata hello"),
-      },
-    ]);
+  it("omits messageProvider and lastSessionId when not provided", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
 
-    expectSaved(saved, "right-sender", "metadata hello");
+    await flushMessages(
+      api,
+      state,
+      [{ role: "user", content: "hello", timestamp: 1 }],
+      { sessionKey: "agent:main:discord:dm:user-1", agentId: "main" },
+    );
+
+    expect(session.metadata).not.toHaveProperty("messageProvider");
+    expect(session.metadata).not.toHaveProperty("lastSessionId");
   });
 });

@@ -94,12 +94,13 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Search the active memory plugin for relevant prior context and return snippets with path and line numbers.",
       parameters: MemorySearchSchema,
       async execute(_toolCallId, params) {
-        const query = readStringParam(params, "query", { required: true });
-        const maxResults = readNumberParam(params, "maxResults");
-        // Keep parity with the generic schema even though Honcho does not use minScore.
-        readNumberParam(params, "minScore");
+        const p = params as Record<string, unknown>;
+        const query = readStringParam(p, "query", { required: true });
+        const maxResults = readNumberParam(p, "maxResults");
+        readNumberParam(p, "minScore");
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
         });
 
         try {
@@ -135,11 +136,13 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         "Read a specific snippet from the active memory plugin using a path returned by memory_search.",
       parameters: MemoryGetSchema,
       async execute(_toolCallId, params) {
-        const relPath = readStringParam(params, "path", { required: true });
-        const from = readNumberParam(params, "from", { integer: true });
-        const lines = readNumberParam(params, "lines", { integer: true });
+        const p = params as Record<string, unknown>;
+        const relPath = readStringParam(p, "path", { required: true });
+        const from = readNumberParam(p, "from", { integer: true });
+        const lines = readNumberParam(p, "lines", { integer: true });
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
         });
 
         try {
