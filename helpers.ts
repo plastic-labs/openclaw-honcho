@@ -12,6 +12,13 @@ import {
 
 type ContentBlock = { type?: string; text?: unknown };
 type RawMessage = { role?: string; content?: string | ContentBlock[]; timestamp?: number };
+export type CleanMessageOptions = { stripRuntimeScaffolding?: boolean };
+
+const LEADING_SYSTEM_LINE_RE = /^System(?: \(untrusted\))?: /;
+const STARTUP_CONTEXT_BLOCK_RE =
+  /\[Startup context loaded by runtime\][\s\S]*?(?:Current time:[^\n]*(?:\n|$)|$)/gi;
+const STARTUP_ONLY_LINE_RE =
+  /^(?:A new session was started via \/new or \/reset\..*|Note: The previous agent run was aborted by the user\..*|Current time: .*|Resume carefully or ask for clarification\.)$/gim;
 
 export type SessionClass = "chat" | "cron" | "subagent" | "thread" | "unknown";
 
@@ -118,6 +125,58 @@ export function buildSessionKey(
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return isSubagentSessionKey(ctx?.sessionKey);
+}
+
+function stripLeadingSystemEnvelope(text: string): string {
+  const lines = text.split("\n");
+  let index = 0;
+
+  while (index < lines.length && lines[index].trim() === "") {
+    index += 1;
+  }
+
+  while (index < lines.length && LEADING_SYSTEM_LINE_RE.test(lines[index].trim())) {
+    index += 1;
+    while (
+      index < lines.length &&
+      (lines[index].trim() === "" || LEADING_SYSTEM_LINE_RE.test(lines[index].trim()))
+    ) {
+      index += 1;
+    }
+  }
+
+  return lines.slice(index).join("\n");
+}
+
+function compilePattern(pattern: string): RegExp | null {
+  if (!pattern.startsWith("/")) return null;
+  const lastSlash = pattern.lastIndexOf("/", pattern.length - 1);
+  if (lastSlash <= 0) return null;
+  const source = pattern.slice(1, lastSlash);
+  const flags = pattern.slice(lastSlash + 1);
+  try {
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
+}
+
+function matchesPattern(value: string, pattern: string): boolean {
+  if (pattern.startsWith("/")) {
+    const re = compilePattern(pattern);
+    return re ? re.test(value) : false;
+  }
+  return value.includes(pattern);
+}
+
+export function shouldIsolateSession(
+  ctx?: { sessionKey?: string; messageProvider?: string },
+  patterns: string[] = [],
+): boolean {
+  if (patterns.length === 0) return false;
+  const raw = String(ctx?.sessionKey ?? "");
+  const built = buildSessionKey(ctx);
+  return patterns.some((pattern) => matchesPattern(raw, pattern) || matchesPattern(built, pattern));
 }
 
 /**
@@ -227,13 +286,21 @@ function stripInboundMetadata(text: string): string {
  * Also strips leading OpenClaw reply directive tags (e.g. [[reply_to_current]])
  * so control tokens are never persisted or re-surfaced as user-visible text.
  */
-export function cleanMessageContent(content: string): string {
+export function cleanMessageContent(content: string, options: CleanMessageOptions = {}): string {
+  const { stripRuntimeScaffolding = true } = options;
   let cleaned = content;
   // Strip Honcho memory context tags (prevent re-injection loops).
   cleaned = cleaned.replace(/<honcho-memory[^>]*>[\s\S]*?<\/honcho-memory>\s*/gi, "");
   cleaned = cleaned.replace(/<!--[^>]*honcho[^>]*-->\s*/gi, "");
   // Strip OpenClaw inbound metadata using OpenClaw-equivalent parser logic.
   cleaned = stripInboundMetadata(cleaned);
+  if (stripRuntimeScaffolding) {
+    // Strip runtime/system envelope lines before checking for startup-only content.
+    cleaned = stripLeadingSystemEnvelope(cleaned);
+    // Strip first-turn startup scaffolding and reset-resume hints.
+    cleaned = cleaned.replace(STARTUP_CONTEXT_BLOCK_RE, "");
+    cleaned = cleaned.replace(STARTUP_ONLY_LINE_RE, "");
+  }
   // Strip leading reply directive control tokens.
   cleaned = cleaned.replace(
     /^(\s*\[\[\s*(?:reply_to_current|reply_to\s*:\s*[^\]\n]+)\s*\]\]\s*)+/gi,
@@ -314,6 +381,7 @@ export function extractMessages(
   agentPeer: Peer,
   noisePatterns: string[] = [],
   resolvePeer?: (senderId: string) => Peer | undefined,
+  cleanOptions: CleanMessageOptions = {},
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
@@ -335,7 +403,7 @@ export function extractMessages(
       peer = agentPeer;
     }
 
-    let content = cleanMessageContent(rawContent);
+    let content = cleanMessageContent(rawContent, cleanOptions);
     content = content.trim();
 
     if (!content) continue;

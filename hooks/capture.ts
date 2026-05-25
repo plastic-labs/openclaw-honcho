@@ -7,6 +7,7 @@ import {
   classifySession,
   isSubagentSession,
   normalizeSessionKey,
+  shouldIsolateSession,
   extractMessages,
   extractSenderId,
   getRawContent,
@@ -25,6 +26,7 @@ export async function flushMessages(
   ctx: { sessionKey?: string; agentId?: string; sessionId?: string; messageProvider?: string },
 ): Promise<number> {
   if (!messages?.length) return 0;
+  if (shouldIsolateSession(ctx, state.cfg.isolatedSessionPatterns)) return 0;
 
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
   const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
@@ -133,6 +135,7 @@ export async function flushMessages(
     agentPeer,
     state.cfg.noisePatterns,
     (senderId) => resolvedPeers.get(senderId),
+    { stripRuntimeScaffolding: state.cfg.stripRuntimeScaffolding },
   );
 
   // participantSenderId = last active sender, used by tools to resolve the

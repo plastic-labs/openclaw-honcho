@@ -44,7 +44,9 @@
       },
       "noisePatterns": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
       "ownerObserveOthers": {
@@ -61,6 +63,23 @@
         "type": "boolean",
         "default": true,
         "description": "When true (default), memory_search/memory_get can return results from any session in the workspace. When false, results are scoped to the active session and its child sessions only."
+      },
+      "stripRuntimeScaffolding": {
+        "type": "boolean",
+        "default": true,
+        "description": "Strip OpenClaw startup/reset/runtime scaffolding from messages before saving them to Honcho."
+      },
+      "isolatedSessionPatterns": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Regex-like patterns for session keys that should not be captured into Honcho. Use /pattern/flags syntax for regular expressions, or plain substrings. Subagent sessions are captured by default; add a subagent pattern only if you explicitly want to isolate them.",
+        "default": [
+          "/(^|[:-])cron([:-]|$)/i",
+          "/(^|[:-])heartbeat([:-]|$)/i",
+          "/temp[-:]slug[-:]generator/i"
+        ]
       }
     }
   },
@@ -106,6 +125,16 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
+    },
+    "stripRuntimeScaffolding": {
+      "label": "Strip Runtime Scaffolding",
+      "advanced": true,
+      "help": "Remove /new, reset, and runtime metadata boilerplate before storing messages."
+    },
+    "isolatedSessionPatterns": {
+      "label": "Isolated Session Patterns",
+      "advanced": true,
+      "help": "Skip Honcho capture for matching session keys, such as cron or heartbeat sessions. Subagents are not skipped by default."
     }
   }
 }
