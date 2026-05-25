@@ -44,7 +44,9 @@
       },
       "noisePatterns": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
       "ownerObserveOthers": {
@@ -61,6 +63,41 @@
         "type": "boolean",
         "default": true,
         "description": "When true (default), memory_search/memory_get can return results from any session in the workspace. When false, results are scoped to the active session and its child sessions only."
+      },
+      "contextInjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Controls which Honcho context sections are injected into the prompt by default.",
+        "properties": {
+          "peerCard": {
+            "type": "boolean",
+            "default": true,
+            "description": "Inject compact key facts about the active participant."
+          },
+          "sessionSummary": {
+            "type": "boolean",
+            "default": true,
+            "description": "Inject the current session summary when available."
+          },
+          "representation": {
+            "type": "string",
+            "enum": [
+              "off",
+              "full"
+            ],
+            "default": "full",
+            "description": "Whether to inject the full Honcho peer representation by default. Set to off to reduce prompt size."
+          }
+        }
+      },
+      "memoryBackend": {
+        "type": "string",
+        "enum": [
+          "qmd",
+          "builtin"
+        ],
+        "default": "qmd",
+        "description": "Memory runtime backend descriptor exposed to OpenClaw. qmd preserves legacy compatibility; builtin avoids pretending Honcho is QMD on newer OpenClaw builds."
       }
     }
   },
@@ -106,6 +143,16 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
+    },
+    "contextInjection": {
+      "label": "Context Injection",
+      "advanced": true,
+      "help": "Choose whether prompt injection includes peer facts, session summary, and full representation."
+    },
+    "memoryBackend": {
+      "label": "Memory Backend Descriptor",
+      "advanced": true,
+      "help": "Use qmd for compatibility or builtin for newer OpenClaw memory runtimes."
     }
   }
 }

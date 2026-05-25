@@ -217,7 +217,7 @@ export async function getHonchoMemorySearchManager(
 
       status() {
         return {
-          backend: "qmd",
+          backend: state.cfg.memoryBackend,
           provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
           model: "n/a",
           sources: ["sessions"],
@@ -242,9 +242,16 @@ export async function getHonchoMemorySearchManager(
 
 /** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
-  params: { sessionKey?: string; agentId?: string } = {}
+  params: { sessionKey?: string; agentId?: string } = {},
+  memoryBackend: PluginState["cfg"]["memoryBackend"] = "qmd",
 ) {
   const sessionKey = buildSessionKey(params);
+  if (memoryBackend === "builtin") {
+    return {
+      backend: "builtin",
+      sessionKey,
+    };
+  }
   return {
     backend: "qmd",
     qmd: {},
@@ -264,7 +271,7 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
     },
 
     resolveMemoryBackendConfig(params: { sessionKey?: string; agentId?: string } = {}) {
-      return resolveHonchoMemoryBackendConfig(params);
+      return resolveHonchoMemoryBackendConfig(params, state.cfg.memoryBackend);
     },
   });
 }

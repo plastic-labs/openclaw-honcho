@@ -124,6 +124,8 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
       disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
       crossSessionSearch,
+      contextInjection: { peerCard: true, sessionSummary: true, representation: "full" },
+      memoryBackend: "qmd",
     },
     honcho: {
       session: vi.fn(async (sessionId: string) => createSession(sessionId)),
@@ -221,6 +223,7 @@ describe("Honcho memory runtime", () => {
     expect(file.path).toBe("sessions/session-1.txt");
     expect(file.text).toContain("# Summary");
     expect(file.text).toContain("Summary for session one");
+    expect(manager.status().backend).toBe("qmd");
     expect(manager.status().provider).toBe("honcho-selfhosted");
     await expect(
       manager.readFile({
@@ -237,6 +240,18 @@ describe("Honcho memory runtime", () => {
     expect(backendConfig.sessionKey).toMatch(
       /^chat-dashboard-main-[0-9a-f]{24}$/,
     );
+
+    const builtinBackendConfig = resolveHonchoMemoryBackendConfig(
+      {
+        sessionKey: "agent:main:dashboard:test",
+        agentId: "main",
+      },
+      "builtin",
+    );
+    expect(builtinBackendConfig).toEqual({
+      backend: "builtin",
+      sessionKey: backendConfig.sessionKey,
+    });
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {
