@@ -44,7 +44,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
       } else {
-        const session = await state.honcho.session(sessionKey, { metadata: { agentId } });
+        const session = await state.honcho.session(sessionKey);
 
         let context;
         try {

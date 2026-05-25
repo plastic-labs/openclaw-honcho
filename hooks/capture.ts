@@ -1,4 +1,6 @@
 // @ts-ignore - resolved by openclaw runtime
+import { Message, Page, type MessageInput, type MessageResponse, type PageResponse, type Session } from "@honcho-ai/sdk";
+// @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
@@ -12,6 +14,152 @@ import {
   getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
+
+const sessionFlushLocks = new Map<string, Promise<void>>();
+export const HONCHO_MESSAGES_LIST_MAX_SIZE = 100;
+export const HONCHO_MESSAGES_CREATE_MAX_SIZE = 100;
+const HONCHO_API_VERSION = "v3";
+
+type SessionListInternals = {
+  _ensureWorkspace?: () => Promise<void>;
+  _http?: {
+    post: (
+      path: string,
+      options?: { body?: unknown; query?: Record<string, unknown> },
+    ) => Promise<PageResponse<MessageResponse>>;
+  };
+  workspaceId: string;
+  id: string;
+};
+
+function messageSignature(message: MessageInput | { peerId: string; createdAt?: string; content: string }): string | null {
+  if (!message?.createdAt) return null;
+  return `${message.peerId}\u0000${message.createdAt}\u0000${message.content}`;
+}
+
+function formatHonchoError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+
+  const details: string[] = [error.toString()];
+  const anyError = error as unknown as Record<string, unknown>;
+  if (anyError.status) details.push(`status=${String(anyError.status)}`);
+  if (anyError.body) details.push(`body=${JSON.stringify(anyError.body)}`);
+  return details.join(" ");
+}
+
+async function withSessionFlushLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
+  const previous = sessionFlushLocks.get(sessionKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sessionFlushLocks.set(sessionKey, current);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (sessionFlushLocks.get(sessionKey) === current) {
+      sessionFlushLocks.delete(sessionKey);
+    }
+  }
+}
+
+function normalizeRecentTailSize(recentTailSize: number): number {
+  if (!Number.isFinite(recentTailSize) || recentTailSize <= 0) return 0;
+  return Math.trunc(recentTailSize);
+}
+
+async function collectRecentTailMessages(
+  session: Session,
+  recentTailSize: number,
+): Promise<Array<{ peerId: string; createdAt?: string; content: string }>> {
+  const limit = normalizeRecentTailSize(recentTailSize);
+  if (limit <= 0) return [];
+
+  let page = await listSessionMessagesPage(session, {
+    size: Math.min(limit, HONCHO_MESSAGES_LIST_MAX_SIZE),
+    reverse: true,
+  });
+  const messages = [...page.items];
+
+  while (messages.length < limit && page.hasNextPage) {
+    const nextPage = await page.getNextPage();
+    if (!nextPage) break;
+    page = nextPage;
+    messages.push(...page.items);
+  }
+
+  return messages.slice(0, limit);
+}
+
+async function listSessionMessagesPage(
+  session: Session,
+  options: { page?: number; size: number; reverse: boolean },
+): Promise<Page<Message, MessageResponse>> {
+  const internals = session as unknown as SessionListInternals;
+  if (typeof internals._http?.post !== "function") {
+    throw new Error("Honcho SDK session internals unavailable for paginated message listing");
+  }
+
+  await internals._ensureWorkspace?.();
+
+  const fetchPage = async (page?: number, size?: number): Promise<PageResponse<MessageResponse>> => {
+    const query: Record<string, unknown> = { reverse: options.reverse };
+    if (typeof page === "number") query.page = page;
+    if (typeof size === "number") query.size = size;
+    return internals._http!.post(
+      `/${HONCHO_API_VERSION}/workspaces/${internals.workspaceId}/sessions/${internals.id}/messages/list`,
+      {
+        body: { filters: undefined },
+        query,
+      },
+    );
+  };
+
+  const data = await fetchPage(options.page, options.size);
+  return new Page(data, Message.fromApiResponse, fetchPage);
+}
+
+export async function dedupeAgainstRecentTail(
+  session: Session,
+  extracted: MessageInput[],
+  recentTailSize: number,
+): Promise<MessageInput[]> {
+  const batchSeen = new Set<string>();
+  const batchUnique: MessageInput[] = [];
+
+  for (const message of extracted) {
+    const signature = messageSignature(message) ?? `${message.peerId}\u0000${message.content}`;
+    if (batchSeen.has(signature)) continue;
+    batchSeen.add(signature);
+    batchUnique.push(message);
+  }
+
+  const tailSize = normalizeRecentTailSize(recentTailSize);
+  if (batchUnique.length === 0 || tailSize <= 0) return batchUnique;
+
+  const recentMessages = await collectRecentTailMessages(session, tailSize);
+  const recentSignatures = new Set(
+    recentMessages
+      .map((message) => messageSignature(message))
+      .filter((signature): signature is string => typeof signature === "string"),
+  );
+
+  return batchUnique.filter((message) => {
+    const signature = messageSignature(message);
+    return !signature || !recentSignatures.has(signature);
+  });
+}
+
+export async function addMessagesInBatches(
+  session: Session,
+  messages: MessageInput[],
+): Promise<void> {
+  for (let start = 0; start < messages.length; start += HONCHO_MESSAGES_CREATE_MAX_SIZE) {
+    await session.addMessages(messages.slice(start, start + HONCHO_MESSAGES_CREATE_MAX_SIZE));
+  }
+}
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -56,25 +204,26 @@ export async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
-  const meta = await session.getMetadata();
-  const existingMeta: Record<string, unknown> =
-    meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
+  return withSessionFlushLock(sessionKey, async () => {
+    const session = await state.honcho.session(sessionKey);
+    const meta = await session.getMetadata();
+    const existingMeta: Record<string, unknown> =
+      meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-  const turnStartIndex = Math.min(
-    Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
-    messages.length,
-  );
-  const rawLastSavedIndex =
-    typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
-  const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
-  const startIndex = Math.max(turnStartIndex, lastSavedIndex);
+    const turnStartIndex = Math.min(
+      Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
+      messages.length,
+    );
+    const rawLastSavedIndex =
+      typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
+    const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
+    const startIndex = Math.max(turnStartIndex, lastSavedIndex);
 
-  if (messages.length <= startIndex) {
-    return 0;
-  }
+    if (messages.length <= startIndex) {
+      return 0;
+    }
 
-  const newRawMessages = messages.slice(startIndex);
+    const newRawMessages = messages.slice(startIndex);
 
   // Pre-resolve participant peers for all unique sender IDs in this batch
   const senderIds = new Set<string>();
@@ -152,9 +301,17 @@ export async function flushMessages(
     return 0;
   }
 
-  await session.addMessages(extracted);
+  const deduped = await dedupeAgainstRecentTail(session, extracted, state.cfg.recentTailDedupeSize);
+
+  if (deduped.length === 0) {
+    await session.setMetadata(updatedMeta);
+    return 0;
+  }
+
+  await addMessagesInBatches(session, deduped);
   await session.setMetadata(updatedMeta);
-  return extracted.length;
+  return deduped.length;
+  });
 }
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
@@ -167,7 +324,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     try {
       await flushMessages(api, state, event.messages, ctx);
     } catch (error) {
-      api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
+      api.logger.error(`[honcho] Failed to save messages to Honcho: ${formatHonchoError(error)}`);
       if (error instanceof Error) {
         api.logger.error(`[honcho] Stack: ${error.stack}`);
         const anyError = error as unknown as Record<string, unknown>;
@@ -199,7 +356,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before compaction`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before compaction: ${error}`);
+      api.logger.warn?.(`[honcho] Failed to flush messages before compaction: ${formatHonchoError(error)}`);
     }
   });
 
@@ -216,7 +373,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before session reset`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before reset: ${error}`);
+      api.logger.warn?.(`[honcho] Failed to flush messages before reset: ${formatHonchoError(error)}`);
     }
   });
 }

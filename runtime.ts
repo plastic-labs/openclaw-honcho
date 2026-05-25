@@ -40,7 +40,7 @@ async function buildSessionTranscript(
 
   const participantPeer = await state.resolveSessionParticipantPeer(sessionId);
   const agentPeer = await state.getAgentPeer(agentId);
-  const session = await state.honcho.session(sessionId, { metadata: { agentId } });
+  const session = await state.honcho.session(sessionId);
   const context = await session.context({
     summary: true,
     tokens: 20000,
@@ -169,9 +169,7 @@ export async function getHonchoMemorySearchManager(
         };
 
         if (requestedSessionKey) {
-          const exactSession = await state.honcho.session(requestedSessionKey, {
-            metadata: { agentId },
-          });
+          const exactSession = await state.honcho.session(requestedSessionKey);
           collect(await exactSession.search(query, { limit }));
         } else {
           collect(await participantPeer.search(query, { limit }));

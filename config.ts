@@ -18,6 +18,7 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  recentTailDedupeSize: number;
 };
 
 /**
@@ -32,6 +33,14 @@ function resolveEnvVars(value: string): string {
     }
     return envValue;
   });
+}
+
+function parsePositiveInteger(value: unknown, fallback: number, max?: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    const parsed = Math.trunc(value);
+    return typeof max === "number" ? Math.min(parsed, max) : parsed;
+  }
+  return fallback;
 }
 
 export const honchoConfigSchema = {
@@ -81,6 +90,7 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      recentTailDedupeSize: parsePositiveInteger(cfg.recentTailDedupeSize, 0, 1000),
     };
   },
 };
