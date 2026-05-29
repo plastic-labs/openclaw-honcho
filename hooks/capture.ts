@@ -4,7 +4,9 @@ import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
+  classifySession,
   isSubagentSession,
+  normalizeSessionKey,
   extractMessages,
   extractSenderId,
   getRawContent,
@@ -14,19 +16,22 @@ import { subagentParentMap } from "./subagent.js";
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
  * Returns the number of new messages saved (or 0 if none).
+ * Exported for testability.
  */
-async function flushMessages(
+export async function flushMessages(
   api: OpenClawPluginApi,
   state: PluginState,
   messages: unknown[],
-  ctx: { sessionKey?: string; agentId?: string; messageProvider?: string },
+  ctx: { sessionKey?: string; agentId?: string; sessionId?: string; messageProvider?: string },
 ): Promise<number> {
   if (!messages?.length) return 0;
 
-  const sessionKey = buildSessionKey(ctx);
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
+  const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
+  const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
+  const sessionClass = classifySession(openclawSessionKey);
 
   await state.ensureInitialized();
   const agentPeer = await state.getAgentPeer(agentId);
@@ -37,6 +42,14 @@ async function flushMessages(
 
   const sessionMeta: Record<string, unknown> = {
     agentId,
+    openclawSessionKey,
+    sessionClass,
+    ...(typeof ctx.messageProvider === "string" && ctx.messageProvider.length > 0
+      ? { messageProvider: ctx.messageProvider }
+      : {}),
+    ...(typeof ctx.sessionId === "string" && ctx.sessionId.length > 0
+      ? { lastSessionId: ctx.sessionId }
+      : {}),
     ...(isSubagent ? {
       isSubagent: true,
       ...(parentPeer ? { parentPeerId: parentPeer.id } : {}),
@@ -162,7 +175,10 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
       }
     } finally {
-      const sessionKey = buildSessionKey(ctx);
+      const sessionKey = buildSessionKey(
+        { sessionKey: ctx.sessionKey, agentId: ctx.agentId },
+        state.resolveDefaultAgentId,
+      );
       state.turnStartIndex.delete(sessionKey);
       if (isSubagentSession(ctx)) subagentParentMap.delete(ctx.sessionKey ?? "");
     }
