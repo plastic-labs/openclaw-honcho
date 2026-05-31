@@ -30,7 +30,12 @@ function captureRegistrations() {
 function makeParticipantPeer() {
   return {
     id: "owner",
-    representation: vi.fn(async () => "Full representation text"),
+    representation: vi.fn(async (opts?: Record<string, unknown>) => {
+      if (opts && !("session" in opts)) {
+        throw new Error("representation() received unexpected options");
+      }
+      return "Full representation text";
+    }),
     card: vi.fn(async () => ["Fact 1", "Fact 2"]),
   };
 }
@@ -38,7 +43,12 @@ function makeParticipantPeer() {
 function makeAgentPeer() {
   return {
     id: "agent-main",
-    chat: vi.fn(async () => "Honcho answer"),
+    chat: vi.fn(async (_query: string, opts?: Record<string, unknown>) => {
+      if (opts && !("session" in opts)) {
+        throw new Error("chat() received unexpected options");
+      }
+      return "Honcho answer";
+    }),
   };
 }
 
