@@ -42,6 +42,12 @@
         "minimum": 1,
         "description": "HTTP timeout in milliseconds for Honcho SDK requests. Useful for slower self-hosted local models."
       },
+      "contextMaxConclusions": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Optional maximum number of conclusions to include in automatically injected Honcho context. Limits large peer representations in the system prompt."
+      },
       "noisePatterns": {
         "type": "array",
         "items": { "type": "string" },
@@ -86,6 +92,12 @@
       "advanced": true,
       "placeholder": "60000",
       "help": "Increase this for self-hosted Honcho deployments backed by slower local models."
+    },
+    "contextMaxConclusions": {
+      "label": "Context Max Conclusions",
+      "advanced": true,
+      "placeholder": "25",
+      "help": "Caps the number of conclusions included in automatically injected Honcho context."
     },
     "noisePatterns": {
       "label": "Noise Patterns",
