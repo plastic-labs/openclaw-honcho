@@ -38,7 +38,7 @@ function createMockState({
     resolveDefaultAgentId: vi.fn(() => "main"),
   } as unknown as PluginState;
 
-  return { state, session };
+  return { state, session, agentPeer };
 }
 
 function registerHandler(state: PluginState) {
@@ -74,5 +74,31 @@ describe("Honcho context injection", () => {
     }));
     expect(result.appendSystemContext).toContain("User context:");
     expect(result.appendSystemContext).toContain("large representation");
+  });
+
+  it("passes contextMaxConclusions directly to agentPeer.context for subagent sessions", async () => {
+    const { state, agentPeer } = createMockState({ contextMaxConclusions: 25 });
+    agentPeer.context.mockResolvedValue({
+      peerCard: ["IDENTITY: Name: Renaud"],
+      representation: "Subagent user context data",
+    });
+    const handler = registerHandler(state);
+
+    const result = await handler(
+      {
+        prompt: "hello from user",
+        messages: [{ role: "user", content: "hello" }],
+      },
+      { sessionKey: "agent:main:subagent:research-1", agentId: "main" },
+    ) as { appendSystemContext: string };
+
+    expect(agentPeer.context).toHaveBeenCalledWith(expect.objectContaining({
+      maxConclusions: 25,
+    }));
+    expect(agentPeer.context).not.toHaveBeenCalledWith(expect.objectContaining({
+      representationOptions: expect.anything(),
+    }));
+    expect(result.appendSystemContext).toContain("User context:");
+    expect(result.appendSystemContext).toContain("Subagent user context data");
   });
 });
