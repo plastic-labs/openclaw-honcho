@@ -127,13 +127,23 @@ export async function flushMessages(
   >;
   await session.addPeers(peerConfigs);
 
-  const extracted = extractMessages(
-    newRawMessages,
-    defaultParticipantPeer,
-    agentPeer,
-    state.cfg.noisePatterns,
-    (senderId) => resolvedPeers.get(senderId),
-  );
+  // Extract messages while tracking each one's source index in the raw
+  // `messages` array. extractMessages is stateless per message and yields at
+  // most one result per input, so extracting one-by-one preserves the same
+  // output while giving us the raw index needed to advance the saved-watermark
+  // safely when the batch is chunked below.
+  type ExtractedMessage = ReturnType<typeof extractMessages>[number];
+  const extracted: Array<{ message: ExtractedMessage; rawIndex: number }> = [];
+  for (let offset = 0; offset < newRawMessages.length; offset++) {
+    const [message] = extractMessages(
+      [newRawMessages[offset]],
+      defaultParticipantPeer,
+      agentPeer,
+      state.cfg.noisePatterns,
+      (senderId) => resolvedPeers.get(senderId),
+    );
+    if (message) extracted.push({ message, rawIndex: startIndex + offset });
+  }
 
   // participantSenderId = last active sender, used by tools to resolve the
   // session's current participant peer. Named "sender" (not "peer") to
@@ -152,13 +162,22 @@ export async function flushMessages(
     return 0;
   }
 
-  // Honcho's API rejects requests with more than 100 messages (HTTP 422).
-  // Chunk the batch so large turns and compaction/reset flushes still save.
-  const ADD_MESSAGES_LIMIT = 100;
-  for (let i = 0; i < extracted.length; i += ADD_MESSAGES_LIMIT) {
-    await session.addMessages(extracted.slice(i, i + ADD_MESSAGES_LIMIT));
+  // Honcho's API rejects requests with more than 100 messages (HTTP 422), so
+  // chunk the batch. Advance the saved-watermark after each chunk: if a later
+  // chunk fails, the next flush resumes after the messages already persisted
+  // instead of re-sending (and duplicating) them. The final chunk jumps the
+  // watermark to messages.length so trailing filtered (noise) messages aren't
+  // reprocessed, matching the original single-batch behavior.
+  const addMessagesLimit = 100;
+  for (let i = 0; i < extracted.length; i += addMessagesLimit) {
+    const chunk = extracted.slice(i, i + addMessagesLimit);
+    await session.addMessages(chunk.map((e) => e.message));
+    const isLastChunk = i + addMessagesLimit >= extracted.length;
+    const lastSavedIndex = isLastChunk
+      ? messages.length
+      : chunk[chunk.length - 1].rawIndex + 1;
+    await session.setMetadata({ ...updatedMeta, lastSavedIndex });
   }
-  await session.setMetadata(updatedMeta);
   return extracted.length;
 }
 
