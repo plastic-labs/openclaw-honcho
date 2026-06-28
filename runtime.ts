@@ -1,5 +1,5 @@
 import { buildSessionKey } from "./helpers.js";
-import { isLocalHonchoBaseUrl, type PluginState } from "./state.js";
+import { isManagedHonchoCloud, type PluginState } from "./state.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
@@ -218,7 +218,7 @@ export async function getHonchoMemorySearchManager(
       status() {
         return {
           backend: "qmd",
-          provider: isLocalHonchoBaseUrl(state.cfg.baseUrl) ? "honcho-selfhosted" : "honcho",
+          provider: isManagedHonchoCloud(state.cfg.baseUrl) ? "honcho" : "honcho-selfhosted",
           model: "n/a",
           sources: ["sessions"],
           custom: {
