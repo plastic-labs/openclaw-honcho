@@ -152,7 +152,12 @@ export async function flushMessages(
     return 0;
   }
 
-  await session.addMessages(extracted);
+  // Honcho's API rejects requests with more than 100 messages (HTTP 422).
+  // Chunk the batch so large turns and compaction/reset flushes still save.
+  const ADD_MESSAGES_LIMIT = 100;
+  for (let i = 0; i < extracted.length; i += ADD_MESSAGES_LIMIT) {
+    await session.addMessages(extracted.slice(i, i + ADD_MESSAGES_LIMIT));
+  }
   await session.setMetadata(updatedMeta);
   return extracted.length;
 }

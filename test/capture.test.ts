@@ -162,3 +162,32 @@ describe("flushMessages metadata", () => {
     expect(session.metadata).not.toHaveProperty("lastSessionId");
   });
 });
+
+describe("flushMessages batching", () => {
+  it("chunks addMessages into requests of at most 100 messages", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+
+    // 116 messages exceeds Honcho's 100-per-request limit (HTTP 422).
+    const messages = Array.from({ length: 116 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `message ${i}`,
+      timestamp: i + 1,
+    }));
+
+    const saved = await flushMessages(api, state, messages, {
+      sessionKey: "agent:main:discord:dm:user-1",
+      agentId: "main",
+    });
+
+    expect(saved).toBe(116);
+    expect(session.addMessages).toHaveBeenCalledTimes(2);
+    expect(session.addMessages.mock.calls[0][0]).toHaveLength(100);
+    expect(session.addMessages.mock.calls[1][0]).toHaveLength(16);
+    // Metadata is committed only after every chunk has been saved.
+    expect(session.setMetadata).toHaveBeenCalledTimes(1);
+    expect(session.setMetadata.mock.invocationCallOrder[0]).toBeGreaterThan(
+      session.addMessages.mock.invocationCallOrder[1],
+    );
+  });
+});
