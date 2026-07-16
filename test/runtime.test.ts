@@ -152,40 +152,25 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
 }
 
 describe("Honcho memory runtime", () => {
-  it("filters search results by session key and returns session transcript paths", async () => {
+  it("scopes search to the active session when crossSessionSearch is false", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
       sessionKey: "session-1",
     });
-    const results = await manager.search("remember", {
-      sessionKey: "session-1",
-      maxResults: 10,
-    });
+    const results = await manager.search("remember", { maxResults: 10 });
 
-    // Scoped search now matches the exact active session id only — new-scheme
-    // ids have a per-session hash suffix, so prefix-based child discovery is
-    // never load-bearing.
     expect(results).toHaveLength(1);
     expect(results[0]?.path).toBe("sessions/session-1.txt");
     expect(results[0]?.snippet).toBe("Need to remember this");
     expect(results[0]?.startLine).toBeGreaterThan(0);
     expect(results[0]?.endLine).toBeGreaterThanOrEqual(results[0]?.startLine ?? 0);
+    // Session-scoped path uses honcho.session(...).search — participant peer is untouched.
     expect(state.participantPeer?.search as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
-
-    const implicitScopeResults = await manager.search("remember", {
-      maxResults: 10,
-    });
-    expect(implicitScopeResults).toHaveLength(1);
-    await expect(
-      manager.search("remember", {
-        sessionKey: "other-session",
-      }),
-    ).rejects.toThrow(/outside the active session/);
   });
 
-  it("allows cross-session search when crossSessionSearch is true", async () => {
+  it("spans the participant peer's sessions when crossSessionSearch is true", async () => {
     const state = createState();
 
     const { manager } = await getHonchoMemorySearchManager(state, {
@@ -193,16 +178,40 @@ describe("Honcho memory runtime", () => {
       sessionKey: "session-1",
     });
 
-    const results = await manager.search("remember", {
-      sessionKey: "other-session",
-    });
-    expect(results.length).toBeGreaterThan(0);
+    const results = await manager.search("anything");
+    expect(state.participantPeer?.search as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+    // Mock participant peer returns hits across session-1, session-1-child, other-session.
+    const paths = new Set(results.map((r) => r.path));
+    expect(paths.has("sessions/session-1.txt")).toBe(true);
+    expect(paths.has("sessions/other-session.txt")).toBe(true);
 
     const file = await manager.readFile({
       relPath: "sessions/other-session.txt",
     });
     expect(file.path).toBe("sessions/other-session.txt");
     expect(file.text).toContain("Other summary");
+  });
+
+  it("honors a per-call crossSessionSearch override", async () => {
+    // Config default = false (scope to session); override = true (cross-session).
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
+
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    await manager.search("q", { crossSessionSearch: true });
+    expect(state.participantPeer?.search as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+
+    // Inverse: config true, per-call override false → session-scoped.
+    const scopedState = createState();
+    const { manager: scopedManager } = await getHonchoMemorySearchManager(scopedState, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+    await scopedManager.search("q", { crossSessionSearch: false });
+    expect(scopedState.participantPeer?.search as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
   it("reads scoped transcript slices and resolves backend metadata", async () => {
@@ -240,16 +249,13 @@ describe("Honcho memory runtime", () => {
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {
-    const state = createState();
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
     const { manager } = await getHonchoMemorySearchManager(state, {
       agentId: "main",
       sessionKey: "session-2",
     });
 
-    const [result] = await manager.search("beta", {
-      sessionKey: "session-2",
-      maxResults: 5,
-    });
+    const [result] = await manager.search("beta", { maxResults: 5 });
 
     expect(result?.path).toBe("sessions/session-2.txt");
     expect(result?.startLine).toBe(8);
@@ -265,11 +271,7 @@ describe("Honcho memory runtime", () => {
       sessionKey: "session-1",
     });
 
-    await expect(
-      manager.search("remember", {
-        sessionKey: "session-1",
-      }),
-    ).rejects.toThrow(/owner peer not initialized/);
+    await expect(manager.search("remember")).rejects.toThrow(/owner peer not initialized/);
     await expect(
       manager.readFile({
         relPath: "sessions/session-1.txt",

@@ -60,7 +60,7 @@
       "crossSessionSearch": {
         "type": "boolean",
         "default": true,
-        "description": "When true (default), memory_search/memory_get can return results from any session in the workspace. When false, results are scoped to the active session and its child sessions only."
+        "description": "Default scope for memory_search. When true (default), results span every session the participant peer has written to. When false, results are scoped to the active session. Per-call override available via the memory_search `crossSession` parameter."
       }
     }
   },
