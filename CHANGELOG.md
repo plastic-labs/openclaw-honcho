@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`crossSessionSearch` flag now actually toggles search strategy**: `memory_search` was always session-scoped regardless of the flag, so cross-session queries returned `[]`. Config default (`true`) now spans the participant peer's sessions; `false` scopes to the active session. Adds optional `crossSessionSearch` parameter on `memory_search` for per-call override.
+
 ## [1.5.1] - 2026-05-21
 
 ### Fixed
