@@ -9,6 +9,9 @@ const MemorySearchSchema = Type.Object({
   query: Type.String(),
   maxResults: Type.Optional(Type.Number()),
   minScore: Type.Optional(Type.Number()),
+  crossSessionSearch: Type.Optional(Type.Boolean({
+    description: "Override the plugin's crossSessionSearch config for this call. true = search across all of the participant's sessions; false = scope to the active session.",
+  })),
 }, { additionalProperties: false });
 
 const MemoryGetSchema = Type.Object({
@@ -98,6 +101,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const query = readStringParam(p, "query", { required: true });
         const maxResults = readNumberParam(p, "maxResults");
         readNumberParam(p, "minScore");
+        const crossSessionSearch = typeof p.crossSessionSearch === "boolean" ? p.crossSessionSearch : undefined;
         const honchoSessionKey = buildSessionKey({
           sessionKey: ctx.sessionKey,
           agentId: ctx.agentId,
@@ -110,7 +114,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
           });
           const results = await manager.search(query, {
             maxResults: maxResults ?? undefined,
-            sessionKey: honchoSessionKey,
+            crossSessionSearch,
           });
           const status = manager.status();
           return jsonResult({

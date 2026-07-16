@@ -125,7 +125,7 @@ export async function getHonchoMemorySearchManager(
 
   return {
     manager: {
-      async search(query: string, opts: { maxResults?: number; sessionKey?: string } = {}) {
+      async search(query: string, opts: { maxResults?: number; crossSessionSearch?: boolean } = {}) {
         await state.ensureInitialized();
         const participantPeer = activeSessionKey
           ? await state.resolveSessionParticipantPeer(activeSessionKey)
@@ -134,49 +134,27 @@ export async function getHonchoMemorySearchManager(
           ? Number(opts.maxResults)
           : DEFAULT_SEARCH_RESULTS;
         const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
-        const requestedSessionKey =
-          typeof opts.sessionKey === "string" && opts.sessionKey.length > 0
-            ? opts.sessionKey
-            : activeSessionKey ?? null;
-        const scopeEnabled = !state.cfg.crossSessionSearch;
-        if (
-          scopeEnabled &&
-          activeSessionKey &&
-          requestedSessionKey &&
-          !matchesSessionScope(requestedSessionKey, activeSessionKey)
-        ) {
-          throw new Error(
-            `Requested Honcho session is outside the active session: ${requestedSessionKey}`
-          );
-        }
-        const transcriptCache = new Map<string, Promise<string>>();
-        const seenSessionIds = new Set<string>();
+
+        const crossSession = opts.crossSessionSearch ?? state.cfg.crossSessionSearch;
+        const rawResults: Array<any> = crossSession || !activeSessionKey
+          ? await participantPeer.search(query, { limit })
+          : await (
+              await state.honcho.session(activeSessionKey, { metadata: { agentId } })
+            ).search(query, { limit });
+
+        const seen = new Set<string>();
         const filtered: Array<any> = [];
-
-        const collect = (messages: Array<any>) => {
-          for (const msg of messages) {
-            if (filtered.length >= limit) break;
-            const sessionId = typeof msg?.sessionId === "string" ? msg.sessionId : "";
-            if (!sessionId || seenSessionIds.has(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`)) {
-              continue;
-            }
-            if (scopeEnabled && requestedSessionKey && !matchesSessionScope(sessionId, requestedSessionKey)) {
-              continue;
-            }
-            seenSessionIds.add(`${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`);
-            filtered.push(msg);
-          }
-        };
-
-        if (requestedSessionKey) {
-          const exactSession = await state.honcho.session(requestedSessionKey, {
-            metadata: { agentId },
-          });
-          collect(await exactSession.search(query, { limit }));
-        } else {
-          collect(await participantPeer.search(query, { limit }));
+        for (const msg of rawResults) {
+          if (filtered.length >= limit) break;
+          const sessionId = typeof msg?.sessionId === "string" ? msg.sessionId : "";
+          if (!sessionId) continue;
+          const dedupeKey = `${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          filtered.push(msg);
         }
 
+        const transcriptCache = new Map<string, Promise<string>>();
         return Promise.all(
           filtered.map(async (msg: any) => {
             const snippet = typeof msg.content === "string" ? msg.content : "";
