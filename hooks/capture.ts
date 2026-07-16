@@ -56,7 +56,9 @@ export async function flushMessages(
     } : {}),
   };
 
-  const session = await state.honcho.session(sessionKey, { metadata: sessionMeta });
+  // Don't pass metadata: it replaces persisted metadata on existing sessions,
+  // wiping lastSavedIndex.
+  const session = await state.honcho.session(sessionKey);
   const meta = await session.getMetadata();
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
@@ -127,11 +129,8 @@ export async function flushMessages(
   >;
   await session.addPeers(peerConfigs);
 
-  // Extract messages while tracking each one's source index in the raw
-  // `messages` array. extractMessages is stateless per message and yields at
-  // most one result per input, so extracting one-by-one preserves the same
-  // output while giving us the raw index needed to advance the saved-watermark
-  // safely when the batch is chunked below.
+  // Extract one-by-one to pair each output with its raw index — needed to
+  // advance the saved-watermark safely when the batch is chunked below.
   type ExtractedMessage = ReturnType<typeof extractMessages>[number];
   const extracted: Array<{ message: ExtractedMessage; rawIndex: number }> = [];
   for (let offset = 0; offset < newRawMessages.length; offset++) {
@@ -162,12 +161,9 @@ export async function flushMessages(
     return 0;
   }
 
-  // Honcho's API rejects requests with more than 100 messages (HTTP 422), so
-  // chunk the batch. Advance the saved-watermark after each chunk: if a later
-  // chunk fails, the next flush resumes after the messages already persisted
-  // instead of re-sending (and duplicating) them. The final chunk jumps the
-  // watermark to messages.length so trailing filtered (noise) messages aren't
-  // reprocessed, matching the original single-batch behavior.
+  // Honcho rejects >100 messages per request (HTTP 422). Advance the watermark
+  // per chunk so a mid-batch failure doesn't re-send persisted chunks. Last
+  // chunk jumps to messages.length to cover trailing filtered noise messages.
   const addMessagesLimit = 100;
   for (let i = 0; i < extracted.length; i += addMessagesLimit) {
     const chunk = extracted.slice(i, i + addMessagesLimit);

@@ -41,7 +41,13 @@ function createMockState(): { state: PluginState; session: SessionStub } {
       baseUrl: "https://api.honcho.dev",
     },
     honcho: {
-      session: vi.fn(async () => session),
+      // Mirrors real Honcho SDK: passing `metadata` on session() REPLACES the
+      // persisted metadata. Tests that don't want this clobber must call
+      // session() without a metadata argument.
+      session: vi.fn(async (_key: string, opts?: { metadata?: CapturedMeta }) => {
+        if (opts?.metadata) session.metadata = { ...opts.metadata };
+        return session;
+      }),
     },
     turnStartIndex: new Map<string, number>(),
     ensureInitialized: vi.fn(async () => undefined),
@@ -194,6 +200,27 @@ describe("flushMessages batching", () => {
       session.addMessages.mock.invocationCallOrder[0],
     );
     expect(session.metadata.lastSavedIndex).toBe(116);
+  });
+
+  it("re-flushing the same messages is a no-op (does not duplicate)", async () => {
+    // Regression test: passing `metadata` to honcho.session() on an existing
+    // session used to REPLACE persisted metadata, wiping `lastSavedIndex`
+    // before it was read. The second flush then saw lastSavedIndex=0 and
+    // re-sent every message, duplicating them in Honcho.
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+    const messages = [
+      { role: "user", content: "hello", timestamp: 1 },
+      { role: "assistant", content: "hi", timestamp: 2 },
+    ];
+    const ctx = { sessionKey: "agent:main:discord:dm:user-1", agentId: "main" };
+
+    const first = await flushMessages(api, state, messages, ctx);
+    expect(first).toBe(2);
+
+    const second = await flushMessages(api, state, messages, ctx);
+    expect(second).toBe(0);
+    expect(session.addMessages).toHaveBeenCalledTimes(1);
   });
 
   it("does not re-send persisted chunks when a later chunk fails mid-batch", async () => {
