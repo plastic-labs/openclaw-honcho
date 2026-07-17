@@ -14,7 +14,7 @@ export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState):
         })`,
       );
     } catch (error) {
-      api.logger.error(`Failed to initialize Honcho: ${error}`);
+      api.logger.error(`Failed to initialize Honcho at ${state.cfg.baseUrl}: ${error}`);
     }
   });
 }

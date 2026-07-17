@@ -18,28 +18,17 @@ import {
 export const OWNER_ID = "owner";
 export const LEGACY_PEER_ID = "openclaw";
 
-/** Apex domain of the managed Honcho cloud — the only deployment that requires an API key. */
-export const HONCHO_CLOUD_DOMAIN = "honcho.dev";
+export const HONCHO_CLOUD_HOSTNAME = "api.honcho.dev";
 
 /**
- * True when the base URL points at the managed Honcho cloud, i.e. the
- * `honcho.dev` apex or any of its subdomains (e.g. `api.honcho.dev`).
- * The cloud is the only deployment that requires an API key; any other base
- * URL — localhost or a custom self-hosted domain — is treated as self-hosted.
- * An empty/unset base URL is treated as cloud, matching the config default
- * (https://api.honcho.dev).
+ * True when the base URL points at the managed Honcho cloud
+ * (api.honcho.dev). The cloud is the only deployment that requires an API
+ * key; any other base URL — localhost or a custom self-hosted domain — is
+ * treated as self-hosted.
  */
-export function isManagedHonchoCloud(baseUrl?: string): boolean {
-  const base = String(baseUrl ?? "").trim();
-  if (!base) return true;
-
+export function isManagedHonchoCloud(baseUrl: string): boolean {
   try {
-    const { hostname } = new URL(base);
-    const normalizedHost = hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
-    return (
-      normalizedHost === HONCHO_CLOUD_DOMAIN ||
-      normalizedHost.endsWith(`.${HONCHO_CLOUD_DOMAIN}`)
-    );
+    return new URL(baseUrl).hostname.toLowerCase() === HONCHO_CLOUD_HOSTNAME;
   } catch {
     return false;
   }
