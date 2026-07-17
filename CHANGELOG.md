@@ -4,9 +4,12 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-17
+
 ### Fixed
-- **`crossSessionSearch` flag now actually toggles search strategy**: `memory_search` was always session-scoped regardless of the flag, so cross-session queries returned `[]`. Config default (`true`) now spans the participant peer's sessions; `false` scopes to the active session. Adds optional `crossSessionSearch` parameter on `memory_search` for per-call override.
+- **`crossSessionSearch` flag now actually toggles search strategy (#113)**: `memory_search` was always session-scoped regardless of the flag, so cross-session queries returned `[]`. Config default (`true`) now spans the participant peer's sessions; `false` scopes to the active session. Adds optional `crossSessionSearch` parameter on `memory_search` for per-call override.
 - **`flushMessages` reliability (#108)**: chunk `addMessages` under Honcho's 100/request limit and stop clobbering `lastSavedIndex`, preventing lost or duplicated messages on large or repeated flushes.
+- **No spurious API-key warning for self-hosted deployments (#109)**: only `api.honcho.dev` is treated as the managed cloud, so self-hosted instances on a custom domain no longer log a missing-API-key warning on startup and now correctly report `provider: "honcho-selfhosted"`.
 
 ## [1.5.1] - 2026-05-21
 
