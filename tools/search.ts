@@ -2,7 +2,7 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey } from "../helpers.js";
+import { resolveRoutedToolContext } from "./routed-context.js";
 
 export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -47,12 +47,12 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
           about?: string;
         };
 
-        await state.ensureInitialized();
+        const routed = resolveRoutedToolContext(state, toolCtx);
+        const workspaceState = routed.state;
+        await workspaceState.ensureInitialized();
         const participantPeer = about
-          ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(
-              buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
-            );
+          ? await workspaceState.getParticipantPeer(about)
+          : await workspaceState.resolveSessionParticipantPeer(routed.honchoSessionKey);
 
         const representation = await participantPeer.representation({
           searchQuery: query,

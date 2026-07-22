@@ -50,6 +50,27 @@ export function workspaceRouteContextFromAgentHook(input: unknown): WorkspaceRou
   });
 }
 
+/** Select only host-owned routing fields from a plugin tool factory context. */
+export function workspaceRouteContextFromToolFactory(input: unknown): WorkspaceRouteContext {
+  const ctx = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const deliveryContext = ctx.deliveryContext && typeof ctx.deliveryContext === "object"
+    ? ctx.deliveryContext as Record<string, unknown>
+    : {};
+  const rawThreadId = deliveryContext.threadId;
+  return normalizeWorkspaceRouteContext({
+    agentId: stringField(ctx, "agentId"),
+    sessionKey: stringField(ctx, "sessionKey"),
+    sessionId: stringField(ctx, "sessionId"),
+    channel: stringField(deliveryContext, "channel") ?? stringField(ctx, "messageChannel"),
+    accountId: routingScalarField(deliveryContext, "accountId")
+      ?? routingScalarField(ctx, "agentAccountId"),
+    threadId: typeof rawThreadId === "string" || typeof rawThreadId === "number"
+      ? String(rawThreadId)
+      : undefined,
+    destination: routingScalarField(deliveryContext, "to"),
+  });
+}
+
 export class WorkspaceRoutingError extends Error {
   constructor(readonly routeReason: string) {
     super(`workspace routing denied: ${routeReason}`);
@@ -174,13 +195,22 @@ export function resolveWorkspaceRoute(
   const existing = bindings.get(context.sessionKey);
   if (existing) {
     const ruleWorkspaces = matchingWorkspaces({ ...config, workspaceRoutingRules: rules }, context);
+    if (ruleWorkspaces.length > 0) {
+      const conflictingWorkspace = ruleWorkspaces.find((workspaceId) => workspaceId !== existing);
+      if (conflictingWorkspace) {
+        return { status: "binding-conflict", workspaceId: existing, requestedWorkspaceId: conflictingWorkspace };
+      }
+      // Explicit trusted route metadata outranks the agent-wide default. A
+      // matching explicit route must remain stable on every tool/hook access.
+      return { status: "resolved", workspaceId: existing, source: "binding" };
+    }
     // A child agent's own agent-wide mapping must not displace the workspace
     // inherited from its requester. Explicit trusted route metadata can still
     // report a conflict, and an already-bound child is never rebound.
     const agentWorkspace = context.agentId && !bindings.isInherited(context.sessionKey)
       ? agentMap[context.agentId.trim().toLowerCase()]
       : undefined;
-    const conflictingWorkspace = [...ruleWorkspaces, ...(agentWorkspace ? [agentWorkspace] : [])]
+    const conflictingWorkspace = (agentWorkspace ? [agentWorkspace] : [])
       .find((workspaceId) => workspaceId !== existing);
     if (conflictingWorkspace) {
       return { status: "binding-conflict", workspaceId: existing, requestedWorkspaceId: conflictingWorkspace };
@@ -234,6 +264,25 @@ export function resolveAgentHookWorkspaceOrThrow(
   const context = workspaceRouteContextFromAgentHook(input);
   if (!context.sessionKey) throw new WorkspaceRoutingError("missing-session-key");
   return resolveOrThrow(config, context, bindings);
+}
+
+/** Tool factories use only trusted host context and require a session binding. */
+export function resolveToolWorkspaceOrThrow(
+  config: HonchoConfig,
+  input: unknown,
+  bindings: SessionWorkspaceBindingStore,
+): { workspaceId: string; context: WorkspaceRouteContext } {
+  const context = workspaceRouteContextFromToolFactory(input);
+  if (!context.sessionKey) throw new WorkspaceRoutingError("missing-session-key");
+  return {
+    workspaceId: resolveOrThrow(config, context, bindings),
+    context,
+  };
+}
+
+/** Safe user-facing/tool diagnostic: route reasons are useful; provider details are not. */
+export function safeToolError(error: unknown): string {
+  return error instanceof WorkspaceRoutingError ? error.message : "memory provider unavailable";
 }
 
 /** Memory callbacks lack trusted turn metadata; only agent-wide routes are safe. */

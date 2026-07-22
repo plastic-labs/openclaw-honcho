@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { Message } from "@honcho-ai/sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey } from "../helpers.js";
+import { resolveRoutedToolContext } from "./routed-context.js";
 
 export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -76,7 +76,9 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
           limit?: number;
         };
 
-        await state.ensureInitialized();
+        const routed = resolveRoutedToolContext(state, toolCtx);
+        const workspaceState = routed.state;
+        await workspaceState.ensureInitialized();
 
         // Build filters from remaining parameters (metadata, date range)
         const filters: Record<string, unknown> = {};
@@ -100,16 +102,14 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         let messages: Message[];
         if (from === "user") {
           const participantPeer = about
-            ? await state.getParticipantPeer(about)
-            : await state.resolveSessionParticipantPeer(
-                buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
-              );
+            ? await workspaceState.getParticipantPeer(about)
+            : await workspaceState.resolveSessionParticipantPeer(routed.honchoSessionKey);
           messages = await participantPeer.search(query, searchOpts);
         } else if (from === "agent") {
-          const agentPeer = await state.getAgentPeer(toolCtx.agentId);
+          const agentPeer = await workspaceState.getAgentPeer(routed.agentId);
           messages = await agentPeer.search(query, searchOpts);
         } else {
-          messages = await state.honcho.search(query, searchOpts);
+          messages = await workspaceState.honcho.search(query, searchOpts);
         }
 
         if (!messages.length) {
@@ -125,7 +125,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
         }
 
         const results = messages.map((msg) => {
-          const speaker = state.isParticipantPeerId(msg.peerId) ? "User" : "Agent";
+          const speaker = workspaceState.isParticipantPeerId(msg.peerId) ? "User" : "Agent";
           return {
             id: msg.id,
             content: msg.content,

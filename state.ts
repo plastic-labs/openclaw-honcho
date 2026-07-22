@@ -105,6 +105,8 @@ export type PluginState = PerWorkspaceState & {
   getWorkspaceState: (workspaceId: string) => PerWorkspaceState;
   /** Shared immutable route relation for all lifecycle hooks. */
   sessionWorkspaceBindings: SessionWorkspaceBindingStore;
+  /** Immutable ownership for synthetic Honcho session ids used by memory paths. */
+  honchoSessionWorkspaceBindings: SessionWorkspaceBindingStore;
   /** Subagent identity metadata; routing itself lives in sessionWorkspaceBindings. */
   subagentRelations: Map<string, { parentSessionKey: string; parentAgentId?: string }>;
 };
@@ -329,6 +331,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
 
   const workspaces = new Map<string, PerWorkspaceState>();
   const sessionWorkspaceBindings = new SessionWorkspaceBindingStore();
+  const honchoSessionWorkspaceBindings = new SessionWorkspaceBindingStore();
   const subagentRelations = new Map<string, { parentSessionKey: string; parentAgentId?: string }>();
 
   function getWorkspaceState(rawWorkspaceId: string): PerWorkspaceState {
@@ -359,6 +362,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     workspaces,
     getWorkspaceState,
     sessionWorkspaceBindings,
+    honchoSessionWorkspaceBindings,
     subagentRelations,
     get workspaceId() { return defaultState.workspaceId; },
     get workspaceKey() { return defaultState.workspaceKey; },

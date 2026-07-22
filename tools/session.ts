@@ -2,7 +2,8 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, cleanMessageContent } from "../helpers.js";
+import { cleanMessageContent } from "../helpers.js";
+import { resolveRoutedToolContext } from "./routed-context.js";
 
 export function registerSessionTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -59,18 +60,17 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           about?: string;
         };
 
-        await state.ensureInitialized();
-        const agentPeer = await state.getAgentPeer(toolCtx.agentId);
-        const sessionKey = buildSessionKey({
-          sessionKey: toolCtx.sessionKey,
-          agentId: toolCtx.agentId,
-        });
+        const routed = resolveRoutedToolContext(state, toolCtx);
+        const workspaceState = routed.state;
+        await workspaceState.ensureInitialized();
+        const agentPeer = await workspaceState.getAgentPeer(routed.agentId);
+        const sessionKey = routed.honchoSessionKey;
         const participantPeer = about
-          ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(sessionKey);
+          ? await workspaceState.getParticipantPeer(about)
+          : await workspaceState.resolveSessionParticipantPeer(sessionKey);
 
         try {
-          const session = await state.honcho.session(sessionKey);
+          const session = await workspaceState.honcho.session(sessionKey);
 
           const context = await session.context({
             summary: includeSummary,
@@ -102,7 +102,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
 
           if (includeMessages && context.messages.length > 0) {
             const messageLines = context.messages.map((msg) => {
-              const speaker = state.isParticipantPeerId(msg.peerId) ? "User" : "OpenClaw";
+              const speaker = workspaceState.isParticipantPeerId(msg.peerId) ? "User" : "OpenClaw";
               const timestamp = msg.createdAt
                 ? new Date(msg.createdAt).toLocaleString()
                 : "";

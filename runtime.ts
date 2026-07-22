@@ -1,6 +1,9 @@
 import { buildSessionKey } from "./helpers.js";
-import { isManagedHonchoCloud, type PluginState } from "./state.js";
-import { resolveMemoryRuntimeWorkspace } from "./routing.js";
+import { isManagedHonchoCloud, type PerWorkspaceState, type PluginState } from "./state.js";
+import {
+  resolveMemoryRuntimeWorkspace,
+  WorkspaceRoutingError,
+} from "./routing.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
@@ -33,7 +36,7 @@ function sliceLines(text: string, from = 1, lines?: number): string {
 
 /** Reconstruct a readable session transcript from Honcho session context data. */
 async function buildSessionTranscript(
-  state: PluginState,
+  state: PerWorkspaceState,
   agentId: string,
   sessionId: string
 ): Promise<string> {
@@ -117,22 +120,42 @@ function findSnippetLineRange(transcript: string, snippet: string): { startLine:
  * memory_search / memory_get compatibility tools.
  */
 export async function getHonchoMemorySearchManager(
-  state: PluginState,
-  params: { agentId?: string; sessionKey?: string } = {}
+  pluginState: PluginState,
+  params: { agentId?: string; sessionKey?: string; workspaceId?: string } = {}
 ) {
-  const { agentId = state.resolveDefaultAgentId(), sessionKey: activeSessionKey } = params;
-
-  // The registered memory callback has no trusted turn/channel context. It may
-  // use only an unambiguous agent-wide route; never guess from a chat session.
-  const memoryWorkspace = resolveMemoryRuntimeWorkspace(state.cfg, agentId);
-  if (!memoryWorkspace) {
-    throw new Error("memory routing unavailable: no unambiguous agent-wide workspace");
+  const workspaceId = params.workspaceId
+    ?? resolveMemoryRuntimeWorkspace(pluginState.cfg, params.agentId);
+  if (!workspaceId) {
+    throw new WorkspaceRoutingError("ambiguous-memory-route");
   }
-  if (memoryWorkspace !== state.cfg.workspaceId) {
-    throw new Error("memory routing unavailable: workspace-scoped state is not available in Phase 1");
+
+  // Selecting the workspace state happens only after the agent-wide or
+  // tool-context route has been resolved.
+  const state = pluginState.getWorkspaceState(workspaceId);
+  const agentId = params.agentId ?? state.resolveDefaultAgentId();
+  const activeSessionKey = params.sessionKey;
+
+  if (activeSessionKey) {
+    const ownership = pluginState.honchoSessionWorkspaceBindings.bind(activeSessionKey, workspaceId);
+    if (ownership.status === "binding-conflict") {
+      throw new WorkspaceRoutingError("session-ownership-conflict");
+    }
   }
 
   await state.ensureInitialized();
+
+  function requireSessionOwnership(sessionId: string): void {
+    if (pluginState.honchoSessionWorkspaceBindings.get(sessionId) !== workspaceId) {
+      throw new WorkspaceRoutingError("session-ownership-unverified");
+    }
+  }
+
+  function claimSessionOwnership(sessionId: string): void {
+    const ownership = pluginState.honchoSessionWorkspaceBindings.bind(sessionId, workspaceId);
+    if (ownership.status === "binding-conflict") {
+      throw new WorkspaceRoutingError("session-ownership-conflict");
+    }
+  }
 
   return {
     manager: {
@@ -159,6 +182,7 @@ export async function getHonchoMemorySearchManager(
           if (filtered.length >= limit) break;
           const sessionId = typeof msg?.sessionId === "string" ? msg.sessionId : "";
           if (!sessionId) continue;
+          claimSessionOwnership(sessionId);
           const dedupeKey = `${sessionId}:${String(msg?.id ?? msg?.createdAt ?? msg?.content ?? "")}`;
           if (seen.has(dedupeKey)) continue;
           seen.add(dedupeKey);
@@ -196,6 +220,7 @@ export async function getHonchoMemorySearchManager(
         if (!state.cfg.crossSessionSearch && activeSessionKey && !matchesSessionScope(sessionId, activeSessionKey)) {
           throw new Error(`Requested Honcho memory path is outside the active session: ${params.relPath}`);
         }
+        requireSessionOwnership(sessionId);
 
         const transcript = await buildSessionTranscript(state, agentId, sessionId);
         return {
@@ -212,7 +237,7 @@ export async function getHonchoMemorySearchManager(
           sources: ["sessions"],
           custom: {
             searchMode: "semantic",
-            workspaceId: state.cfg.workspaceId,
+            workspaceId,
             baseUrl: state.cfg.baseUrl,
           },
         };
@@ -248,8 +273,10 @@ export function registerHonchoMemoryRuntime(api: any, state: PluginState): void 
   }
 
   api.registerMemoryRuntime({
-    getMemorySearchManager(params: { agentId?: string; sessionKey?: string }) {
-      return getHonchoMemorySearchManager(state, params);
+    getMemorySearchManager(params: { agentId?: string; purpose?: string }) {
+      // The SDK callback does not carry trusted chat/session routing context.
+      // Deliberately ignore any extra runtime field a host version may attach.
+      return getHonchoMemorySearchManager(state, { agentId: params.agentId });
     },
 
     resolveMemoryBackendConfig(params: { sessionKey?: string; agentId?: string } = {}) {

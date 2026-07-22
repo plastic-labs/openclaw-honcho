@@ -5,6 +5,7 @@ import {
   normalizeWorkspaceRouteContext,
   resolveWorkspaceRoute,
   SessionWorkspaceBindingStore,
+  workspaceRouteContextFromToolFactory,
 } from "../routing.js";
 
 describe("workspace routing configuration", () => {
@@ -35,6 +36,31 @@ describe("workspace routing configuration", () => {
   it("normalizes trusted context without accepting arbitrary fields", () => {
     expect(normalizeWorkspaceRouteContext({ agentId: " Main ", channel: "Telegram", chatId: " 42 ", sessionKey: "s", destination: "x" })).toEqual({
       agentId: "main", channel: "telegram", chatId: "42", sessionKey: "s", destination: "x",
+    });
+  });
+
+  it("normalizes only host-owned tool factory routing fields", () => {
+    expect(workspaceRouteContextFromToolFactory({
+      agentId: " Main ",
+      sessionKey: " session ",
+      sessionId: "turn-id",
+      messageChannel: "fallback-channel",
+      agentAccountId: "fallback-account",
+      deliveryContext: {
+        channel: "Telegram",
+        to: 42,
+        accountId: "bot-account",
+        threadId: 7,
+      },
+      workspaceId: "attacker-chosen",
+    })).toEqual({
+      agentId: "main",
+      sessionKey: "session",
+      sessionId: "turn-id",
+      channel: "telegram",
+      destination: "42",
+      accountId: "bot-account",
+      threadId: "7",
     });
   });
 
@@ -128,6 +154,27 @@ describe("immutable session workspace bindings", () => {
       status: "resolved", workspaceId: "one", source: "binding",
     });
     expect(store.get("s")).toBe("one");
+  });
+
+  it("keeps an explicit rule binding ahead of a different agent-wide default", () => {
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { main: "personal" },
+      workspaceRoutingRules: [{ workspaceId: "work", channel: "telegram", destination: "group" }],
+      strictWorkspaceRouting: true,
+    });
+    const store = new SessionWorkspaceBindingStore();
+    expect(resolveWorkspaceRoute(cfg, {
+      sessionKey: "s",
+      agentId: "main",
+      channel: "telegram",
+      destination: "group",
+    }, store)).toMatchObject({ workspaceId: "work", source: "rule" });
+    expect(resolveWorkspaceRoute(cfg, {
+      sessionKey: "s",
+      agentId: "main",
+      channel: "telegram",
+      destination: "group",
+    }, store)).toEqual({ status: "resolved", workspaceId: "work", source: "binding" });
   });
 });
 

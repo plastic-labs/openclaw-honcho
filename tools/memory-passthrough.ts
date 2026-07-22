@@ -2,8 +2,9 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey } from "../helpers.js";
 import { getHonchoMemorySearchManager } from "../runtime.js";
+import { safeToolError } from "../routing.js";
+import { resolveRoutedToolContext } from "./routed-context.js";
 
 const MemorySearchSchema = Type.Object({
   query: Type.String(),
@@ -102,15 +103,13 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const maxResults = readNumberParam(p, "maxResults");
         readNumberParam(p, "minScore");
         const crossSessionSearch = typeof p.crossSessionSearch === "boolean" ? p.crossSessionSearch : undefined;
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-          agentId: ctx.agentId,
-        });
 
         try {
+          const routed = resolveRoutedToolContext(state, ctx);
           const { manager } = await getHonchoMemorySearchManager(state, {
-            agentId: ctx.agentId,
-            sessionKey: honchoSessionKey,
+            agentId: routed.agentId,
+            sessionKey: routed.honchoSessionKey,
+            workspaceId: routed.workspaceId,
           });
           const results = await manager.search(query, {
             maxResults: maxResults ?? undefined,
@@ -124,8 +123,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
             mode: (status.custom as { searchMode?: string } | undefined)?.searchMode,
           });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return jsonResult(buildMemorySearchUnavailableResult(message));
+          return jsonResult(buildMemorySearchUnavailableResult(safeToolError(err)));
         }
       },
     }),
@@ -144,15 +142,13 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
         const relPath = readStringParam(p, "path", { required: true });
         const from = readNumberParam(p, "from", { integer: true });
         const lines = readNumberParam(p, "lines", { integer: true });
-        const honchoSessionKey = buildSessionKey({
-          sessionKey: ctx.sessionKey,
-          agentId: ctx.agentId,
-        });
 
         try {
+          const routed = resolveRoutedToolContext(state, ctx);
           const { manager } = await getHonchoMemorySearchManager(state, {
-            agentId: ctx.agentId,
-            sessionKey: honchoSessionKey,
+            agentId: routed.agentId,
+            sessionKey: routed.honchoSessionKey,
+            workspaceId: routed.workspaceId,
           });
           const result = await manager.readFile({
             relPath,
@@ -161,8 +157,7 @@ export function registerMemoryPassthrough(api: OpenClawPluginApi, state: PluginS
           });
           return jsonResult(result);
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return jsonResult({ path: relPath, text: "", disabled: true, error: message });
+          return jsonResult({ path: relPath, text: "", disabled: true, error: safeToolError(err) });
         }
       },
     }),
