@@ -6,13 +6,22 @@ import * as readline from "node:readline";
 import { Honcho } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { honchoConfigSchema, type HonchoConfig } from "../config.js";
+import { resolveMemoryRuntimeWorkspace, WorkspaceRoutingError } from "../routing.js";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 
 /* ── Upload manifest ─────────────────────────────────────────────────── */
 
-type ManifestEntry = { sha256: string; uploadedAt: string; baseUrl: string; workspaceId: string };
-type UploadManifest = Record<string, ManifestEntry>;
+export type ManifestEntry = {
+  sha256: string;
+  uploadedAt: string;
+  baseUrl: string;
+  workspaceId: string;
+  filePath: string;
+  peerId: string;
+};
+export type UploadManifest = Record<string, ManifestEntry>;
 
 const MANIFEST_PATH = () => path.join(os.homedir(), ".openclaw", ".upload-manifest.json");
 
@@ -30,8 +39,87 @@ function saveManifest(manifest: UploadManifest): void {
   fs.writeFileSync(MANIFEST_PATH(), JSON.stringify(manifest, null, 2));
 }
 
+/** Remove only entries whose destination file no longer exists. */
+export function pruneStaleUploadManifestEntries(manifest: UploadManifest): void {
+  for (const [key, entry] of Object.entries(manifest)) {
+    // v2 keys are opaque hashes and carry their canonical path in the entry.
+    // Legacy manifests used the canonical file path itself as the key.
+    const filePath = key.startsWith("v2:") ? entry?.filePath : key;
+    if (!filePath || !fs.existsSync(filePath)) delete manifest[key];
+  }
+}
+
 function contentHash(content: Buffer): string {
   return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function requiredCliId(value: string | undefined, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 256 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new WorkspaceRoutingError(`invalid-${field}`);
+  }
+  return normalized;
+}
+
+export type CliWorkspaceSelection = {
+  workspaceId: string;
+  agentId?: string;
+  source: "operator" | "agent" | "legacy";
+};
+
+/**
+ * CLI commands do not have trusted turn/chat metadata. They may use only an
+ * explicit operator workspace (migration only), an unambiguous agent-wide
+ * route, or the explicit safe legacy single-workspace fallback.
+ */
+export function resolveCliWorkspace(
+  cfg: HonchoConfig,
+  options: { agent?: string; workspace?: string; allowWorkspaceOverride?: boolean } = {},
+): CliWorkspaceSelection {
+  const workspaceId = requiredCliId(options.workspace, "workspace");
+  const agentId = requiredCliId(options.agent, "agent")?.toLowerCase();
+
+  if (workspaceId) {
+    if (!options.allowWorkspaceOverride) throw new WorkspaceRoutingError("cli-workspace-override-not-allowed");
+    return { workspaceId, agentId, source: "operator" };
+  }
+
+  if (agentId) {
+    const routedWorkspace = resolveMemoryRuntimeWorkspace(cfg, agentId);
+    if (!routedWorkspace) throw new WorkspaceRoutingError("cli-agent-route-unavailable");
+    return { workspaceId: routedWorkspace, agentId, source: "agent" };
+  }
+
+  const legacyWorkspace = resolveMemoryRuntimeWorkspace(cfg);
+  if (legacyWorkspace) return { workspaceId: legacyWorkspace, source: "legacy" };
+  throw new WorkspaceRoutingError("cli-agent-required");
+}
+
+/** Stable resume key: the same file may be uploaded independently per destination. */
+export function uploadManifestKey(
+  baseUrl: string,
+  workspaceId: string,
+  filePath: string,
+  peerId: string,
+): string {
+  const identity = JSON.stringify([baseUrl.replace(/\/$/, ""), workspaceId, path.resolve(filePath), peerId]);
+  return `v2:${crypto.createHash("sha256").update(identity).digest("hex")}`;
+}
+
+function positiveInteger(value: string, field: string): number {
+  if (!/^\d+$/.test(value)) throw new Error(`Invalid ${field}: expected a positive integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`Invalid ${field}: expected a positive integer`);
+  return parsed;
+}
+
+function unitInterval(value: string, field: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`Invalid ${field}: expected a number from 0 to 1`);
+  }
+  return parsed;
 }
 
 export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
@@ -43,7 +131,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .command("setup")
         .description("Configure Honcho API key and upload memory files to Honcho")
         .option("--reconfigure", "Force re-entry of all configuration values")
-        .action(async (options: { reconfigure?: boolean }) => {
+        .option("-a, --agent <id>", "Agent whose legacy files are being migrated")
+        .option("--workspace <id>", "Operator-selected Honcho workspace for this migration upload")
+        .action(async (options: { reconfigure?: boolean; agent?: string; workspace?: string }) => {
           const configDir = path.join(os.homedir(), ".openclaw");
           const configPath = path.join(configDir, "openclaw.json");
 
@@ -124,6 +214,25 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             let savedConfig: Record<string, unknown> = {};
             try { savedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
 
+            const effectivePluginCfg = (
+              (((savedConfig.plugins as Record<string, unknown> | undefined)
+                ?.entries as Record<string, unknown> | undefined)
+                ?.["openclaw-honcho"] as Record<string, unknown> | undefined)
+                ?.config as Record<string, unknown> | undefined
+            ) ?? {};
+            const parsedRoutingConfig = honchoConfigSchema.parse({
+              ...effectivePluginCfg,
+              apiKey: resolvedApiKey,
+              baseUrl: resolvedBaseUrl,
+              workspaceId: resolvedWorkspaceId,
+            });
+            const uploadRoute = resolveCliWorkspace(parsedRoutingConfig, {
+              agent: options.agent,
+              workspace: options.workspace,
+              allowWorkspaceOverride: true,
+            });
+            resolvedWorkspaceId = uploadRoute.workspaceId;
+
             const agentsList = Array.isArray((savedConfig?.agents as Record<string, unknown>)?.list)
               ? ((savedConfig.agents as Record<string, unknown>).list as Array<Record<string, unknown>>)
               : [];
@@ -148,7 +257,17 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               });
             const defaultAgent = normalizedAgents.find((a) => a.isDefault) ?? normalizedAgents[0];
             const defaultAgentId = ((defaultAgent?.id as string) ?? "main").toLowerCase().trim() || "main";
-            const defaultAgentPeerId = `agent-${defaultAgentId}`;
+            const migrationAgents = uploadRoute.agentId
+              ? normalizedAgents.filter((agent) => agent.id === uploadRoute.agentId)
+              : normalizedAgents;
+            if (uploadRoute.agentId && migrationAgents.length === 0) {
+              throw new WorkspaceRoutingError("cli-agent-not-configured");
+            }
+            if (!uploadRoute.agentId && uploadRoute.source === "operator" && normalizedAgents.length > 1) {
+              throw new WorkspaceRoutingError("cli-agent-required");
+            }
+            const migrationDefaultAgentId = uploadRoute.agentId ?? defaultAgentId;
+            const migrationDefaultAgentPeerId = `agent-${migrationDefaultAgentId}`;
 
             const OWNER_FILES = ["USER.md"];
             const AGENT_FILES = ["SOUL.md", "IDENTITY.md", "AGENTS.md", "TOOLS.md", "BOOTSTRAP.md", "MEMORY.md"];
@@ -164,7 +283,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             function collectDir(dirPath: string, peerType: "owner" | "agent", agentId?: string): void {
               if (!fs.existsSync(dirPath)) return;
               const dirEntries = fs.readdirSync(dirPath, { withFileTypes: true });
-              const peerId = peerType === "owner" ? OWNER_ID : `agent-${agentId ?? defaultAgentId}`;
+              const peerId = peerType === "owner" ? OWNER_ID : `agent-${agentId ?? migrationDefaultAgentId}`;
               for (const e of dirEntries) {
                 const full = path.join(dirPath, e.name);
                 if (e.isDirectory()) collectDir(full, peerType, agentId);
@@ -185,13 +304,15 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               });
             }
 
+            const selectedAgent = uploadRoute.agentId ? migrationAgents[0] : defaultAgent;
             const ownerCandidateWsPaths = uniqueWorkspacePaths([
-              workspaceDir as string,
-              defaultAgent?.workspace as string,
-              defaultAgent?.workspaceDir as string,
-              defaultWorkspace,
-              path.join(ocHome, "workspace"),
-              path.join(os.homedir(), ".clawdbot", "workspace"),
+              selectedAgent?.workspace as string,
+              selectedAgent?.workspaceDir as string,
+              selectedAgent?.isDefault ? workspaceDir as string : undefined,
+              selectedAgent?.isDefault ? defaultWorkspace : undefined,
+              selectedAgent ? path.join(ocHome, "agents", selectedAgent.id, "workspace") : undefined,
+              selectedAgent?.isDefault ? path.join(ocHome, "workspace") : undefined,
+              selectedAgent?.isDefault ? path.join(os.homedir(), ".clawdbot", "workspace") : undefined,
             ]);
 
             function scanWorkspace(wsDir: string, agentId?: string): void {
@@ -220,7 +341,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               }
             }
 
-            const agentWorkspaceCandidates = normalizedAgents.map((agent) => ({
+            const agentWorkspaceCandidates = migrationAgents.map((agent) => ({
               agentId: agent.id,
               peerId: `agent-${agent.id}`,
               workspacePaths: uniqueWorkspacePaths([
@@ -273,16 +394,16 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                   continue;
                 }
                 if (fs.statSync(inputPath).isDirectory()) {
-                  collectDir(inputPath, peerType, peerType === "agent" ? defaultAgentId : undefined);
-                  console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  collectDir(inputPath, peerType, peerType === "agent" ? migrationDefaultAgentId : undefined);
+                  console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : migrationDefaultAgentPeerId}`);
                 } else {
                   detected.push({
                     filePath: inputPath,
                     peer: peerType,
-                    peerId: peerType === "owner" ? OWNER_ID : defaultAgentPeerId,
-                    agentId: peerType === "agent" ? defaultAgentId : undefined,
+                    peerId: peerType === "owner" ? OWNER_ID : migrationDefaultAgentPeerId,
+                    agentId: peerType === "agent" ? migrationDefaultAgentId : undefined,
                   });
-                  console.log(`  + ${inputPath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  console.log(`  + ${inputPath} → ${peerType === "owner" ? OWNER_ID : migrationDefaultAgentPeerId}`);
                 }
               }
             }
@@ -294,9 +415,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             }
 
             console.log(`\nFound ${detected.length} memory file(s):`);
-            console.log(`Default agent: ${defaultAgentId} (peer: ${defaultAgentPeerId})`);
-            if (normalizedAgents.length > 1) {
-              console.log(`Configured agents: ${normalizedAgents.map((agent) => `${agent.id} (peer: agent-${agent.id})`).join(", ")}`);
+            console.log(`Migration agent: ${migrationDefaultAgentId} (peer: ${migrationDefaultAgentPeerId})`);
+            if (migrationAgents.length > 1) {
+              console.log(`Configured agents: ${migrationAgents.map((agent) => `${agent.id} (peer: agent-${agent.id})`).join(", ")}`);
             }
             for (const { filePath, peerId } of detected) {
               const size = fs.statSync(filePath).size;
@@ -322,14 +443,14 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             await setupHoncho.setMetadata({ ...existingMeta });
             const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
             const agentPeerSetupMap = new Map<string, Awaited<ReturnType<typeof setupHoncho.peer>>>();
-            for (const agent of normalizedAgents) {
+            for (const agent of migrationAgents) {
               const peerId = `agent-${agent.id}`;
               const peer = await setupHoncho.peer(peerId, { metadata: { agentId: agent.id } });
               agentPeerSetupMap.set(agent.id, peer);
             }
             const migrationSession = await setupHoncho.session("migration-setup", { metadata: {} });
             await migrationSession.addPeers([ownerPeerSetup, { observeMe: true, observeOthers: false }]);
-            for (const agent of normalizedAgents) {
+            for (const agent of migrationAgents) {
               await migrationSession.addPeers([
                 agentPeerSetupMap.get(agent.id)!,
                 { observeMe: true, observeOthers: true },
@@ -372,10 +493,10 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
               const targetPeer = peer === "owner"
                 ? ownerPeerSetup
-                : agentPeerSetupMap.get(agentId ?? defaultAgentId);
+                : agentPeerSetupMap.get(agentId ?? migrationDefaultAgentId);
               if (!targetPeer) {
                 console.log(`  ${progress} ✗ Failed: ${filePath}`);
-                failed.push({ filePath, error: `Missing Honcho peer for agent ${agentId ?? defaultAgentId}` });
+                failed.push({ filePath, error: `Missing Honcho peer for agent ${agentId ?? migrationDefaultAgentId}` });
                 continue;
               }
               try {
@@ -383,9 +504,19 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 const hash = contentHash(content);
 
                 // Skip files already uploaded with identical content to the same destination
-                const prev = manifest[filePath];
+                const manifestKey = uploadManifestKey(resolvedBaseUrl, resolvedWorkspaceId, filePath, targetPeer.id);
+                // Old manifests were keyed only by path. Trust and upgrade
+                // those entries only in the explicit safe legacy mode; routed
+                // migrations must never infer a peer/workspace destination.
+                const legacyPrev = uploadRoute.source === "legacy" ? manifest[filePath] : undefined;
+                const prev = manifest[manifestKey] ?? legacyPrev;
                 if (prev && prev.sha256 === hash && prev.baseUrl === resolvedBaseUrl && prev.workspaceId === resolvedWorkspaceId) {
                   console.log(`  ${progress} ~ Unchanged: ${filePath}`);
+                  if (!manifest[manifestKey]) {
+                    manifest[manifestKey] = { ...prev, filePath, peerId: targetPeer.id };
+                    delete manifest[filePath];
+                    saveManifest(manifest);
+                  }
                   unchangedCount++;
                   continue;
                 }
@@ -396,7 +527,14 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 uploadCount++;
 
                 // Record success
-                manifest[filePath] = { sha256: hash, uploadedAt: new Date().toISOString(), baseUrl: resolvedBaseUrl, workspaceId: resolvedWorkspaceId };
+                manifest[manifestKey] = {
+                  sha256: hash,
+                  uploadedAt: new Date().toISOString(),
+                  baseUrl: resolvedBaseUrl,
+                  workspaceId: resolvedWorkspaceId,
+                  filePath,
+                  peerId: targetPeer.id,
+                };
                 saveManifest(manifest);
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
@@ -406,9 +544,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             }
 
             // Clean stale manifest entries
-            for (const key of Object.keys(manifest)) {
-              if (!fs.existsSync(key)) delete manifest[key];
-            }
+            pruneStaleUploadManifestEntries(manifest);
             saveManifest(manifest);
 
             // Summary
@@ -433,15 +569,19 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
       cmd
         .command("status")
         .description("Show Honcho connection status")
-        .action(async () => {
+        .option("-a, --agent <id>", "Agent whose workspace status to inspect")
+        .action(async (options: { agent?: string }) => {
           try {
-            await state.ensureInitialized();
-            const defaultPeer = await state.getAgentPeer(state.resolveDefaultAgentId());
+            const route = resolveCliWorkspace(state.cfg, { agent: options.agent });
+            const workspace = state.getWorkspaceState(route.workspaceId);
+            await workspace.ensureInitialized();
+            const agentId = route.agentId ?? workspace.resolveDefaultAgentId();
+            const defaultPeer = await workspace.getAgentPeer(agentId);
 
             console.log("Connected to Honcho");
-            console.log(`  Workspace: ${state.cfg.workspaceId}`);
-            console.log(`  Default agent: ${state.resolveDefaultAgentId()} → peer "${defaultPeer.id}"`);
-            console.log(`  Agent peers mapped: ${Object.keys(state.agentPeerMap).join(", ") || "(none)"}`);
+            console.log(`  Workspace: ${route.workspaceId}`);
+            console.log(`  Agent: ${agentId} → peer "${defaultPeer.id}"`);
+            console.log(`  Agent peers mapped: ${Object.keys(workspace.agentPeerMap).join(", ") || "(none)"}`);
           } catch (error) {
             console.error(`Failed to connect: ${error}`);
           }
@@ -454,9 +594,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .option("-p, --peer <id>", "Channel peer ID or Honcho peer ID to target (default: owner)")
         .action(async (question: string, options: { agent?: string; peer?: string }) => {
           try {
-            await state.ensureInitialized();
-            const agentPeer = await state.getAgentPeer(options.agent ?? state.resolveDefaultAgentId());
-            const participantPeer = await state.getParticipantPeer(options.peer);
+            const route = resolveCliWorkspace(state.cfg, { agent: options.agent });
+            const workspace = state.getWorkspaceState(route.workspaceId);
+            await workspace.ensureInitialized();
+            const agentPeer = await workspace.getAgentPeer(route.agentId ?? workspace.resolveDefaultAgentId());
+            const participantPeer = await workspace.getParticipantPeer(requiredCliId(options.peer, "peer"));
             const answer = await agentPeer.chat(question, { target: participantPeer });
             console.log(answer ?? "No information available.");
           } catch (error) {
@@ -469,15 +611,20 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .description("Semantic search over Honcho memory")
         .option("-k, --top-k <number>", "Number of results to return", "10")
         .option("-d, --max-distance <number>", "Maximum semantic distance (0-1)", "0.5")
+        .option("-a, --agent <id>", "Agent whose workspace to search")
         .option("-p, --peer <id>", "Channel peer ID or Honcho peer ID to target (default: owner)")
-        .action(async (query: string, options: { topK: string; maxDistance: string; peer?: string }) => {
+        .action(async (query: string, options: { topK: string; maxDistance: string; agent?: string; peer?: string }) => {
           try {
-            await state.ensureInitialized();
-            const participantPeer = await state.getParticipantPeer(options.peer);
+            const route = resolveCliWorkspace(state.cfg, { agent: options.agent });
+            const topK = positiveInteger(options.topK, "top-k");
+            const maxDistance = unitInterval(options.maxDistance, "max-distance");
+            const workspace = state.getWorkspaceState(route.workspaceId);
+            await workspace.ensureInitialized();
+            const participantPeer = await workspace.getParticipantPeer(requiredCliId(options.peer, "peer"));
             const representation = await participantPeer.representation({
               searchQuery: query,
-              searchTopK: parseInt(options.topK, 10),
-              searchMaxDistance: parseFloat(options.maxDistance),
+              searchTopK: topK,
+              searchMaxDistance: maxDistance,
             });
 
             if (!representation) {
