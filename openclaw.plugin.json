@@ -33,6 +33,37 @@
         "type": "string",
         "description": "Honcho workspace ID (defaults to 'openclaw')"
       },
+      "workspaceIdByAgent": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "description": "Explicit Honcho workspace per OpenClaw agent."
+      },
+      "workspaceRoutingRules": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId"],
+          "properties": {
+            "workspaceId": { "type": "string" },
+            "agentId": { "type": "string" },
+            "sessionKey": { "type": "string" },
+            "channel": { "type": "string" },
+            "messageProvider": { "type": "string" },
+            "channelId": { "type": "string" },
+            "chatId": { "type": "string" },
+            "accountId": { "type": "string" },
+            "threadId": { "type": "string" },
+            "destination": { "type": "string" }
+          }
+        },
+        "description": "Trusted runtime metadata routing rules."
+      },
+      "strictWorkspaceRouting": {
+        "type": "boolean",
+        "default": false,
+        "description": "Deny any turn whose trusted routing metadata has no configured workspace."
+      },
       "baseUrl": {
         "type": "string",
         "default": "https://api.honcho.dev"

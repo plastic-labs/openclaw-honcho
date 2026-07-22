@@ -1,5 +1,6 @@
 import { buildSessionKey } from "./helpers.js";
 import { isManagedHonchoCloud, type PluginState } from "./state.js";
+import { resolveMemoryRuntimeWorkspace } from "./routing.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
@@ -120,6 +121,16 @@ export async function getHonchoMemorySearchManager(
   params: { agentId?: string; sessionKey?: string } = {}
 ) {
   const { agentId = state.resolveDefaultAgentId(), sessionKey: activeSessionKey } = params;
+
+  // The registered memory callback has no trusted turn/channel context. It may
+  // use only an unambiguous agent-wide route; never guess from a chat session.
+  const memoryWorkspace = resolveMemoryRuntimeWorkspace(state.cfg, agentId);
+  if (!memoryWorkspace) {
+    throw new Error("memory routing unavailable: no unambiguous agent-wide workspace");
+  }
+  if (memoryWorkspace !== state.cfg.workspaceId) {
+    throw new Error("memory routing unavailable: workspace-scoped state is not available in Phase 1");
+  }
 
   await state.ensureInitialized();
 

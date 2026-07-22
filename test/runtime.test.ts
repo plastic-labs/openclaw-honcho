@@ -152,6 +152,20 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
 }
 
 describe("Honcho memory runtime", () => {
+  it("fails closed before state initialization when the resolved workspace differs", async () => {
+    const state = createState();
+    state.cfg.workspaceIdByAgent = { main: "different-workspace" };
+    state.cfg.workspaceRoutingRules = [];
+    state.cfg.strictWorkspaceRouting = true;
+    state.cfg.legacyWorkspaceFallback = false;
+
+    await expect(
+      getHonchoMemorySearchManager(state, { agentId: "main", sessionKey: "session-1" }),
+    ).rejects.toThrow(/workspace-scoped state is not available/);
+    expect(state.ensureInitialized).not.toHaveBeenCalled();
+    expect((state.honcho.session as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
   it("scopes search to the active session when crossSessionSearch is false", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 
