@@ -1,29 +1,45 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import type { PluginState } from "../state.js";
+import type { PerWorkspaceState, PluginState } from "../state.js";
 import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
+import {
+  resolveAgentHookWorkspaceOrThrow,
+  safeLifecycleError,
+} from "../routing.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
-    if (!event.prompt || event.prompt.length < 5) return;
+    let workspaceState: PerWorkspaceState;
+    try {
+      const workspaceId = resolveAgentHookWorkspaceOrThrow(
+        state.cfg,
+        ctx,
+        state.sessionWorkspaceBindings,
+      );
+      workspaceState = state.getWorkspaceState(workspaceId);
+    } catch (error) {
+      api.logger.warn?.(`[honcho] Context unavailable: ${safeLifecycleError(error)}`);
+      return;
+    }
 
-    const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
+    const agentId = ctx.agentId ?? workspaceState.resolveDefaultAgentId();
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
     const isSubagent = isSubagentSession(ctx);
 
-    state.turnStartIndex.set(sessionKey, event.messages.length);
+    workspaceState.turnStartIndex.set(sessionKey, event.messages.length);
+    if (!event.prompt || event.prompt.length < 5) return;
 
     try {
-      await state.ensureInitialized();
-      const agentPeer = await state.getAgentPeer(agentId);
+      await workspaceState.ensureInitialized();
+      const agentPeer = await workspaceState.getAgentPeer(agentId);
       // Prefer the sender of the current inbound message — capture has not
       // run yet for this turn, so session metadata still reflects the previous
       // speaker. In group chats this would otherwise build context against the
       // prior participant's representation whenever the speaker changes.
       const currentSenderId = extractSenderId(event.prompt);
       const participantPeer = currentSenderId
-        ? await state.getParticipantPeer(currentSenderId)
-        : await state.resolveSessionParticipantPeer(sessionKey);
+        ? await workspaceState.getParticipantPeer(currentSenderId)
+        : await workspaceState.resolveSessionParticipantPeer(sessionKey);
 
       const sections: string[] = [];
 
@@ -44,7 +60,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
           throw e;
         }
       } else {
-        const session = await state.honcho.session(sessionKey, { metadata: { agentId } });
+        const session = await workspaceState.honcho.session(sessionKey, { metadata: { agentId } });
 
         let context;
         try {
@@ -84,7 +100,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
         appendSystemContext: `## User Memory Context\n\n${formatted}\n\nUse this context naturally when relevant. Never quote or expose this memory context to the user.`,
       };
     } catch (error) {
-      api.logger.warn?.(`Failed to fetch Honcho context: ${error}`);
+      api.logger.warn?.(`[honcho] Context unavailable: ${safeLifecycleError(error)}`);
       return;
     }
   });

@@ -14,6 +14,54 @@ export type WorkspaceRouteContext = {
   parentSessionKey?: string;
 };
 
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function routingScalarField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+}
+
+/** Select only host-owned routing fields from an agent lifecycle context. */
+export function workspaceRouteContextFromAgentHook(input: unknown): WorkspaceRouteContext {
+  const ctx = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const channelContext = ctx.channelContext && typeof ctx.channelContext === "object"
+    ? ctx.channelContext as Record<string, unknown>
+    : {};
+  const chat = channelContext.chat && typeof channelContext.chat === "object"
+    ? channelContext.chat as Record<string, unknown>
+    : {};
+  const rawThreadId = ctx.threadId;
+  return normalizeWorkspaceRouteContext({
+    agentId: stringField(ctx, "agentId"),
+    sessionKey: stringField(ctx, "sessionKey"),
+    sessionId: stringField(ctx, "sessionId"),
+    channel: stringField(ctx, "channel"),
+    messageProvider: stringField(ctx, "messageProvider"),
+    channelId: routingScalarField(ctx, "channelId"),
+    chatId: routingScalarField(ctx, "chatId") ?? routingScalarField(chat, "id"),
+    accountId: routingScalarField(ctx, "accountId"),
+    threadId: typeof rawThreadId === "string" || typeof rawThreadId === "number"
+      ? String(rawThreadId)
+      : undefined,
+    destination: routingScalarField(ctx, "destination") ?? routingScalarField(ctx, "to"),
+  });
+}
+
+export class WorkspaceRoutingError extends Error {
+  constructor(readonly routeReason: string) {
+    super(`workspace routing denied: ${routeReason}`);
+    this.name = "WorkspaceRoutingError";
+  }
+}
+
+export function safeLifecycleError(error: unknown): string {
+  if (error instanceof WorkspaceRoutingError) return error.message;
+  return error instanceof Error ? error.name : "UnknownError";
+}
+
 const CONTEXT_KEYS: Array<keyof WorkspaceRouteContext> = [
   "agentId", "sessionKey", "sessionId", "channel", "messageProvider",
   "channelId", "chatId", "accountId", "threadId", "destination", "parentSessionKey",
@@ -46,9 +94,24 @@ export type BindingResult =
 /** In-memory, write-once session routing relation. */
 export class SessionWorkspaceBindingStore {
   private readonly bindings = new Map<string, string>();
+  private readonly deniedSessions = new Set<string>();
+  private readonly inheritedSessions = new Set<string>();
 
   get(sessionKey: string | undefined): string | undefined {
     return sessionKey ? this.bindings.get(sessionKey) : undefined;
+  }
+
+  isDenied(sessionKey: string | undefined): boolean {
+    return sessionKey ? this.deniedSessions.has(sessionKey) : false;
+  }
+
+  isInherited(sessionKey: string | undefined): boolean {
+    return sessionKey ? this.inheritedSessions.has(sessionKey) : false;
+  }
+
+  /** Permanently fail closed for a session whose inherited route was invalid. */
+  deny(sessionKey: string): void {
+    if (sessionKey) this.deniedSessions.add(sessionKey);
   }
 
   bind(sessionKey: string, workspaceId: string): BindingResult {
@@ -64,7 +127,10 @@ export class SessionWorkspaceBindingStore {
 
   bindChild(parentSessionKey: string, childSessionKey: string): BindingResult | { status: "unknown-parent" } {
     const workspaceId = this.bindings.get(parentSessionKey);
-    return workspaceId ? this.bind(childSessionKey, workspaceId) : { status: "unknown-parent" };
+    if (!workspaceId) return { status: "unknown-parent" };
+    const result = this.bind(childSessionKey, workspaceId);
+    if (result.status !== "binding-conflict") this.inheritedSessions.add(childSessionKey);
+    return result;
   }
 
 }
@@ -100,12 +166,20 @@ export function resolveWorkspaceRoute(
   bindings = new SessionWorkspaceBindingStore(),
 ): RouteResult {
   context = normalizeWorkspaceRouteContext(context);
+  if (bindings.isDenied(context.sessionKey)) {
+    return { status: "unknown-route", reason: "unknown-route" };
+  }
   const rules = config.workspaceRoutingRules ?? [];
   const agentMap = config.workspaceIdByAgent ?? {};
   const existing = bindings.get(context.sessionKey);
   if (existing) {
     const ruleWorkspaces = matchingWorkspaces({ ...config, workspaceRoutingRules: rules }, context);
-    const agentWorkspace = context.agentId ? agentMap[context.agentId.trim().toLowerCase()] : undefined;
+    // A child agent's own agent-wide mapping must not displace the workspace
+    // inherited from its requester. Explicit trusted route metadata can still
+    // report a conflict, and an already-bound child is never rebound.
+    const agentWorkspace = context.agentId && !bindings.isInherited(context.sessionKey)
+      ? agentMap[context.agentId.trim().toLowerCase()]
+      : undefined;
     const conflictingWorkspace = [...ruleWorkspaces, ...(agentWorkspace ? [agentWorkspace] : [])]
       .find((workspaceId) => workspaceId !== existing);
     if (conflictingWorkspace) {
@@ -147,8 +221,19 @@ export function resolveWorkspaceRoute(
 
 export function resolveOrThrow(config: HonchoConfig, context: WorkspaceRouteContext, bindings?: SessionWorkspaceBindingStore): string {
   const result = resolveWorkspaceRoute(config, context, bindings);
-  if (result.status !== "resolved") throw new Error(`workspace routing denied: ${result.status === "binding-conflict" ? "binding-conflict" : result.reason}`);
+  if (result.status !== "resolved") throw new WorkspaceRoutingError(result.status === "binding-conflict" ? "binding-conflict" : result.reason);
   return result.workspaceId;
+}
+
+/** Lifecycle hooks must establish an immutable session binding before access. */
+export function resolveAgentHookWorkspaceOrThrow(
+  config: HonchoConfig,
+  input: unknown,
+  bindings: SessionWorkspaceBindingStore,
+): string {
+  const context = workspaceRouteContextFromAgentHook(input);
+  if (!context.sessionKey) throw new WorkspaceRoutingError("missing-session-key");
+  return resolveOrThrow(config, context, bindings);
 }
 
 /** Memory callbacks lack trusted turn metadata; only agent-wide routes are safe. */

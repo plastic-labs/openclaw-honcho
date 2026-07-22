@@ -1,9 +1,9 @@
 /**
  * Workspace-scoped mutable state for the Honcho memory plugin.
  *
- * Phase 2 deliberately keeps the existing PluginState surface as a facade for
- * the configured default workspace. Hooks/tools are migrated to routed state
- * in a later phase; callers that are ready can use getWorkspaceState().
+ * PluginState keeps a backward-compatible default-workspace facade. Lifecycle
+ * hooks use getWorkspaceState(); tools/runtime remain on the facade until their
+ * separate routing phase.
  */
 
 import { createHash } from "node:crypto";
@@ -11,6 +11,7 @@ import { Honcho, type Peer } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { honchoConfigSchema, type HonchoConfig } from "./config.js";
+import { SessionWorkspaceBindingStore } from "./routing.js";
 import {
   PeersPersister,
   loadPeersFileSync,
@@ -70,6 +71,7 @@ export function buildWorkspacePersistenceKey(
 }
 
 export type PerWorkspaceState = {
+  cfg: HonchoConfig;
   workspaceId: string;
   workspaceKey: string;
   honcho: Honcho;
@@ -101,6 +103,10 @@ export type PluginState = PerWorkspaceState & {
   workspaces: Map<string, PerWorkspaceState>;
   /** Lazily create or return the memoized state/client for a workspace. */
   getWorkspaceState: (workspaceId: string) => PerWorkspaceState;
+  /** Shared immutable route relation for all lifecycle hooks. */
+  sessionWorkspaceBindings: SessionWorkspaceBindingStore;
+  /** Subagent identity metadata; routing itself lives in sessionWorkspaceBindings. */
+  subagentRelations: Map<string, { parentSessionKey: string; parentAgentId?: string }>;
 };
 
 function requiredWorkspaceId(workspaceId: string): string {
@@ -138,6 +144,7 @@ function createPerWorkspaceState(
   const sessionQueues = new Map<string, Promise<void>>();
 
   const state: PerWorkspaceState = {
+    cfg,
     workspaceId,
     workspaceKey,
     honcho,
@@ -321,6 +328,8 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
   }
 
   const workspaces = new Map<string, PerWorkspaceState>();
+  const sessionWorkspaceBindings = new SessionWorkspaceBindingStore();
+  const subagentRelations = new Map<string, { parentSessionKey: string; parentAgentId?: string }>();
 
   function getWorkspaceState(rawWorkspaceId: string): PerWorkspaceState {
     const workspaceId = requiredWorkspaceId(rawWorkspaceId);
@@ -349,6 +358,8 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     api,
     workspaces,
     getWorkspaceState,
+    sessionWorkspaceBindings,
+    subagentRelations,
     get workspaceId() { return defaultState.workspaceId; },
     get workspaceKey() { return defaultState.workspaceKey; },
     get honcho() { return defaultState.honcho; },

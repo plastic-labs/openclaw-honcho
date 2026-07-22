@@ -11,7 +11,25 @@ import {
   extractSenderId,
   getRawContent,
 } from "../helpers.js";
-import { subagentParentMap } from "./subagent.js";
+import {
+  resolveAgentHookWorkspaceOrThrow,
+  safeLifecycleError,
+} from "../routing.js";
+
+type CaptureHookContext = {
+  sessionKey?: string;
+  agentId?: string;
+  sessionId?: string;
+  messageProvider?: string;
+  channel?: string;
+  channelId?: string;
+  chatId?: string;
+  accountId?: string;
+  threadId?: string | number;
+  destination?: string;
+  to?: string;
+  channelContext?: unknown;
+};
 
 /**
  * Core message capture logic shared by agent_end, before_compaction, and before_reset.
@@ -20,25 +38,34 @@ import { subagentParentMap } from "./subagent.js";
  */
 export async function flushMessages(
   api: OpenClawPluginApi,
-  state: PluginState,
+  pluginState: PluginState,
   messages: unknown[],
-  ctx: { sessionKey?: string; agentId?: string; sessionId?: string; messageProvider?: string },
+  ctx: CaptureHookContext,
 ): Promise<number> {
   if (!messages?.length) return 0;
 
+  const workspaceId = resolveAgentHookWorkspaceOrThrow(
+    pluginState.cfg,
+    ctx,
+    pluginState.sessionWorkspaceBindings,
+  );
+  const state = pluginState.getWorkspaceState(workspaceId);
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
   const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
   const isSubagent = isSubagentSession(ctx);
-  const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
+  const parentAgentId = isSubagent
+    ? pluginState.subagentRelations.get(ctx.sessionKey ?? "")?.parentAgentId
+    : undefined;
   const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
   const sessionClass = classifySession(openclawSessionKey);
 
-  await state.ensureInitialized();
-  const agentPeer = await state.getAgentPeer(agentId);
-  const parentPeer =
-    isSubagent && parentAgentId && parentAgentId !== agentId
-      ? await state.getAgentPeer(parentAgentId)
-      : null;
+  return state.withSessionLock(sessionKey, async () => {
+    await state.ensureInitialized();
+    const agentPeer = await state.getAgentPeer(agentId);
+    const parentPeer =
+      isSubagent && parentAgentId && parentAgentId !== agentId
+        ? await state.getAgentPeer(parentAgentId)
+        : null;
 
   const sessionMeta: Record<string, unknown> = {
     agentId,
@@ -174,7 +201,8 @@ export async function flushMessages(
       : chunk[chunk.length - 1].rawIndex + 1;
     await session.setMetadata({ ...updatedMeta, lastSavedIndex });
   }
-  return extracted.length;
+    return extracted.length;
+  });
 }
 
 export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState): void {
@@ -187,20 +215,15 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
     try {
       await flushMessages(api, state, event.messages, ctx);
     } catch (error) {
-      api.logger.error(`[honcho] Failed to save messages to Honcho: ${error}`);
-      if (error instanceof Error) {
-        api.logger.error(`[honcho] Stack: ${error.stack}`);
-        const anyError = error as unknown as Record<string, unknown>;
-        if (anyError.status) api.logger.error(`[honcho] Status: ${anyError.status}`);
-        if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
-      }
+      api.logger.error(`[honcho] Capture failed: ${safeLifecycleError(error)}`);
     } finally {
       const sessionKey = buildSessionKey(
         { sessionKey: ctx.sessionKey, agentId: ctx.agentId },
         state.resolveDefaultAgentId,
       );
-      state.turnStartIndex.delete(sessionKey);
-      if (isSubagentSession(ctx)) subagentParentMap.delete(ctx.sessionKey ?? "");
+      const workspaceId = state.sessionWorkspaceBindings.get(ctx.sessionKey);
+      if (workspaceId) state.getWorkspaceState(workspaceId).turnStartIndex.delete(sessionKey);
+      if (isSubagentSession(ctx)) state.subagentRelations.delete(ctx.sessionKey ?? "");
     }
   });
 
@@ -219,7 +242,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before compaction`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before compaction: ${error}`);
+      api.logger.warn?.(`[honcho] Compaction flush failed: ${safeLifecycleError(error)}`);
     }
   });
 
@@ -236,7 +259,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         api.logger.debug?.(`[honcho] Flushed ${saved} messages before session reset`);
       }
     } catch (error) {
-      api.logger.warn?.(`[honcho] Failed to flush messages before reset: ${error}`);
+      api.logger.warn?.(`[honcho] Reset flush failed: ${safeLifecycleError(error)}`);
     }
   });
 }

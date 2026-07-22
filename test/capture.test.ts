@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { flushMessages } from "../hooks/capture.js";
+import { flushMessages, registerCaptureHook } from "../hooks/capture.js";
 import type { PluginState } from "../state.js";
+import { SessionWorkspaceBindingStore } from "../routing.js";
 
 const SENTINEL = "Conversation info (untrusted metadata):";
 
@@ -39,6 +40,10 @@ function createMockState(): { state: PluginState; session: SessionStub } {
       crossSessionSearch: true,
       workspaceId: "openclaw",
       baseUrl: "https://api.honcho.dev",
+      workspaceIdByAgent: {},
+      workspaceRoutingRules: [],
+      strictWorkspaceRouting: false,
+      legacyWorkspaceFallback: true,
     },
     honcho: {
       // Mirrors real Honcho SDK: passing `metadata` on session() REPLACES the
@@ -54,7 +59,11 @@ function createMockState(): { state: PluginState; session: SessionStub } {
     getAgentPeer: vi.fn(async () => agentPeer),
     getParticipantPeer: vi.fn(async () => ownerPeer),
     resolveDefaultAgentId: vi.fn(() => "main"),
+    sessionWorkspaceBindings: new SessionWorkspaceBindingStore(),
+    subagentRelations: new Map(),
+    withSessionLock: vi.fn(async (_key: string, operation: () => Promise<unknown>) => operation()),
   } as unknown as PluginState;
+  state.getWorkspaceState = vi.fn(() => state);
 
   return { state, session };
 }
@@ -251,5 +260,113 @@ describe("flushMessages batching", () => {
     expect(session.addMessages).toHaveBeenCalledTimes(2);
     expect(session.setMetadata).toHaveBeenCalledTimes(1);
     expect(session.metadata.lastSavedIndex).toBe(100);
+  });
+});
+
+describe("flushMessages clean persistence", () => {
+  it("persists exact visible text after stripping OpenClaw metadata and reply directives", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+    const userText = "Привет, это должно сохраниться без технической обвязки.";
+    const assistantText = "И этот ответ — ровно как видит пользователь.";
+
+    await flushMessages(
+      api,
+      state,
+      [
+        {
+          role: "user",
+          content: `${metadataBlock({ sender_id: "U-alice", chat_id: "private" })}\n\n${userText}`,
+          timestamp: 1,
+        },
+        {
+          role: "assistant",
+          content: `[[reply_to_current]]\n${assistantText}`,
+          timestamp: 2,
+        },
+      ],
+      { sessionKey: "agent:main:telegram:dm:user-1", agentId: "main" },
+    );
+
+    expect(session.addMessages).toHaveBeenCalledTimes(1);
+    expect(session.addMessages.mock.calls[0][0]).toEqual([
+      { text: userText },
+      { text: assistantText },
+    ]);
+  });
+});
+
+describe("flushMessages workspace routing", () => {
+  it("reuses the immutable hook binding and runs inside the routed workspace lock", async () => {
+    const first = createMockState();
+    const routed = createMockState();
+    first.state.cfg = {
+      ...first.state.cfg,
+      workspaceIdByAgent: {},
+      workspaceRoutingRules: [],
+      strictWorkspaceRouting: true,
+      legacyWorkspaceFallback: false,
+    };
+    first.state.sessionWorkspaceBindings.bind("bound-session", "routed");
+    first.state.getWorkspaceState = vi.fn((workspaceId: string) => {
+      expect(workspaceId).toBe("routed");
+      return routed.state;
+    });
+
+    await flushMessages(
+      { logger: loggerStub() } as never,
+      first.state,
+      [{ role: "user", content: "routed text", timestamp: 1 }],
+      { sessionKey: "bound-session", agentId: "main" },
+    );
+
+    expect(routed.state.withSessionLock).toHaveBeenCalledTimes(1);
+    expect(routed.session.addMessages).toHaveBeenCalledTimes(1);
+    expect(first.session.addMessages).not.toHaveBeenCalled();
+  });
+
+  it("denies a strict unknown route before selecting a workspace or Honcho session", async () => {
+    const { state, session } = createMockState();
+    state.cfg = {
+      ...state.cfg,
+      strictWorkspaceRouting: true,
+      legacyWorkspaceFallback: false,
+    };
+
+    await expect(flushMessages(
+      { logger: loggerStub() } as never,
+      state,
+      [{ role: "user", content: "must not persist", timestamp: 1 }],
+      { sessionKey: "unknown", agentId: "unknown" },
+    )).rejects.toThrow("workspace routing denied: unknown-route");
+
+    expect(state.getWorkspaceState).not.toHaveBeenCalled();
+    expect(state.honcho.session).not.toHaveBeenCalled();
+    expect(session.addMessages).not.toHaveBeenCalled();
+  });
+
+  it("never logs an Honcho error body", async () => {
+    const { state, session } = createMockState();
+    const logger = loggerStub();
+    let agentEnd!: (event: unknown, ctx: unknown) => Promise<void>;
+    const api = {
+      logger,
+      on: vi.fn((name: string, handler: typeof agentEnd) => {
+        if (name === "agent_end") agentEnd = handler;
+      }),
+    } as never;
+    const failure = Object.assign(new Error("request failed"), { body: { secret: "do-not-log" } });
+    session.addMessages.mockRejectedValueOnce(failure);
+    registerCaptureHook(api, state);
+
+    await agentEnd(
+      { success: true, messages: [{ role: "user", content: "hello", timestamp: 1 }] },
+      { sessionKey: "agent:main:telegram:dm:user", agentId: "main" },
+    );
+
+    const logged = logger.error.mock.calls.flat().join(" ");
+    expect(logged).toContain("Capture failed: Error");
+    expect(logged).not.toContain("do-not-log");
+    expect(logged).not.toContain("request failed");
   });
 });

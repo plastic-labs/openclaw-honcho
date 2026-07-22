@@ -54,12 +54,39 @@ describe("immutable session workspace bindings", () => {
     expect(store.bind("s", "two")).toEqual({ status: "binding-conflict", workspaceId: "one", requestedWorkspaceId: "two" });
   });
 
+  it("keeps a denied inherited session fail-closed even when legacy fallback is enabled", () => {
+    const store = new SessionWorkspaceBindingStore();
+    store.deny("child");
+    const cfg = honchoConfigSchema.parse({ workspaceId: "legacy" });
+
+    expect(resolveWorkspaceRoute(cfg, { sessionKey: "child", agentId: "main" }, store)).toEqual({
+      status: "unknown-route",
+      reason: "unknown-route",
+    });
+  });
+
   it("inherits a parent binding at the binding-store level", () => {
     const store = new SessionWorkspaceBindingStore();
     store.bind("parent", "work");
     expect(store.bindChild("parent", "child")).toEqual({ status: "bound", workspaceId: "work" });
     expect(store.get("child")).toBe("work");
     expect(store.bindChild("missing", "orphan")).toEqual({ status: "unknown-parent" });
+  });
+
+  it("keeps parent inheritance when the child agent has a different agent-wide mapping", () => {
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { research: "research-default" },
+      strictWorkspaceRouting: true,
+    });
+    const store = new SessionWorkspaceBindingStore();
+    store.bind("parent", "parent-workspace");
+    store.bindChild("parent", "child");
+
+    expect(resolveWorkspaceRoute(cfg, { sessionKey: "child", agentId: "research" }, store)).toEqual({
+      status: "resolved",
+      workspaceId: "parent-workspace",
+      source: "binding",
+    });
   });
 
   it("reports conflicting later metadata without rebinding", () => {
