@@ -2,11 +2,51 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as path from "node:path";
 import { honchoConfigSchema } from "../config.js";
 import {
+  ensureHonchoCapturePermission,
   pruneStaleUploadManifestEntries,
   registerCli,
   resolveCliWorkspace,
   uploadManifestKey,
 } from "../commands/cli.js";
+
+describe("capture permission configuration", () => {
+  it("adds only the required entry-level conversation permission and preserves existing policy", () => {
+    const input = {
+      plugins: {
+        entries: {
+          "openclaw-honcho": {
+            enabled: true,
+            hooks: { allowPromptInjection: false, timeoutMs: 45000 },
+            config: { workspaceId: "work" },
+          },
+          other: { enabled: false },
+        },
+      },
+    };
+    const result = ensureHonchoCapturePermission(input);
+    expect(result.changed).toBe(true);
+    expect(result.config).toMatchObject({
+      plugins: {
+        entries: {
+          "openclaw-honcho": {
+            enabled: true,
+            hooks: {
+              allowPromptInjection: false,
+              allowConversationAccess: true,
+              timeoutMs: 45000,
+            },
+            config: { workspaceId: "work" },
+          },
+          other: { enabled: false },
+        },
+      },
+    });
+    expect(ensureHonchoCapturePermission(result.config)).toEqual({
+      config: result.config,
+      changed: false,
+    });
+  });
+});
 
 describe("CLI workspace selection", () => {
   it("selects an unambiguous agent-wide route for read/query commands", () => {

@@ -5,6 +5,7 @@ import {
   normalizeWorkspaceRouteContext,
   resolveWorkspaceRoute,
   SessionWorkspaceBindingStore,
+  workspaceRouteContextFromAgentHook,
   workspaceRouteContextFromToolFactory,
 } from "../routing.js";
 
@@ -59,9 +60,49 @@ describe("workspace routing configuration", () => {
       sessionId: "turn-id",
       channel: "telegram",
       destination: "42",
+      conversationTarget: "42",
       accountId: "bot-account",
       threadId: "7",
     });
+  });
+
+  it("canonicalizes hook chatId and tool destination to one conversation target", () => {
+    expect(workspaceRouteContextFromAgentHook({
+      agentId: "main",
+      sessionKey: "s",
+      channel: "telegram",
+      chatId: "group-42",
+    }).conversationTarget).toBe("group-42");
+    expect(workspaceRouteContextFromToolFactory({
+      agentId: "main",
+      sessionKey: "s",
+      deliveryContext: { channel: "telegram", to: "telegram:group-42" },
+    }).conversationTarget).toBe("group-42");
+
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { main: "personal" },
+      workspaceRoutingRules: [
+        { workspaceId: "work", channel: "telegram", destination: "telegram:group-42" },
+      ],
+      strictWorkspaceRouting: true,
+    });
+    expect(cfg.workspaceRoutingRules[0]).toMatchObject({
+      workspaceId: "work",
+      channel: "telegram",
+      conversationTarget: "group-42",
+    });
+    expect(cfg.workspaceRoutingRules[0]).not.toHaveProperty("destination");
+  });
+
+  it("rejects conflicting conversation target aliases", () => {
+    expect(() => honchoConfigSchema.parse({
+      workspaceRoutingRules: [{
+        workspaceId: "work",
+        channel: "telegram",
+        conversationTarget: "one",
+        destination: "two",
+      }],
+    })).toThrow(/conversation target aliases disagree/);
   });
 
   it("requires explicit opt-in to legacy fallback after adding routing fields", () => {
@@ -167,14 +208,45 @@ describe("immutable session workspace bindings", () => {
       sessionKey: "s",
       agentId: "main",
       channel: "telegram",
-      destination: "group",
+      chatId: "group",
     }, store)).toMatchObject({ workspaceId: "work", source: "rule" });
     expect(resolveWorkspaceRoute(cfg, {
       sessionKey: "s",
       agentId: "main",
       channel: "telegram",
-      destination: "group",
+      // Tool factory may omit the target on a later internal surface. The
+      // explicit binding provenance prevents the lower agent default from
+      // becoming a false conflict.
     }, store)).toEqual({ status: "resolved", workspaceId: "work", source: "binding" });
+  });
+
+  it("denies later genuinely conflicting explicit metadata without rebinding", () => {
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { main: "personal" },
+      workspaceRoutingRules: [
+        { workspaceId: "work", channel: "telegram", conversationTarget: "group" },
+        { workspaceId: "other", channel: "telegram", conversationTarget: "other-group" },
+      ],
+      strictWorkspaceRouting: true,
+    });
+    const store = new SessionWorkspaceBindingStore();
+    expect(resolveWorkspaceRoute(cfg, {
+      sessionKey: "s",
+      agentId: "main",
+      channel: "telegram",
+      chatId: "group",
+    }, store)).toMatchObject({ workspaceId: "work", source: "rule" });
+    expect(resolveWorkspaceRoute(cfg, {
+      sessionKey: "s",
+      agentId: "main",
+      channel: "telegram",
+      destination: "other-group",
+    }, store)).toEqual({
+      status: "binding-conflict",
+      workspaceId: "work",
+      requestedWorkspaceId: "other",
+    });
+    expect(store.get("s")).toBe("work");
   });
 });
 

@@ -8,11 +8,27 @@ export type WorkspaceRouteContext = {
   messageProvider?: string;
   channelId?: string;
   chatId?: string;
+  conversationTarget?: string;
   accountId?: string;
   threadId?: string;
   destination?: string;
   parentSessionKey?: string;
 };
+
+/**
+ * OpenClaw exposes the same conversation as hook `chatId` and tool
+ * `deliveryContext.to`. The latter may carry a redundant `<channel>:` prefix.
+ */
+export function canonicalConversationTarget(value: string | undefined, channel?: string): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const prefix = channel?.trim().toLowerCase();
+  if (prefix && normalized.toLowerCase().startsWith(`${prefix}:`)) {
+    const unprefixed = normalized.slice(prefix.length + 1).trim();
+    return unprefixed || undefined;
+  }
+  return normalized;
+}
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
@@ -34,19 +50,24 @@ export function workspaceRouteContextFromAgentHook(input: unknown): WorkspaceRou
     ? channelContext.chat as Record<string, unknown>
     : {};
   const rawThreadId = ctx.threadId;
+  const channel = stringField(ctx, "channel") ?? stringField(ctx, "messageProvider");
+  const chatId = routingScalarField(ctx, "chatId") ?? routingScalarField(chat, "id");
+  const channelId = routingScalarField(ctx, "channelId");
+  const destination = routingScalarField(ctx, "destination") ?? routingScalarField(ctx, "to");
   return normalizeWorkspaceRouteContext({
     agentId: stringField(ctx, "agentId"),
     sessionKey: stringField(ctx, "sessionKey"),
     sessionId: stringField(ctx, "sessionId"),
-    channel: stringField(ctx, "channel"),
+    channel,
     messageProvider: stringField(ctx, "messageProvider"),
-    channelId: routingScalarField(ctx, "channelId"),
-    chatId: routingScalarField(ctx, "chatId") ?? routingScalarField(chat, "id"),
+    channelId,
+    chatId,
+    conversationTarget: canonicalConversationTarget(chatId ?? destination ?? channelId, channel),
     accountId: routingScalarField(ctx, "accountId"),
     threadId: typeof rawThreadId === "string" || typeof rawThreadId === "number"
       ? String(rawThreadId)
       : undefined,
-    destination: routingScalarField(ctx, "destination") ?? routingScalarField(ctx, "to"),
+    destination,
   });
 }
 
@@ -57,17 +78,20 @@ export function workspaceRouteContextFromToolFactory(input: unknown): WorkspaceR
     ? ctx.deliveryContext as Record<string, unknown>
     : {};
   const rawThreadId = deliveryContext.threadId;
+  const channel = stringField(deliveryContext, "channel") ?? stringField(ctx, "messageChannel");
+  const destination = routingScalarField(deliveryContext, "to");
   return normalizeWorkspaceRouteContext({
     agentId: stringField(ctx, "agentId"),
     sessionKey: stringField(ctx, "sessionKey"),
     sessionId: stringField(ctx, "sessionId"),
-    channel: stringField(deliveryContext, "channel") ?? stringField(ctx, "messageChannel"),
+    channel,
     accountId: routingScalarField(deliveryContext, "accountId")
       ?? routingScalarField(ctx, "agentAccountId"),
     threadId: typeof rawThreadId === "string" || typeof rawThreadId === "number"
       ? String(rawThreadId)
       : undefined,
-    destination: routingScalarField(deliveryContext, "to"),
+    destination,
+    conversationTarget: canonicalConversationTarget(destination, channel),
   });
 }
 
@@ -85,7 +109,7 @@ export function safeLifecycleError(error: unknown): string {
 
 const CONTEXT_KEYS: Array<keyof WorkspaceRouteContext> = [
   "agentId", "sessionKey", "sessionId", "channel", "messageProvider",
-  "channelId", "chatId", "accountId", "threadId", "destination", "parentSessionKey",
+  "channelId", "chatId", "conversationTarget", "accountId", "threadId", "destination", "parentSessionKey",
 ];
 
 /** Copy only trusted routing fields; callers must construct this from host context. */
@@ -112,14 +136,21 @@ export type BindingResult =
   | { status: "existing"; workspaceId: string }
   | { status: "binding-conflict"; workspaceId: string; requestedWorkspaceId: string };
 
+type BindingSource = "rule" | "inheritance" | "agent" | "legacy" | "unknown";
+type BindingRecord = { workspaceId: string; source: BindingSource };
+
 /** In-memory, write-once session routing relation. */
 export class SessionWorkspaceBindingStore {
-  private readonly bindings = new Map<string, string>();
+  private readonly bindings = new Map<string, BindingRecord>();
   private readonly deniedSessions = new Set<string>();
   private readonly inheritedSessions = new Set<string>();
 
   get(sessionKey: string | undefined): string | undefined {
-    return sessionKey ? this.bindings.get(sessionKey) : undefined;
+    return sessionKey ? this.bindings.get(sessionKey)?.workspaceId : undefined;
+  }
+
+  getSource(sessionKey: string | undefined): BindingSource | undefined {
+    return sessionKey ? this.bindings.get(sessionKey)?.source : undefined;
   }
 
   isDenied(sessionKey: string | undefined): boolean {
@@ -135,21 +166,25 @@ export class SessionWorkspaceBindingStore {
     if (sessionKey) this.deniedSessions.add(sessionKey);
   }
 
-  bind(sessionKey: string, workspaceId: string): BindingResult {
+  bind(sessionKey: string, workspaceId: string, source: BindingSource = "unknown"): BindingResult {
     const existing = this.bindings.get(sessionKey);
     if (existing) {
-      return existing === workspaceId
-        ? { status: "existing", workspaceId: existing }
-        : { status: "binding-conflict", workspaceId: existing, requestedWorkspaceId: workspaceId };
+      if (existing.workspaceId === workspaceId) {
+        // Retain explicit provenance when another surface later omits the
+        // route-only field and exposes only the lower-precedence agent default.
+        if (source === "rule" && existing.source !== "rule") existing.source = "rule";
+        return { status: "existing", workspaceId: existing.workspaceId };
+      }
+      return { status: "binding-conflict", workspaceId: existing.workspaceId, requestedWorkspaceId: workspaceId };
     }
-    this.bindings.set(sessionKey, workspaceId);
+    this.bindings.set(sessionKey, { workspaceId, source });
     return { status: "bound", workspaceId };
   }
 
   bindChild(parentSessionKey: string, childSessionKey: string): BindingResult | { status: "unknown-parent" } {
-    const workspaceId = this.bindings.get(parentSessionKey);
+    const workspaceId = this.bindings.get(parentSessionKey)?.workspaceId;
     if (!workspaceId) return { status: "unknown-parent" };
-    const result = this.bind(childSessionKey, workspaceId);
+    const result = this.bind(childSessionKey, workspaceId, "inheritance");
     if (result.status !== "binding-conflict") this.inheritedSessions.add(childSessionKey);
     return result;
   }
@@ -157,6 +192,12 @@ export class SessionWorkspaceBindingStore {
 }
 
 function valueFor(context: WorkspaceRouteContext, key: keyof WorkspaceRoutingRule): string | undefined {
+  if (key === "conversationTarget" || key === "chatId" || key === "channelId" || key === "destination") {
+    return context.conversationTarget ?? canonicalConversationTarget(
+      context.chatId ?? context.destination ?? context.channelId,
+      context.channel ?? context.messageProvider,
+    );
+  }
   const value = (context as Record<string, unknown>)[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -193,6 +234,7 @@ export function resolveWorkspaceRoute(
   const rules = config.workspaceRoutingRules ?? [];
   const agentMap = config.workspaceIdByAgent ?? {};
   const existing = bindings.get(context.sessionKey);
+  const existingSource = bindings.getSource(context.sessionKey);
   if (existing) {
     const ruleWorkspaces = matchingWorkspaces({ ...config, workspaceRoutingRules: rules }, context);
     if (ruleWorkspaces.length > 0) {
@@ -202,12 +244,13 @@ export function resolveWorkspaceRoute(
       }
       // Explicit trusted route metadata outranks the agent-wide default. A
       // matching explicit route must remain stable on every tool/hook access.
+      bindings.bind(context.sessionKey!, existing, "rule");
       return { status: "resolved", workspaceId: existing, source: "binding" };
     }
     // A child agent's own agent-wide mapping must not displace the workspace
     // inherited from its requester. Explicit trusted route metadata can still
     // report a conflict, and an already-bound child is never rebound.
-    const agentWorkspace = context.agentId && !bindings.isInherited(context.sessionKey)
+    const agentWorkspace = context.agentId && !bindings.isInherited(context.sessionKey) && existingSource !== "rule"
       ? agentMap[context.agentId.trim().toLowerCase()]
       : undefined;
     const conflictingWorkspace = (agentWorkspace ? [agentWorkspace] : [])
@@ -223,7 +266,7 @@ export function resolveWorkspaceRoute(
     const matching = rules.filter((rule) => matches(rule, context));
     if (new Set(matching.map((rule) => rule.workspaceId)).size > 1) return { status: "unknown-route", reason: "ambiguous-route" };
     if (context.sessionKey) {
-      const result = bindings.bind(context.sessionKey, explicit!);
+      const result = bindings.bind(context.sessionKey, explicit!, "rule");
       if (result.status === "binding-conflict") return result;
     }
     return { status: "resolved", workspaceId: explicit!, source: "rule" };
@@ -231,19 +274,19 @@ export function resolveWorkspaceRoute(
 
   const inherited = bindings.get(context.parentSessionKey);
   if (inherited) {
-    if (context.sessionKey) bindings.bind(context.sessionKey, inherited);
+    if (context.sessionKey) bindings.bind(context.sessionKey, inherited, "inheritance");
     return { status: "resolved", workspaceId: inherited, source: "inheritance" };
   }
 
   const agentId = context.agentId?.trim().toLowerCase();
   const agentWorkspace = agentId ? agentMap[agentId] : undefined;
   if (agentWorkspace) {
-    if (context.sessionKey) bindings.bind(context.sessionKey, agentWorkspace);
+    if (context.sessionKey) bindings.bind(context.sessionKey, agentWorkspace, "agent");
     return { status: "resolved", workspaceId: agentWorkspace, source: "agent" };
   }
 
   if (!config.strictWorkspaceRouting && config.legacyWorkspaceFallback) {
-    if (context.sessionKey) bindings.bind(context.sessionKey, config.workspaceId);
+    if (context.sessionKey) bindings.bind(context.sessionKey, config.workspaceId, "legacy");
     return { status: "resolved", workspaceId: config.workspaceId, source: "legacy" };
   }
   return { status: "unknown-route", reason: context.sessionKey ? "unknown-route" : "missing-session-key" };

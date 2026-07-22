@@ -95,6 +95,9 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
   "plugins": {
     "entries": {
       "openclaw-honcho": {
+        "hooks": {
+          "allowConversationAccess": true
+        },
         "config": {
           "workspaceId": "openclaw-legacy",
           "workspaceIdByAgent": {
@@ -106,7 +109,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
             {
               "agentId": "main",
               "channel": "telegram",
-              "destination": "work-group-id",
+              "conversationTarget": "work-group-id",
               "workspaceId": "silva-work"
             }
           ],
@@ -126,7 +129,9 @@ Runtime precedence is deterministic:
 4. `workspaceIdByAgent` supplies the agent-wide route.
 5. The legacy `workspaceId` fallback is allowed only for an explicit safe single-workspace configuration: no routing fields, non-strict mode; or an explicit `strictWorkspaceRouting: false` opt-in alongside routing fields. `strictWorkspaceRouting: true` always fails closed.
 
-Rules match only trusted OpenClaw host context. Model/tool arguments cannot select a workspace. `destination` is the trusted tool delivery target; hook-only fields such as `chatId` may be used where OpenClaw supplies them.
+Rules match only trusted OpenClaw host context. Model/tool arguments cannot select a workspace. Use `conversationTarget` for a channel-local chat/conversation: the resolver canonicalizes hook `chatId` and tool `deliveryContext.to` (including a redundant `channel:` prefix) to this single identity. The older `chatId`, `channelId`, and `destination` rule keys remain accepted as compatibility aliases, but must not be combined with conflicting values. Account/thread rules are safe only when the initial trusted surface supplies those fields; an existing explicit binding is never contradicted merely because a later surface omits them, while later conflicting explicit metadata still fails closed.
+
+OpenClaw **2026.7.1-2** requires the entry-level `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` permission for this non-bundled plugin's primary `agent_end` capture hook. `openclaw honcho setup` establishes that narrow permission without changing other hook permissions. Manual configurations must include it exactly as shown above; otherwise the plugin can load while conversation capture remains blocked.
 
 The registered OpenClaw memory runtime receives only `agentId`, not trusted session/chat/destination context. It is therefore available only when that agent has one unambiguous agent-wide workspace. If an agent spans workspaces through routing rules, use the session-scoped Honcho tools; the generic memory runtime remains unavailable/fail-closed.
 
@@ -266,8 +271,8 @@ In the routing example above, `main` spans `melia-ruslan` and `silva-work`, so r
 
 Before production rollout:
 
-1. Back up the OpenClaw config, current plugin package, peer mappings, and upload manifest; record the current plugin version and gateway health.
-2. Validate every intended agent/rule against a staging config with `strictWorkspaceRouting: true`. Confirm unknown routes deny before Honcho access.
+1. Back up the OpenClaw config, current plugin package, peer mappings, and upload manifest; record the current plugin version and gateway health. Verify the plugin backup (path, version, SHA-256, and rollback command) before the first production mutation.
+2. Confirm `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` is present at the entry level, then validate every intended agent/rule against a staging config with `strictWorkspaceRouting: true`. Confirm unknown routes deny before Honcho access and runtime inspection shows `agent_end` registered rather than blocked.
 3. Migrate one agent/workspace at a time with explicit CLI selection. Verify workspace/session counts and exact persisted user text; do not restore a foreign database over an existing workspace.
 4. Run the unit, isolation, concurrency, subagent, loader, CLI, and exact-persistence suites against the target OpenClaw version.
 5. Stop the gateway, install the staged plugin build, apply config, restart, and smoke-test each route independently. Keep the production Honcho Server/Deriver unchanged.

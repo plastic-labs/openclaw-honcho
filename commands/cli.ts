@@ -25,6 +25,43 @@ export type UploadManifest = Record<string, ManifestEntry>;
 
 const MANIFEST_PATH = () => path.join(os.homedir(), ".openclaw", ".upload-manifest.json");
 
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+/**
+ * agent_end is a conversation-content hook. OpenClaw 2026.7.1-2 blocks it
+ * for non-bundled plugins unless this entry-level permission is explicit.
+ */
+export function ensureHonchoCapturePermission(config: Record<string, unknown>): {
+  config: Record<string, unknown>;
+  changed: boolean;
+} {
+  const plugins = objectRecord(config.plugins);
+  const entries = objectRecord(plugins.entries);
+  const entry = objectRecord(entries["openclaw-honcho"]);
+  const hooks = objectRecord(entry.hooks);
+  if (hooks.allowConversationAccess === true) return { config, changed: false };
+  return {
+    changed: true,
+    config: {
+      ...config,
+      plugins: {
+        ...plugins,
+        entries: {
+          ...entries,
+          "openclaw-honcho": {
+            ...entry,
+            hooks: { ...hooks, allowConversationAccess: true },
+          },
+        },
+      },
+    },
+  };
+}
+
 function loadManifest(): UploadManifest {
   try {
     return JSON.parse(fs.readFileSync(MANIFEST_PATH(), "utf-8"));
@@ -208,6 +245,17 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
               fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
+            }
+
+            // The plugin can load without this permission while agent_end is
+            // silently rejected by OpenClaw. Establish the narrow required
+            // entry-level permission before any setup network or upload work.
+            const capturePermission = ensureHonchoCapturePermission(config);
+            config = capturePermission.config;
+            if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            if (capturePermission.changed) {
+              console.log("✓ Enabled hooks.allowConversationAccess for Honcho conversation capture\n");
             }
 
             // Resolve configured agents and their workspaces from config

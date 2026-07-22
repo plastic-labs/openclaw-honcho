@@ -31,17 +31,33 @@ export type WorkspaceRoutingRule = {
   sessionKey?: string;
   channel?: string;
   messageProvider?: string;
+  /** Canonical channel-local conversation target shared by hooks and tools. */
+  conversationTarget?: string;
+  /** @deprecated Use conversationTarget. Accepted as a hook-side compatibility alias. */
   channelId?: string;
+  /** @deprecated Use conversationTarget. Accepted as a hook-side compatibility alias. */
   chatId?: string;
   accountId?: string;
   threadId?: string;
+  /** @deprecated Use conversationTarget. Accepted as a tool-side compatibility alias. */
   destination?: string;
 };
 
 const ROUTING_RULE_KEYS = new Set([
   "workspaceId", "agentId", "sessionKey", "channel", "messageProvider",
-  "channelId", "chatId", "accountId", "threadId", "destination",
+  "conversationTarget", "channelId", "chatId", "accountId", "threadId", "destination",
 ]);
+
+const ROUTE_TARGET_KEYS = ["conversationTarget", "chatId", "channelId", "destination"] as const;
+
+function canonicalConversationTarget(value: string, channel?: string): string {
+  const normalized = value.trim();
+  const prefix = channel?.trim().toLowerCase();
+  if (prefix && normalized.toLowerCase().startsWith(`${prefix}:`)) {
+    return normalized.slice(prefix.length + 1);
+  }
+  return normalized;
+}
 
 function requiredId(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim() || value.trim().length > 256 || /[\u0000-\u001f\u007f]/.test(value)) {
@@ -88,6 +104,17 @@ function normalizeRules(value: unknown): WorkspaceRoutingRule[] {
     if (normalized.agentId) normalized.agentId = normalized.agentId.toLowerCase();
     if (normalized.channel) normalized.channel = normalized.channel.toLowerCase();
     if (normalized.messageProvider) normalized.messageProvider = normalized.messageProvider.toLowerCase();
+    const targetValues = ROUTE_TARGET_KEYS
+      .map((key) => normalized[key])
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => canonicalConversationTarget(value, normalized.channel ?? normalized.messageProvider));
+    if (new Set(targetValues).size > 1) {
+      throw new Error(`Invalid workspaceRoutingRules[${index}]: conversation target aliases disagree`);
+    }
+    if (targetValues[0]) normalized.conversationTarget = targetValues[0];
+    delete normalized.chatId;
+    delete normalized.channelId;
+    delete normalized.destination;
     return normalized;
   });
 }

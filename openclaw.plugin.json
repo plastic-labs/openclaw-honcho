@@ -50,6 +50,10 @@
             "sessionKey": { "type": "string" },
             "channel": { "type": "string" },
             "messageProvider": { "type": "string" },
+            "conversationTarget": {
+              "type": "string",
+              "description": "Canonical channel-local conversation target shared by hooks and tools."
+            },
             "channelId": { "type": "string" },
             "chatId": { "type": "string" },
             "accountId": { "type": "string" },
