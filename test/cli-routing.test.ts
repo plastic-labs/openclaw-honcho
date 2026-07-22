@@ -5,7 +5,9 @@ import {
   ensureHonchoCapturePermission,
   pruneStaleUploadManifestEntries,
   registerCli,
+  reportSetupUploadFailures,
   resolveCliWorkspace,
+  safeCliFailureMessage,
   uploadManifestKey,
 } from "../commands/cli.js";
 
@@ -163,7 +165,10 @@ class FakeCommand {
 }
 
 describe("registered CLI commands", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.exitCode = undefined;
+  });
 
   function registration(cfg: ReturnType<typeof honchoConfigSchema.parse>) {
     const program = new FakeCommand();
@@ -196,8 +201,22 @@ describe("registered CLI commands", () => {
 
     expect(getWorkspaceState).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(
-      "Failed to connect: WorkspaceRoutingError: workspace routing denied: cli-agent-route-unavailable",
+      "Failed to connect: workspace routing denied: cli-agent-route-unavailable",
     );
+  });
+
+  it("signals a denied query with a non-zero exit status for automation", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { main: "personal" },
+      strictWorkspaceRouting: true,
+    });
+    const { honcho, getWorkspaceState } = registration(cfg);
+
+    await honcho.children.get("status")!.handler!({ agent: "unknown" });
+
+    expect(getWorkspaceState).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeGreaterThan(0);
   });
 
   it("rejects invalid search limits before selecting workspace state", async () => {
@@ -213,7 +232,116 @@ describe("registered CLI commands", () => {
 
     expect(getWorkspaceState).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(
-      "Search failed: Error: Invalid top-k: expected a positive integer",
+      "Search failed: Invalid top-k: expected a positive integer",
     );
+    expect(process.exitCode).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["status", "Failed to connect"],
+    ["ask", "Failed to query"],
+    ["search", "Search failed"],
+  ] as const)("sanitizes %s provider failures and signals failure", async (command, prefix) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const providerError = Object.assign(
+      new Error("SECRET_PROVIDER_MESSAGE sk-live-API_KEY_SENTINEL"),
+      {
+        body: "SECRET_BODY uploaded prompt content",
+        stack: "SECRET_STACK",
+        requestUrl: "https://user:password@example.test/?api_key=SECRET_URL_KEY",
+      },
+    );
+    const workspace = {
+      ensureInitialized: vi.fn().mockResolvedValue(undefined),
+      resolveDefaultAgentId: vi.fn().mockReturnValue("main"),
+      agentPeerMap: {},
+      getAgentPeer: vi.fn().mockResolvedValue({
+        id: "agent-main",
+        chat: vi.fn().mockRejectedValue(providerError),
+      }),
+      getParticipantPeer: vi.fn().mockResolvedValue({
+        representation: vi.fn().mockRejectedValue(providerError),
+      }),
+    };
+    if (command === "status") workspace.ensureInitialized.mockRejectedValue(providerError);
+    const { honcho, getWorkspaceState } = registration(honchoConfigSchema.parse({ workspaceId: "legacy" }));
+    getWorkspaceState.mockReturnValue(workspace);
+
+    if (command === "status") await honcho.children.get(command)!.handler!({});
+    if (command === "ask") await honcho.children.get(command)!.handler!("PRIVATE_PROMPT", {});
+    if (command === "search") {
+      await honcho.children.get(command)!.handler!("PRIVATE_QUERY", { topK: "10", maxDistance: "0.5" });
+    }
+
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toBe(`${prefix}: Honcho provider unavailable`);
+    expect(output).not.toMatch(/SECRET_|sk-live|PRIVATE_|password|uploaded prompt/i);
+    expect(process.exitCode).toBeGreaterThan(0);
+  });
+
+  it("does not set failure status on a successful status query", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const workspace = {
+      ensureInitialized: vi.fn().mockResolvedValue(undefined),
+      resolveDefaultAgentId: vi.fn().mockReturnValue("main"),
+      getAgentPeer: vi.fn().mockResolvedValue({ id: "agent-main" }),
+      agentPeerMap: { main: "agent-main" },
+    };
+    const { honcho, getWorkspaceState } = registration(honchoConfigSchema.parse({ workspaceId: "legacy" }));
+    getWorkspaceState.mockReturnValue(workspace);
+
+    await honcho.children.get("status")!.handler!({});
+
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("does not echo the search prompt when no result is available", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const workspace = {
+      ensureInitialized: vi.fn().mockResolvedValue(undefined),
+      getParticipantPeer: vi.fn().mockResolvedValue({
+        representation: vi.fn().mockResolvedValue(null),
+      }),
+    };
+    const { honcho, getWorkspaceState } = registration(honchoConfigSchema.parse({ workspaceId: "legacy" }));
+    getWorkspaceState.mockReturnValue(workspace);
+
+    await honcho.children.get("search")!.handler!("PRIVATE_SEARCH_PROMPT", {
+      topK: "10",
+      maxDistance: "0.5",
+    });
+
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain("No relevant memories found.");
+    expect(output).not.toContain("PRIVATE_SEARCH_PROMPT");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("sanitizes setup per-file failures, signals partial failure, and keeps the summary", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    reportSetupUploadFailures([
+      { error: Object.assign(new Error("SECRET_UPLOAD_MESSAGE"), { body: "SECRET_UPLOAD_BODY" }) },
+      { error: "sk-live-SETUP_API_KEY" },
+    ]);
+
+    const output = log.mock.calls.flat().join("\n");
+    expect(output).toContain("Failed:    2");
+    expect(output).toContain("File 1 — upload failed");
+    expect(output).toContain("again to retry failed files");
+    expect(output).not.toMatch(/SECRET_|sk-live/i);
+    expect(process.exitCode).toBeGreaterThan(0);
+  });
+
+  it("exposes safe routing reasons but sanitizes arbitrary errors", () => {
+    const cfg = honchoConfigSchema.parse({
+      workspaceIdByAgent: { main: "personal" },
+      strictWorkspaceRouting: true,
+    });
+    let routeError: unknown;
+    try { resolveCliWorkspace(cfg, { agent: "unknown" }); } catch (error) { routeError = error; }
+    expect(safeCliFailureMessage(routeError)).toBe(
+      "workspace routing denied: cli-agent-route-unavailable",
+    );
+    expect(safeCliFailureMessage(new Error("SECRET_UNKNOWN"))).toBe("Honcho provider unavailable");
   });
 });

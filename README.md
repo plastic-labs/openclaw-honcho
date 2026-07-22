@@ -4,8 +4,6 @@
 
 AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
 
-This README describes plugin version **1.5.2** plus the multi-workspace routing implementation on this development branch. Do not deploy this branch over an existing installation until the rollout checks below pass in staging.
-
 This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
 
 ## Install
@@ -45,9 +43,9 @@ Migration is **non-destructive** — files are uploaded to Honcho. Originals are
 For multi-workspace installs, run a separate migration for every destination:
 
 ```bash
-openclaw honcho setup --agent main --workspace melia-ruslan
-openclaw honcho setup --agent silva --workspace silva-work
-openclaw honcho setup --agent masha --workspace masha-anya
+openclaw honcho setup --agent main --workspace personal-memory
+openclaw honcho setup --agent analyst --workspace research-memory
+openclaw honcho setup --agent support --workspace customer-support
 ```
 
 `--workspace` is accepted only by `setup`; it is an explicit operator-controlled upload destination and takes precedence over the agent mapping for that one migration run. It does not change runtime routing. When more than one OpenClaw agent is configured, pair it with `--agent` so files from different agents cannot be mixed. Routing is validated before a Honcho client or upload session is created.
@@ -101,16 +99,16 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
         "config": {
           "workspaceId": "openclaw-legacy",
           "workspaceIdByAgent": {
-            "main": "melia-ruslan",
-            "silva": "silva-work",
-            "masha": "masha-anya"
+            "main": "personal-memory",
+            "analyst": "research-memory",
+            "support": "customer-support"
           },
           "workspaceRoutingRules": [
             {
               "agentId": "main",
               "channel": "telegram",
               "conversationTarget": "work-group-id",
-              "workspaceId": "silva-work"
+              "workspaceId": "team-memory"
             }
           ],
           "strictWorkspaceRouting": true
@@ -131,7 +129,7 @@ Runtime precedence is deterministic:
 
 Rules match only trusted OpenClaw host context. Model/tool arguments cannot select a workspace. Use `conversationTarget` for a channel-local chat/conversation: the resolver canonicalizes hook `chatId` and tool `deliveryContext.to` (including a redundant `channel:` prefix) to this single identity. The older `chatId`, `channelId`, and `destination` rule keys remain accepted as compatibility aliases, but must not be combined with conflicting values. Account/thread rules are safe only when the initial trusted surface supplies those fields; an existing explicit binding is never contradicted merely because a later surface omits them, while later conflicting explicit metadata still fails closed.
 
-OpenClaw **2026.7.1-2** requires the entry-level `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` permission for this non-bundled plugin's primary `agent_end` capture hook. `openclaw honcho setup` establishes that narrow permission without changing other hook permissions. Manual configurations must include it exactly as shown above; otherwise the plugin can load while conversation capture remains blocked.
+OpenClaw installations that enforce non-bundled conversation access require the entry-level `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` permission for this plugin's primary `agent_end` capture hook. `openclaw honcho setup` establishes that narrow permission without changing other hook permissions. Manual configurations must include it exactly as shown above; otherwise the plugin can load while conversation capture remains blocked.
 
 The registered OpenClaw memory runtime receives only `agentId`, not trusted session/chat/destination context. It is therefore available only when that agent has one unambiguous agent-wide workspace. If an agent spans workspaces through routing rules, use the session-scoped Honcho tools; the generic memory runtime remains unavailable/fail-closed.
 
@@ -265,7 +263,7 @@ openclaw honcho search <query> --agent main     # Search in that agent's workspa
 
 CLI commands have no trusted chat context and never infer channel/chat rules. In routed or strict configurations, `status`, `ask`, and `search` require `--agent`, and that agent must have one unambiguous agent-wide workspace. Omitting `--agent` is retained only for the explicit safe legacy single-workspace configuration. Query commands intentionally do not accept `--workspace`.
 
-In the routing example above, `main` spans `melia-ruslan` and `silva-work`, so read/query CLI calls for `--agent main` intentionally deny. Use the session-scoped tools for that agent, or redesign the mapping so the requested CLI identity is unambiguous.
+In the routing example above, `main` spans `personal-memory` and `team-memory`, so read/query CLI calls for `--agent main` intentionally deny. Use the session-scoped tools for that agent, or redesign the mapping so the requested CLI identity is unambiguous.
 
 ## Migration, rollback, and production rollout
 

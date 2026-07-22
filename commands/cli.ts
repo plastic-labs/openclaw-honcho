@@ -99,6 +99,48 @@ function requiredCliId(value: string | undefined, field: string): string | undef
   return normalized;
 }
 
+class CliValidationError extends Error {}
+
+function signalCliFailure(): void {
+  if (process.exitCode === undefined || process.exitCode === 0) process.exitCode = 1;
+}
+
+/**
+ * CLI output is an operator surface, so only routing reasons and validation
+ * errors created locally are safe to expose. SDK/provider failures may carry
+ * response bodies, credentials, prompts, or uploaded content.
+ */
+export function safeCliFailureMessage(error: unknown): string {
+  if (error instanceof WorkspaceRoutingError || error instanceof CliValidationError) {
+    return error.message;
+  }
+  return "Honcho provider unavailable";
+}
+
+function reportCliFailure(prefix: string, error: unknown): void {
+  signalCliFailure();
+  console.error(`${prefix}: ${safeCliFailureMessage(error)}`);
+}
+
+export function reportSetupUploadFailures(failed: readonly unknown[]): void {
+  if (failed.length === 0) return;
+  signalCliFailure();
+  console.log(`  Failed:    ${failed.length}`);
+  for (const [index] of failed.entries()) {
+    console.log(`    ! File ${index + 1} — upload failed`);
+  }
+  console.log(`\nRun \`openclaw honcho setup\` again to retry failed files.`);
+}
+
+function safeEndpointForDisplay(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return "configured endpoint";
+  }
+}
+
 export type CliWorkspaceSelection = {
   workspaceId: string;
   agentId?: string;
@@ -145,16 +187,16 @@ export function uploadManifestKey(
 }
 
 function positiveInteger(value: string, field: string): number {
-  if (!/^\d+$/.test(value)) throw new Error(`Invalid ${field}: expected a positive integer`);
+  if (!/^\d+$/.test(value)) throw new CliValidationError(`Invalid ${field}: expected a positive integer`);
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error(`Invalid ${field}: expected a positive integer`);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new CliValidationError(`Invalid ${field}: expected a positive integer`);
   return parsed;
 }
 
 function unitInterval(value: string, field: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
-    throw new Error(`Invalid ${field}: expected a number from 0 to 1`);
+    throw new CliValidationError(`Invalid ${field}: expected a number from 0 to 1`);
   }
   return parsed;
 }
@@ -202,12 +244,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             let resolvedWorkspaceId: string;
 
             if (hasExistingConfig && !options.reconfigure) {
-              const maskedKey = savedApiKey.length > 8
-                ? savedApiKey.slice(0, 4) + "..." + savedApiKey.slice(-4)
-                : "****";
               console.log("Existing configuration found:");
-              console.log(`  API key:      ${maskedKey}`);
-              console.log(`  Base URL:     ${savedBaseUrl}`);
+              console.log("  API key:      configured");
+              console.log(`  Base URL:     ${safeEndpointForDisplay(savedBaseUrl)}`);
               console.log(`  Workspace ID: ${savedWorkspaceId}`);
               console.log('\nPress Enter to keep existing values, or use --reconfigure to change.\n');
 
@@ -218,9 +257,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             } else {
               console.log('Press Enter to use the default shown in [brackets].\n');
 
-              const apiKeyDefault = savedApiKey ? ` [${savedApiKey.slice(0, 4)}...${savedApiKey.slice(-4)}]` : "";
+              const apiKeyDefault = savedApiKey ? " [configured]" : "";
               const apiKeyInput = await ask(`Honcho API key${apiKeyDefault || " (press Enter for self-hosted mode)"}: `);
-              const baseUrlInput = await ask(`Base URL [${savedBaseUrl}]: `);
+              const baseUrlInput = await ask(`Base URL [${safeEndpointForDisplay(savedBaseUrl)}]: `);
               const workspaceIdInput = await ask(`Workspace ID [${savedWorkspaceId}]: `);
 
               resolvedApiKey = apiKeyInput.trim() || savedApiKey;
@@ -471,7 +510,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               const size = fs.statSync(filePath).size;
               console.log(`  ${filePath} (${(size / 1024).toFixed(1)} KB) → ${peerId}`);
             }
-            console.log(`\nData destination: ${resolvedBaseUrl}`);
+            console.log(`\nData destination: ${safeEndpointForDisplay(resolvedBaseUrl)}`);
 
             const uploadConfirm = await ask("\nUpload these files to Honcho? [y/N]: ");
             if (!["y", "yes"].includes(uploadConfirm.trim().toLowerCase())) {
@@ -516,7 +555,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             let uploadCount = 0;
             let unchangedCount = 0;
             const skipped: string[] = [];
-            const failed: { filePath: string; error: string }[] = [];
+            const failed: { filePath: string }[] = [];
             const total = detected.length;
 
             for (let i = 0; i < detected.length; i++) {
@@ -524,7 +563,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               const progress = `[${i + 1}/${total}]`;
 
               const stat = await fs.promises.stat(filePath).catch(() => null);
-              if (!stat?.isFile()) continue;
+              if (!stat?.isFile()) {
+                console.log(`  ${progress} ✗ Failed: file is unavailable`);
+                failed.push({ filePath });
+                continue;
+              }
               if (stat.size > MAX_UPLOAD_BYTES) {
                 console.log(`  ${progress} ! Skipping (larger than 5MB): ${filePath}`);
                 skipped.push(filePath);
@@ -544,7 +587,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 : agentPeerSetupMap.get(agentId ?? migrationDefaultAgentId);
               if (!targetPeer) {
                 console.log(`  ${progress} ✗ Failed: ${filePath}`);
-                failed.push({ filePath, error: `Missing Honcho peer for agent ${agentId ?? migrationDefaultAgentId}` });
+                failed.push({ filePath });
                 continue;
               }
               try {
@@ -584,10 +627,9 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                   peerId: targetPeer.id,
                 };
                 saveManifest(manifest);
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
+              } catch {
                 console.log(`  ${progress} ✗ Failed: ${filePath}`);
-                failed.push({ filePath, error: msg });
+                failed.push({ filePath });
               }
             }
 
@@ -601,14 +643,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             if (unchangedCount > 0) console.log(`  Unchanged: ${unchangedCount}`);
             if (skipped.length > 0) console.log(`  Skipped:   ${skipped.length}`);
             if (failed.length > 0) {
-              console.log(`  Failed:    ${failed.length}`);
-              for (const f of failed) {
-                console.log(`    ! ${f.filePath} — ${f.error}`);
-              }
-              console.log(`\nRun \`openclaw honcho setup\` again to retry failed files.`);
+              reportSetupUploadFailures(failed);
             }
 
             console.log("\n✓ Setup complete. Run `openclaw gateway --force` to activate.\n");
+          } catch (error) {
+            reportCliFailure("Setup failed", error);
           } finally {
             rl.close();
           }
@@ -631,7 +671,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             console.log(`  Agent: ${agentId} → peer "${defaultPeer.id}"`);
             console.log(`  Agent peers mapped: ${Object.keys(workspace.agentPeerMap).join(", ") || "(none)"}`);
           } catch (error) {
-            console.error(`Failed to connect: ${error}`);
+            reportCliFailure("Failed to connect", error);
           }
         });
 
@@ -650,7 +690,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             const answer = await agentPeer.chat(question, { target: participantPeer });
             console.log(answer ?? "No information available.");
           } catch (error) {
-            console.error(`Failed to query: ${error}`);
+            reportCliFailure("Failed to query", error);
           }
         });
 
@@ -676,13 +716,13 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             });
 
             if (!representation) {
-              console.log(`No relevant memories found for: "${query}"`);
+              console.log("No relevant memories found.");
               return;
             }
 
             console.log(representation);
           } catch (error) {
-            console.error(`Search failed: ${error}`);
+            reportCliFailure("Search failed", error);
           }
         });
     },
