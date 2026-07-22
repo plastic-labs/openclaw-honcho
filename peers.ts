@@ -13,6 +13,7 @@
  */
 
 import { promises as fs, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,6 +33,26 @@ export function resolvePeersFilePath(): string {
   const envPath = process.env.OPENCLAW_HONCHO_PEERS_FILE;
   if (envPath && envPath.trim().length > 0) return envPath.trim();
   return path.join(os.homedir(), ".honcho", "openclaw-peers.json");
+}
+
+/**
+ * Return a collision-resistant sibling path for a non-default workspace.
+ *
+ * The configured default workspace deliberately keeps the historical path so
+ * existing sender mappings continue to load byte-for-byte. Additional
+ * workspaces get their own file, derived from the opaque workspace registry
+ * key rather than the raw workspace id (which may contain path separators or
+ * other unsafe filename characters).
+ */
+export function resolveWorkspacePeersFilePath(
+  basePath: string,
+  workspaceKey: string,
+  preserveLegacyPath = false,
+): string {
+  if (preserveLegacyPath) return basePath;
+  const parsed = path.parse(basePath);
+  const namespace = createHash("sha256").update(workspaceKey).digest("hex").slice(0, 16);
+  return path.join(parsed.dir, `${parsed.name}.${namespace}${parsed.ext || ".json"}`);
 }
 
 function parsePeersJson(raw: string, filePath: string): PeersFile {
