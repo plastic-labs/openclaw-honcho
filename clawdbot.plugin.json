@@ -13,6 +13,32 @@
         "type": "string",
         "description": "Honcho workspace ID (defaults to 'openclaw')"
       },
+      "workspaceIdByAgent": { "type": "object", "additionalProperties": { "type": "string" } },
+      "workspaceRoutingRules": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId"],
+          "properties": {
+            "workspaceId": { "type": "string" },
+            "agentId": { "type": "string" },
+            "sessionKey": { "type": "string" },
+            "channel": { "type": "string" },
+            "messageProvider": { "type": "string" },
+            "conversationTarget": {
+              "type": "string",
+              "description": "Canonical channel-local conversation target shared by hooks and tools."
+            },
+            "channelId": { "type": "string" },
+            "chatId": { "type": "string" },
+            "accountId": { "type": "string" },
+            "threadId": { "type": "string" },
+            "destination": { "type": "string" }
+          }
+        }
+      },
+      "strictWorkspaceRouting": { "type": "boolean", "default": false },
       "baseUrl": {
         "type": "string",
         "default": "https://api.honcho.dev"

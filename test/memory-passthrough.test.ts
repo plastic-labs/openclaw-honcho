@@ -9,6 +9,23 @@ vi.mock("../runtime.js", () => ({
 }));
 
 import { registerMemoryPassthrough } from "../tools/memory-passthrough.js";
+import { SessionWorkspaceBindingStore } from "../routing.js";
+
+function routedState() {
+  const workspace = { resolveDefaultAgentId: () => "main" };
+  return {
+    cfg: {
+      workspaceId: "legacy",
+      workspaceIdByAgent: { main: "work" },
+      workspaceRoutingRules: [],
+      strictWorkspaceRouting: true,
+      legacyWorkspaceFallback: false,
+    },
+    sessionWorkspaceBindings: new SessionWorkspaceBindingStore(),
+    honchoSessionWorkspaceBindings: new SessionWorkspaceBindingStore(),
+    getWorkspaceState: vi.fn(() => workspace),
+  };
+}
 
 describe("memory passthrough tools", () => {
   beforeEach(() => {
@@ -47,7 +64,8 @@ describe("memory passthrough tools", () => {
       },
     };
 
-    registerMemoryPassthrough(api as never, {} as never);
+    const state = routedState();
+    registerMemoryPassthrough(api as never, state as never);
 
     expect(registrations).toHaveLength(2);
     expect(registrations[0]?.opts).toEqual({ name: "memory_search" });
@@ -84,13 +102,15 @@ describe("memory passthrough tools", () => {
     expect(searchResult.content[0]?.text).toContain("\"provider\": \"honcho\"");
     expect(searchResult.content[0]?.text).toContain("\"path\": \"sessions/test-session.txt\"");
     expect(getResult.content[0]?.text).toContain("\"text\": \"remembered fact\"");
-    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, {}, {
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(1, state, {
       agentId: "main",
       sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
+      workspaceId: "work",
     });
-    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, {}, {
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenNthCalledWith(2, state, {
       agentId: "main",
       sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
+      workspaceId: "work",
     });
   });
 
@@ -103,7 +123,8 @@ describe("memory passthrough tools", () => {
     };
     getHonchoMemorySearchManagerMock.mockRejectedValueOnce(new Error("auth failed"));
 
-    registerMemoryPassthrough(api as never, {} as never);
+    const state = routedState();
+    registerMemoryPassthrough(api as never, state as never);
 
     const ctx = {
       agentId: "main",
@@ -116,10 +137,11 @@ describe("memory passthrough tools", () => {
     const result = await searchTool.execute("call-search", { query: "Chief" });
 
     expect(result.content[0]?.text).toContain("\"disabled\": true");
-    expect(result.content[0]?.text).toContain("\"error\": \"auth failed\"");
-    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith({}, {
+    expect(result.content[0]?.text).toContain("\"error\": \"memory provider unavailable\"");
+    expect(getHonchoMemorySearchManagerMock).toHaveBeenCalledWith(state, {
       agentId: "main",
       sessionKey: expect.stringMatching(/^chat-dashboard-main-[0-9a-f]{24}$/),
+      workspaceId: "work",
     });
   });
 });

@@ -14,7 +14,7 @@ openclaw honcho setup
 openclaw gateway restart
 ```
 
-`openclaw honcho setup` prompts for your Honcho API key, writes the config, and optionally uploads any legacy memory files to Honcho.
+`openclaw honcho setup` prompts for your Honcho API key, writes the config, and optionally uploads legacy memory files to Honcho. In a routed installation, migrate one agent/workspace at a time with explicit `--agent` and, when needed, the operator-only `--workspace` override.
 
 <details>
 <summary>Alternative: ClawHub Skill</summary>
@@ -40,14 +40,26 @@ If you have existing workspace memory files (`USER.md`, `MEMORY.md`, `IDENTITY.m
 
 Migration is **non-destructive** — files are uploaded to Honcho. Originals are never deleted or moved.
 
+For multi-workspace installs, run a separate migration for every destination:
+
+```bash
+openclaw honcho setup --agent main --workspace personal-memory
+openclaw honcho setup --agent analyst --workspace research-memory
+openclaw honcho setup --agent support --workspace customer-support
+```
+
+`--workspace` is accepted only by `setup`; it is an explicit operator-controlled upload destination and takes precedence over the agent mapping for that one migration run. It does not change runtime routing. When more than one OpenClaw agent is configured, pair it with `--agent` so files from different agents cannot be mixed. Routing is validated before a Honcho client or upload session is created.
+
+Upload resume entries are stored in `~/.openclaw/.upload-manifest.json` and are scoped by API endpoint, workspace, target peer, and canonical file path. A successful upload to one workspace never marks the same file complete in another workspace.
+
 ### Legacy files
 
 **User/owner files** (content describes the user):
-- `USER.md`, `MEMORY.md`
-- All files in `memory/` and `canvas/` directories (treated as user content)
+- `USER.md`
 
 **Agent/self files** (content describes the agent):
-- `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`
+- `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `TOOLS.md`, `BOOTSTRAP.md`, `MEMORY.md`
+- Files in that agent workspace's `memory/` and `canvas/` directories
 
 ### Upload to Honcho
 
@@ -65,11 +77,61 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | ---------------------- | ---------- | -------------------------- | ----------------------------------------- |
 | `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
+| `workspaceIdByAgent`   | `object`   | `{}`                        | Explicit agent-wide routes, keyed by normalized OpenClaw agent ID. |
+| `workspaceRoutingRules` | `array`   | `[]`                        | Trusted host-metadata rules for channel/account/destination/chat/thread/session routing. |
+| `strictWorkspaceRouting` | `boolean` | `false`                    | Deny an unknown route before any state or Honcho access. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+
+### Multi-workspace routing
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "hooks": {
+          "allowConversationAccess": true
+        },
+        "config": {
+          "workspaceId": "openclaw-legacy",
+          "workspaceIdByAgent": {
+            "main": "personal-memory",
+            "analyst": "research-memory",
+            "support": "customer-support"
+          },
+          "workspaceRoutingRules": [
+            {
+              "agentId": "main",
+              "channel": "telegram",
+              "conversationTarget": "work-group-id",
+              "workspaceId": "team-memory"
+            }
+          ],
+          "strictWorkspaceRouting": true
+        }
+      }
+    }
+  }
+}
+```
+
+Runtime precedence is deterministic:
+
+1. An existing immutable `sessionKey → workspaceId` binding is authoritative. Later conflicting trusted metadata is denied; sessions are never rebound.
+2. A matching `workspaceRoutingRules` entry selects the initial workspace. If matching rules name different workspaces, routing is denied as ambiguous.
+3. A child session inherits its requester's immutable workspace. The child agent's ordinary agent mapping cannot displace that inherited route.
+4. `workspaceIdByAgent` supplies the agent-wide route.
+5. The legacy `workspaceId` fallback is allowed only for an explicit safe single-workspace configuration: no routing fields, non-strict mode; or an explicit `strictWorkspaceRouting: false` opt-in alongside routing fields. `strictWorkspaceRouting: true` always fails closed.
+
+Rules match only trusted OpenClaw host context. Model/tool arguments cannot select a workspace. Use `conversationTarget` for a channel-local chat/conversation: the resolver canonicalizes hook `chatId` and tool `deliveryContext.to` (including a redundant `channel:` prefix) to this single identity. The older `chatId`, `channelId`, and `destination` rule keys remain accepted as compatibility aliases, but must not be combined with conflicting values. Account/thread rules are safe only when the initial trusted surface supplies those fields; an existing explicit binding is never contradicted merely because a later surface omits them, while later conflicting explicit metadata still fails closed.
+
+OpenClaw installations that enforce non-bundled conversation access require the entry-level `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` permission for this plugin's primary `agent_end` capture hook. `openclaw honcho setup` establishes that narrow permission without changing other hook permissions. Manual configurations must include it exactly as shown above; otherwise the plugin can load while conversation capture remains blocked.
+
+The registered OpenClaw memory runtime receives only `agentId`, not trusted session/chat/destination context. It is therefore available only when that agent has one unambiguous agent-wide workspace. If an agent spans workspaces through routing rules, use the session-scoped Honcho tools; the generic memory runtime remains unavailable/fail-closed.
 
 ### Self-Hosted / Local Honcho
 
@@ -130,6 +192,7 @@ Map `sender_id` → Honcho peer ID in `~/.honcho/openclaw-peers.json` (override 
   - `owner` — default for pre-existing files missing the field (preserves legacy behavior). All unknown senders merge into the owner peer.
 - **Auto-seeded, manually overridable.** The plugin only adds entries for senders not already in the map.
 - **Adding a mapping after messages exist splits history.** Messages already stored under the original peer stay there; new messages land under the new peer. Remap before the peer accumulates history.
+- **Workspace namespaces.** The historical `~/.honcho/openclaw-peers.json` path remains assigned to the configured default `workspaceId`. Other workspaces use deterministic endpoint/workspace-scoped peer files. API-key rotation does not change this persistence namespace. Do not copy one workspace's mapping file over another.
 
 ### Multi-Peer Participants
 
@@ -161,6 +224,7 @@ OpenClaw uses a multi-agent architecture where a primary agent can spawn **subag
 
 - **Automatic Subagent Detection** — When OpenClaw spawns a subagent, the plugin tracks the parent→child relationship via the `subagent_spawned` hook. Each subagent session records its `parentPeerId` in metadata.
 - **Parent Observer Peer** — The spawning agent is added as a silent observer in the subagent's Honcho session (`observeMe: false, observeOthers: true`). This gives Honcho visibility into the full agent tree — the parent can see what its subagents are doing without its own messages being attributed to the subagent session.
+- **Workspace inheritance** — The child session inherits the requester's immutable workspace binding. Missing parent routes and conflicting child bindings fail closed before session/client creation.
 
 ## Workspace Files
 
@@ -192,10 +256,26 @@ The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interacti
 
 ```bash
 openclaw honcho setup                           # Configure API key and migrate legacy files
-openclaw honcho status                          # Show current installation and setup state
-openclaw honcho ask <question>                  # Query Honcho about the user
-openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
+openclaw honcho status --agent main             # Inspect an agent's routed workspace
+openclaw honcho ask <question> --agent main     # Query in that agent's workspace
+openclaw honcho search <query> --agent main     # Search in that agent's workspace
 ```
+
+CLI commands have no trusted chat context and never infer channel/chat rules. In routed or strict configurations, `status`, `ask`, and `search` require `--agent`, and that agent must have one unambiguous agent-wide workspace. Omitting `--agent` is retained only for the explicit safe legacy single-workspace configuration. Query commands intentionally do not accept `--workspace`.
+
+In the routing example above, `main` spans `personal-memory` and `team-memory`, so read/query CLI calls for `--agent main` intentionally deny. Use the session-scoped tools for that agent, or redesign the mapping so the requested CLI identity is unambiguous.
+
+## Migration, rollback, and production rollout
+
+Before production rollout:
+
+1. Back up the OpenClaw config, current plugin package, peer mappings, and upload manifest; record the current plugin version and gateway health. Verify the plugin backup (path, version, SHA-256, and rollback command) before the first production mutation.
+2. Confirm `plugins.entries.openclaw-honcho.hooks.allowConversationAccess=true` is present at the entry level, then validate every intended agent/rule against a staging config with `strictWorkspaceRouting: true`. Confirm unknown routes deny before Honcho access and runtime inspection shows `agent_end` registered rather than blocked.
+3. Migrate one agent/workspace at a time with explicit CLI selection. Verify workspace/session counts and exact persisted user text; do not restore a foreign database over an existing workspace.
+4. Run the unit, isolation, concurrency, subagent, loader, CLI, and exact-persistence suites against the target OpenClaw version.
+5. Stop the gateway, install the staged plugin build, apply config, restart, and smoke-test each route independently. Keep the production Honcho Server/Deriver unchanged.
+
+Rollback means restoring the previous plugin package and configuration together, then restarting the gateway. New records already written to Honcho are not removed automatically; preserve them for audit and reconcile them explicitly. Do not weaken strict routing merely to make a failed route appear healthy.
 
 ## Local File Search (QMD Integration)
 

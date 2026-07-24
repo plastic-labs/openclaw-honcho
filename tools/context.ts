@@ -2,7 +2,7 @@ import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey } from "../helpers.js";
+import { resolveRoutedToolContext } from "./routed-context.js";
 
 export function registerContextTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -32,20 +32,17 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
       async execute(_toolCallId, params) {
         const { detail = "card", about } = params as { detail?: "card" | "full"; about?: string };
 
-        await state.ensureInitialized();
+        const routed = resolveRoutedToolContext(state, toolCtx);
+        const workspaceState = routed.state;
+        await workspaceState.ensureInitialized();
         const participantPeer = about
-          ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(
-              buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
-            );
+          ? await workspaceState.getParticipantPeer(about)
+          : await workspaceState.resolveSessionParticipantPeer(routed.honchoSessionKey);
 
         if (detail === "card") {
           const card = await participantPeer.card().catch((err) => {
-            // Only treat NotFoundError as empty; re-throw others or log
             if (err?.name === "NotFoundError") return null;
-            // Optionally log unexpected errors for debugging
-            console.warn("honcho_context card() error:", err);
-            return null;
+            throw err;
           });
 
           if (!card?.length) {

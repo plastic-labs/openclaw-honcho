@@ -101,7 +101,7 @@ export default definePluginEntry({
 
     // Hooks
     registerGatewayHook(api, state);
-    registerSubagentHooks(api);
+    registerSubagentHooks(api, state);
     registerContextHook(api, state);
     registerCaptureHook(api, state);
 

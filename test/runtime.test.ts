@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "../runtime.js";
+import {
+  getHonchoMemorySearchManager,
+  registerHonchoMemoryRuntime,
+  resolveHonchoMemoryBackendConfig,
+} from "../runtime.js";
 import type { PluginState } from "../state.js";
+import { SessionWorkspaceBindingStore } from "../routing.js";
 
 type TestState = PluginState & {
   participantPeer: {
@@ -124,6 +129,10 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
       disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
       crossSessionSearch,
+      workspaceIdByAgent: {},
+      workspaceRoutingRules: [],
+      strictWorkspaceRouting: false,
+      legacyWorkspaceFallback: true,
     },
     honcho: {
       session: vi.fn(async (sessionId: string) => createSession(sessionId)),
@@ -147,11 +156,56 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
     }),
     isParticipantPeerId: vi.fn((peerId: string) => peerId === "owner"),
     resolveDefaultAgentId: vi.fn(() => "main"),
+    getWorkspaceState: vi.fn(() => state),
+    honchoSessionWorkspaceBindings: new SessionWorkspaceBindingStore(),
   } as unknown as TestState;
   return state;
 }
 
 describe("Honcho memory runtime", () => {
+  it("uses the routed workspace state selected by an unambiguous agent mapping", async () => {
+    const state = createState();
+    state.cfg.workspaceIdByAgent = { main: "different-workspace" };
+    state.cfg.workspaceRoutingRules = [];
+    state.cfg.strictWorkspaceRouting = true;
+    state.cfg.legacyWorkspaceFallback = false;
+
+    const { manager } = await getHonchoMemorySearchManager(state, { agentId: "main" });
+    expect(state.getWorkspaceState).toHaveBeenCalledWith("different-workspace");
+    expect(state.ensureInitialized).toHaveBeenCalledTimes(1);
+    expect(manager.status().custom.workspaceId).toBe("different-workspace");
+  });
+
+  it("fails closed before state or Honcho access for an ambiguous agent-wide route", async () => {
+    const state = createState();
+    state.cfg.workspaceIdByAgent = { main: "agent-work" };
+    state.cfg.workspaceRoutingRules = [{ workspaceId: "chat-work", agentId: "main", chatId: "42" }];
+    state.cfg.strictWorkspaceRouting = true;
+    state.cfg.legacyWorkspaceFallback = false;
+
+    await expect(getHonchoMemorySearchManager(state, { agentId: "main" }))
+      .rejects.toThrow(/ambiguous-memory-route/);
+    expect(state.getWorkspaceState).not.toHaveBeenCalled();
+    expect(state.ensureInitialized).not.toHaveBeenCalled();
+    expect((state.honcho.session as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it("registered memory runtime ignores an untrusted/unsupported session field", async () => {
+    const state = createState();
+    state.cfg.workspaceIdByAgent = { main: "agent-work" };
+    state.cfg.workspaceRoutingRules = [{ workspaceId: "chat-work", agentId: "main", chatId: "42" }];
+    state.cfg.strictWorkspaceRouting = true;
+    state.cfg.legacyWorkspaceFallback = false;
+    const registrations: any[] = [];
+    registerHonchoMemoryRuntime({ registerMemoryRuntime: (runtime: any) => registrations.push(runtime) }, state);
+
+    await expect(registrations[0].getMemorySearchManager({
+      agentId: "main",
+      sessionKey: "pretend-trusted-session",
+    })).rejects.toThrow(/ambiguous-memory-route/);
+    expect(state.getWorkspaceState).not.toHaveBeenCalled();
+  });
+
   it("scopes search to the active session when crossSessionSearch is false", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 
@@ -246,6 +300,31 @@ describe("Honcho memory runtime", () => {
     expect(backendConfig.sessionKey).toMatch(
       /^chat-dashboard-main-[0-9a-f]{24}$/,
     );
+  });
+
+  it("rejects an unowned memory path before session access", async () => {
+    const state = createState();
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      sessionKey: "session-1",
+    });
+
+    await expect(manager.readFile({ relPath: "sessions/other-session.txt" }))
+      .rejects.toThrow(/session-ownership-unverified/);
+    expect(state.honcho.session).not.toHaveBeenCalledWith("other-session", expect.anything());
+  });
+
+  it("rejects a path already owned by another workspace before session access", async () => {
+    const state = createState();
+    state.honchoSessionWorkspaceBindings.bind("other-session", "workspace-a");
+    const { manager } = await getHonchoMemorySearchManager(state, {
+      agentId: "main",
+      workspaceId: "workspace-b",
+    });
+
+    await expect(manager.readFile({ relPath: "sessions/other-session.txt" }))
+      .rejects.toThrow(/session-ownership-unverified/);
+    expect(state.honcho.session).not.toHaveBeenCalled();
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {
