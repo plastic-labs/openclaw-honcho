@@ -40,18 +40,19 @@ export function resolvePeersFilePath(): string {
  *
  * The configured default workspace deliberately keeps the historical path so
  * existing sender mappings continue to load byte-for-byte. Additional
- * workspaces get their own file, derived from the opaque workspace registry
- * key rather than the raw workspace id (which may contain path separators or
+ * workspaces get their own file, derived from the credential-independent
+ * persistence namespace produced by buildWorkspacePersistenceKey rather than
+ * the raw workspace id (which may contain path separators or
  * other unsafe filename characters).
  */
 export function resolveWorkspacePeersFilePath(
   basePath: string,
-  workspaceKey: string,
+  persistenceKey: string,
   preserveLegacyPath = false,
 ): string {
   if (preserveLegacyPath) return basePath;
   const parsed = path.parse(basePath);
-  const namespace = createHash("sha256").update(workspaceKey).digest("hex").slice(0, 16);
+  const namespace = createHash("sha256").update(persistenceKey).digest("hex").slice(0, 16);
   return path.join(parsed.dir, `${parsed.name}.${namespace}${parsed.ext || ".json"}`);
 }
 

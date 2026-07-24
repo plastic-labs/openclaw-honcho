@@ -1,3 +1,5 @@
+import { canonicalConversationTarget } from "./conversation-target.js";
+
 /**
  * Configuration schema and parsing for the Honcho memory plugin.
  */
@@ -50,15 +52,6 @@ const ROUTING_RULE_KEYS = new Set([
 
 const ROUTE_TARGET_KEYS = ["conversationTarget", "chatId", "channelId", "destination"] as const;
 
-function canonicalConversationTarget(value: string, channel?: string): string {
-  const normalized = value.trim();
-  const prefix = channel?.trim().toLowerCase();
-  if (prefix && normalized.toLowerCase().startsWith(`${prefix}:`)) {
-    return normalized.slice(prefix.length + 1);
-  }
-  return normalized;
-}
-
 function requiredId(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim() || value.trim().length > 256 || /[\u0000-\u001f\u007f]/.test(value)) {
     throw new Error(`Invalid ${field}: expected a non-empty string`);
@@ -104,10 +97,15 @@ function normalizeRules(value: unknown): WorkspaceRoutingRule[] {
     if (normalized.agentId) normalized.agentId = normalized.agentId.toLowerCase();
     if (normalized.channel) normalized.channel = normalized.channel.toLowerCase();
     if (normalized.messageProvider) normalized.messageProvider = normalized.messageProvider.toLowerCase();
-    const targetValues = ROUTE_TARGET_KEYS
+    const rawTargetValues = ROUTE_TARGET_KEYS
       .map((key) => normalized[key])
-      .filter((value): value is string => typeof value === "string")
-      .map((value) => canonicalConversationTarget(value, normalized.channel ?? normalized.messageProvider));
+      .filter((value): value is string => typeof value === "string");
+    const targetValues = rawTargetValues
+      .map((value) => canonicalConversationTarget(value, normalized.channel ?? normalized.messageProvider))
+      .filter((value): value is string => typeof value === "string");
+    if (rawTargetValues.length > 0 && targetValues.length === 0) {
+      throw new Error(`Invalid workspaceRoutingRules[${index}]: conversation target is empty`);
+    }
     if (new Set(targetValues).size > 1) {
       throw new Error(`Invalid workspaceRoutingRules[${index}]: conversation target aliases disagree`);
     }

@@ -94,6 +94,26 @@ describe("workspace routing configuration", () => {
     expect(cfg.workspaceRoutingRules[0]).not.toHaveProperty("destination");
   });
 
+  it("normalizes configured targets by trimming whitespace after a channel prefix", () => {
+    expect(honchoConfigSchema.parse({
+      workspaceRoutingRules: [{
+        workspaceId: "work",
+        channel: "telegram",
+        destination: "telegram: group-42 ",
+      }],
+    }).workspaceRoutingRules[0]).toMatchObject({ conversationTarget: "group-42" });
+  });
+
+  it("rejects configured conversation targets that resolve to empty after prefix stripping", () => {
+    expect(() => honchoConfigSchema.parse({
+      workspaceRoutingRules: [{
+        workspaceId: "work",
+        channel: "telegram",
+        destination: "telegram:   ",
+      }],
+    })).toThrow(/conversation target is empty/);
+  });
+
   it("rejects conflicting conversation target aliases", () => {
     expect(() => honchoConfigSchema.parse({
       workspaceRoutingRules: [{

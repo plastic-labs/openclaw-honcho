@@ -1,4 +1,6 @@
 import type { HonchoConfig, WorkspaceRoutingRule } from "./config.js";
+import { canonicalConversationTarget } from "./conversation-target.js";
+export { canonicalConversationTarget };
 
 export type WorkspaceRouteContext = {
   agentId?: string;
@@ -14,21 +16,6 @@ export type WorkspaceRouteContext = {
   destination?: string;
   parentSessionKey?: string;
 };
-
-/**
- * OpenClaw exposes the same conversation as hook `chatId` and tool
- * `deliveryContext.to`. The latter may carry a redundant `<channel>:` prefix.
- */
-export function canonicalConversationTarget(value: string | undefined, channel?: string): string | undefined {
-  const normalized = value?.trim();
-  if (!normalized) return undefined;
-  const prefix = channel?.trim().toLowerCase();
-  if (prefix && normalized.toLowerCase().startsWith(`${prefix}:`)) {
-    const unprefixed = normalized.slice(prefix.length + 1).trim();
-    return unprefixed || undefined;
-  }
-  return normalized;
-}
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
