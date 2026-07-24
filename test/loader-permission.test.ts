@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { ensureHonchoCapturePermission } from "../commands/cli.js";
 
 const tempRoots: string[] = [];
@@ -10,10 +10,24 @@ const tempRoots: string[] = [];
 function findOpenclawBinary(): string | undefined {
   const openclawEnv = process.env.OPENCLAW_BIN?.trim();
   if (openclawEnv && existsSync(openclawEnv)) return openclawEnv;
+
+  const workspaceRoot = resolve(process.cwd());
+  const isWindows = process.platform === "win32";
+  const executableNames = isWindows ? ["openclaw.exe", "openclaw.cmd", "openclaw.bat", "openclaw"] : ["openclaw"];
+  const isNodeModulesBin = (dir: string) => /(?:^|[\\/])node_modules[\\/]\.bin(?:$|[\\/])/.test(normalize(dir));
+  const isWithinWorkspace = (candidate: string) => {
+    const rel = relative(workspaceRoot, candidate);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  };
+
   return process.env.PATH
-    ?.split(":")
-    .map((dir) => join(dir, "openclaw"))
-    .find((candidate) => candidate.includes("/node_modules/.bin/") ? false : !candidate.startsWith(process.cwd()) && existsSync(candidate));
+    ?.split(delimiter)
+    .flatMap((dir) => {
+      if (!dir || isNodeModulesBin(dir)) return [];
+      return executableNames.map((exe) => join(dir, exe));
+    })
+    .map((candidate) => normalize(candidate))
+    .find((candidate) => !isWithinWorkspace(candidate) && existsSync(candidate));
 }
 
 const openclawBin = findOpenclawBinary();
@@ -74,7 +88,11 @@ describe("isolated OpenClaw loader permission", () => {
       timeout: 10_000,
     });
     expect(version.status, version.stderr).toBe(0);
-    expect(version.stdout.trim(), `bin: ${openclawBin}\nstdout: ${version.stdout}\nstderr: ${version.stderr}`).toMatch(/\bv?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\b/);
+    const versionMatch = version.stdout.trim().match(/^(?:OpenClaw\s+)?(v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s+\([^)]+\))?$/);
+    expect(versionMatch, `bin: ${openclawBin}\nstdout: ${version.stdout}\nstderr: ${version.stderr}`).not.toBeNull();
+    expect(versionMatch![1], `bin: ${openclawBin}\nstdout: ${version.stdout}\nstderr: ${version.stderr}`).toMatch(
+      /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
+    );
     const result = spawnSync(openclawBin!, [
       "plugins", "inspect", "openclaw-honcho", "--runtime", "--json",
     ], {
