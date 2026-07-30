@@ -2,10 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
-## [Unreleased]
+## [1.5.3] - 2026-07-30
 
 ### Fixed
-- **OpenClaw plugin API compatibility**: register the prompt builder and memory runtime through the unified `registerMemoryCapability` API, and derive subagent parent IDs directly from the trusted requester session key instead of the removed `before_agent_start` hook. The minimum supported OpenClaw version is now `2026.4.7`.
+- **OpenClaw plugin API compatibility (#118)**: register the prompt builder and memory runtime through the unified `registerMemoryCapability` API, and derive subagent parent IDs directly from the trusted requester session key instead of the removed `before_agent_start` hook. The minimum supported OpenClaw version is now `2026.4.7`.
+- **Memory-slot search scoping**: the memory runtime now passes the session key per call via `search({ sessionKey })` and matches the current `MemoryPluginRuntime` shape (async `getMemorySearchManager({ agentId })`), so `crossSessionSearch: false` scopes correctly through the memory slot instead of always spanning sessions.
 
 ## [1.5.2] - 2026-07-17
 
