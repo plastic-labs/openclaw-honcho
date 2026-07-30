@@ -8,7 +8,10 @@
 // @ts-ignore - resolved by openclaw runtime
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 // @ts-ignore - resolved by openclaw runtime
-import type { MemoryPromptSectionBuilder } from "openclaw/plugin-sdk/memory-core";
+import type {
+  MemoryPluginCapability,
+  OpenClawPluginDefinition,
+} from "openclaw/plugin-sdk/core";
 import { honchoConfigSchema } from "./config.js";
 import { createPluginState } from "./state.js";
 import { registerGatewayHook } from "./hooks/gateway.js";
@@ -22,14 +25,14 @@ import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
 import { registerCli } from "./commands/cli.js";
-import { registerHonchoMemoryRuntime } from "./runtime.js";
+import { createHonchoMemoryRuntime } from "./runtime.js";
 
 /**
  * Memory prompt section builder for Honcho tools.
  * This is the single place for tool-selection guidance — tool descriptions
  * themselves stay short to minimize per-turn token overhead.
  */
-export const buildPromptSection: MemoryPromptSectionBuilder = ({
+export const buildPromptSection: NonNullable<MemoryPluginCapability["promptBuilder"]> = ({
   availableTools,
 }) => {
   const hasSession = availableTools.has("honcho_session");
@@ -82,7 +85,7 @@ export const buildPromptSection: MemoryPromptSectionBuilder = ({
 
 let _loggedLoaded = false;
 
-export default definePluginEntry({
+const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
@@ -92,12 +95,10 @@ export default definePluginEntry({
   register(api) {
     const state = createPluginState(api);
 
-    // Register memory prompt section — tool selection guidance lives here,
-    // not in individual tool descriptions.
-    api.registerMemoryPromptSection(buildPromptSection);
-
-    // Memory runtime adapter — wires Honcho into OpenClaw's memory-core slot.
-    registerHonchoMemoryRuntime(api, state);
+    api.registerMemoryCapability({
+      promptBuilder: buildPromptSection,
+      runtime: createHonchoMemoryRuntime(state),
+    });
 
     // Hooks
     registerGatewayHook(api, state);
@@ -124,3 +125,5 @@ export default definePluginEntry({
     }
   },
 });
+
+export default honchoPlugin;

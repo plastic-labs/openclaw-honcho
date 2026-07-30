@@ -1,4 +1,5 @@
-import { buildSessionKey } from "./helpers.js";
+// @ts-ignore - resolved by openclaw runtime
+import type { MemoryPluginCapability } from "openclaw/plugin-sdk/core";
 import { isManagedHonchoCloud, type PluginState } from "./state.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
@@ -171,7 +172,7 @@ export async function getHonchoMemorySearchManager(
               endLine,
               score: 1,
               snippet,
-              source: "sessions",
+              source: "sessions" as const,
             };
           })
         );
@@ -195,10 +196,10 @@ export async function getHonchoMemorySearchManager(
 
       status() {
         return {
-          backend: "qmd",
+          backend: "qmd" as const,
           provider: isManagedHonchoCloud(state.cfg.baseUrl) ? "honcho" : "honcho-selfhosted",
           model: "n/a",
-          sources: ["sessions"],
+          sources: ["sessions" as const],
           custom: {
             searchMode: "semantic",
             workspaceId: state.cfg.workspaceId,
@@ -220,29 +221,25 @@ export async function getHonchoMemorySearchManager(
 
 /** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
 export function resolveHonchoMemoryBackendConfig(
-  params: { sessionKey?: string; agentId?: string } = {}
+  _params: { agentId?: string } = {},
 ) {
-  const sessionKey = buildSessionKey(params);
   return {
-    backend: "qmd",
+    backend: "qmd" as const,
     qmd: {},
-    sessionKey,
   };
 }
 
-/** Register the Honcho runtime adapter when the host exposes memory runtime registration. */
-export function registerHonchoMemoryRuntime(api: any, state: PluginState): void {
-  if (typeof api?.registerMemoryRuntime !== "function") {
-    return;
-  }
-
-  api.registerMemoryRuntime({
+/** Build the Honcho adapter for OpenClaw's active memory capability. */
+export function createHonchoMemoryRuntime(
+  state: PluginState,
+): NonNullable<MemoryPluginCapability["runtime"]> {
+  return {
     getMemorySearchManager(params: { agentId?: string; sessionKey?: string }) {
       return getHonchoMemorySearchManager(state, params);
     },
 
-    resolveMemoryBackendConfig(params: { sessionKey?: string; agentId?: string } = {}) {
+    resolveMemoryBackendConfig(params: { agentId?: string } = {}) {
       return resolveHonchoMemoryBackendConfig(params);
     },
-  });
+  };
 }

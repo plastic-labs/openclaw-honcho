@@ -1,5 +1,7 @@
 // @ts-ignore - resolved by openclaw runtime
-import type { OpenClawPluginApi, PluginHookSubagentContext } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+// @ts-ignore - resolved by openclaw runtime
+import { parseAgentSessionKey } from "openclaw/plugin-sdk/routing";
 
 /**
  * Module-level singleton: childSessionKey → parent agent ID.
@@ -7,33 +9,14 @@ import type { OpenClawPluginApi, PluginHookSubagentContext } from "openclaw/plug
  */
 export const subagentParentMap = new Map<string, string>();
 
-/**
- * Maps OpenClaw sessionKey → agentId, built from before_agent_start.
- * Used to resolve the parent's agent ID from ctx.requesterSessionKey in
- * subagent_spawned without relying on session-key string parsing.
- */
-const sessionKeyToAgentId = new Map<string, string>();
-
 export function registerSubagentHooks(api: OpenClawPluginApi): void {
-  api.on("before_agent_start", (_event, ctx) => {
-    if (ctx.sessionKey && ctx.agentId) {
-      sessionKeyToAgentId.set(ctx.sessionKey, ctx.agentId);
-    }
-  });
-
-  api.on("subagent_spawned", async (_event, ctx: PluginHookSubagentContext) => {
+  api.on("subagent_spawned", (_event, ctx) => {
     const { childSessionKey, requesterSessionKey } = ctx;
     if (childSessionKey && requesterSessionKey) {
-      const parentAgentId = sessionKeyToAgentId.get(requesterSessionKey);
+      const parentAgentId = parseAgentSessionKey(requesterSessionKey)?.agentId;
       if (parentAgentId) {
         subagentParentMap.set(childSessionKey, parentAgentId);
       }
-    }
-  });
-
-  api.on("agent_end", (_event, ctx) => {
-    if (ctx.sessionKey) {
-      sessionKeyToAgentId.delete(ctx.sessionKey);
     }
   });
 }

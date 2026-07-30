@@ -4,6 +4,9 @@ All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this f
 
 ## [Unreleased]
 
+### Fixed
+- **OpenClaw plugin API compatibility**: register the prompt builder and memory runtime through the unified `registerMemoryCapability` API, and derive subagent parent IDs directly from the trusted requester session key instead of the removed `before_agent_start` hook. The minimum supported OpenClaw version is now `2026.4.7`.
+
 ## [1.5.2] - 2026-07-17
 
 ### Fixed

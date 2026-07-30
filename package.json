@@ -31,7 +31,7 @@
     "vitest": "^2.0.0"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.22"
+    "openclaw": ">=2026.4.7"
   },
   "openclaw": {
     "plugin": "./openclaw.plugin.json",
@@ -39,10 +39,10 @@
       "./dist/index.js"
     ],
     "build": {
-      "openclawVersion": ">=2026.3.22"
+      "openclawVersion": ">=2026.4.7"
     },
     "compat": {
-      "pluginApi": ">=2026.3.22"
+      "pluginApi": ">=2026.4.7"
     }
   },
   "scripts": {
@@ -52,4 +52,3 @@
     "test": "vitest"
   }
 }
-

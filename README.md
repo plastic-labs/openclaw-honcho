@@ -159,7 +159,7 @@ Honcho handles all reasoning and synthesis in the cloud.
 
 OpenClaw uses a multi-agent architecture where a primary agent can spawn **subagents** to handle specialized tasks. The Honcho plugin is fully aware of this hierarchy:
 
-- **Automatic Subagent Detection** — When OpenClaw spawns a subagent, the plugin tracks the parent→child relationship via the `subagent_spawned` hook. Each subagent session records its `parentPeerId` in metadata.
+- **Automatic Subagent Detection** — When OpenClaw spawns a subagent, the plugin parses the trusted requester session key from the `subagent_spawned` hook to track the parent→child relationship. Each subagent session records its `parentPeerId` in metadata.
 - **Parent Observer Peer** — The spawning agent is added as a silent observer in the subagent's Honcho session (`observeMe: false, observeOthers: true`). This gives Honcho visibility into the full agent tree — the parent can see what its subagents are doing without its own messages being attributed to the subagent session.
 
 ## Workspace Files

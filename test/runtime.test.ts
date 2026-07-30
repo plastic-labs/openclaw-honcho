@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { getHonchoMemorySearchManager, resolveHonchoMemoryBackendConfig } from "../runtime.js";
+import {
+  createHonchoMemoryRuntime,
+  getHonchoMemorySearchManager,
+  resolveHonchoMemoryBackendConfig,
+} from "../runtime.js";
 import type { PluginState } from "../state.js";
 
 type TestState = PluginState & {
@@ -152,6 +156,27 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
 }
 
 describe("Honcho memory runtime", () => {
+  it("builds the unified memory capability runtime", async () => {
+    const state = createState();
+    const runtime = createHonchoMemoryRuntime(state);
+
+    const { manager } = await runtime.getMemorySearchManager({
+      cfg: {} as never,
+      agentId: "main",
+    });
+
+    expect(manager).toBeDefined();
+    expect(
+      runtime.resolveMemoryBackendConfig({
+        cfg: {} as never,
+        agentId: "main",
+      }),
+    ).toEqual({
+      backend: "qmd",
+      qmd: {},
+    });
+  });
+
   it("scopes search to the active session when crossSessionSearch is false", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 
@@ -237,15 +262,9 @@ describe("Honcho memory runtime", () => {
       }),
     ).rejects.toThrow(/outside the active session/);
 
-    const backendConfig = resolveHonchoMemoryBackendConfig({
-      sessionKey: "agent:main:dashboard:test",
-      agentId: "main",
-    });
+    const backendConfig = resolveHonchoMemoryBackendConfig({ agentId: "main" });
     expect(backendConfig.backend).toBe("qmd");
     expect(backendConfig.qmd).toEqual({});
-    expect(backendConfig.sessionKey).toMatch(
-      /^chat-dashboard-main-[0-9a-f]{24}$/,
-    );
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {
