@@ -177,6 +177,28 @@ describe("Honcho memory runtime", () => {
     });
   });
 
+  it("scopes a runtime-built manager per call via search opts.sessionKey", async () => {
+    // Regression: the active-memory runtime creates a session-agnostic manager
+    // and passes the session key per call. A false crossSessionSearch config
+    // must still scope to the requested session, not fall back to cross-session.
+    const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
+    const runtime = createHonchoMemoryRuntime(state);
+
+    const { manager } = await runtime.getMemorySearchManager({
+      cfg: {} as never,
+      agentId: "main",
+    });
+
+    // With a per-call sessionKey, scoped search must NOT hit the participant peer.
+    const scoped = await manager.search("remember", { sessionKey: "session-1" });
+    expect(state.participantPeer?.search as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(scoped[0]?.path).toBe("sessions/session-1.txt");
+
+    // A per-call override still spans the participant peer's sessions.
+    await manager.search("anything", { sessionKey: "session-1", crossSessionSearch: true });
+    expect(state.participantPeer?.search as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+  });
+
   it("scopes search to the active session when crossSessionSearch is false", async () => {
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
 

@@ -126,10 +126,14 @@ export async function getHonchoMemorySearchManager(
 
   return {
     manager: {
-      async search(query: string, opts: { maxResults?: number; crossSessionSearch?: boolean } = {}) {
+      async search(query: string, opts: { maxResults?: number; crossSessionSearch?: boolean; sessionKey?: string } = {}) {
         await state.ensureInitialized();
-        const participantPeer = activeSessionKey
-          ? await state.resolveSessionParticipantPeer(activeSessionKey)
+        // The active-memory contract scopes per call (search opts.sessionKey);
+        // fall back to the key captured at manager creation for the legacy /
+        // passthrough-tool path.
+        const sessionKey = opts.sessionKey ?? activeSessionKey;
+        const participantPeer = sessionKey
+          ? await state.resolveSessionParticipantPeer(sessionKey)
           : await state.getParticipantPeer();
         const requested = Number.isFinite(opts.maxResults)
           ? Number(opts.maxResults)
@@ -137,10 +141,10 @@ export async function getHonchoMemorySearchManager(
         const limit = Math.min(MAX_SEARCH_RESULTS, Math.max(1, Math.trunc(requested)));
 
         const crossSession = opts.crossSessionSearch ?? state.cfg.crossSessionSearch;
-        const rawResults: Array<any> = crossSession || !activeSessionKey
+        const rawResults: Array<any> = crossSession || !sessionKey
           ? await participantPeer.search(query, { limit })
           : await (
-              await state.honcho.session(activeSessionKey, { metadata: { agentId } })
+              await state.honcho.session(sessionKey, { metadata: { agentId } })
             ).search(query, { limit });
 
         const seen = new Set<string>();
@@ -229,13 +233,19 @@ export function resolveHonchoMemoryBackendConfig(
   };
 }
 
-/** Build the Honcho adapter for OpenClaw's active memory capability. */
+/** Build the Honcho adapter for OpenClaw's active memory capability.
+ *
+ * The current host contract creates a session-agnostic manager here and passes
+ * the active session key per call via `search(query, { sessionKey })`, so this
+ * adapter does not forward a session key at creation time. Session-scoped reads
+ * still flow through the memory_search / memory_get passthrough tools, which
+ * resolve the session key from their tool context. */
 export function createHonchoMemoryRuntime(
   state: PluginState,
 ): NonNullable<MemoryPluginCapability["runtime"]> {
   return {
-    getMemorySearchManager(params: { agentId?: string; sessionKey?: string }) {
-      return getHonchoMemorySearchManager(state, params);
+    async getMemorySearchManager(params: { agentId?: string }) {
+      return getHonchoMemorySearchManager(state, { agentId: params.agentId });
     },
 
     resolveMemoryBackendConfig(params: { agentId?: string } = {}) {
