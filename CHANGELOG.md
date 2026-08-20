@@ -2,6 +2,12 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.5.4] - 2026-08-20
+
+### Fixed
+- **Warn on missing `allowConversationAccess` (#122)**: The plugin now checks at startup whether `hooks.allowConversationAccess` is enabled and logs a warning with the fix command if not. Without this flag, message capture silently fails.
+- **Auto-set `allowConversationAccess` during setup (#122)**: `openclaw honcho setup` now writes `hooks.allowConversationAccess=true` automatically so capture works out of the box.
+
 ## [1.5.3] - 2026-07-30
 
 ### Fixed
