@@ -15,9 +15,7 @@ openclaw honcho setup
 openclaw gateway restart
 ```
 
-> **Important:** The `allowConversationAccess` step is required on OpenClaw 2026.4.24+.
-> Without it, the plugin loads and tools work, but **no new messages are captured to Honcho**.
-> The plugin will log a warning at startup if this flag is missing.
+> **Important:** The `allowConversationAccess` is required to save new messages to Honcho. The plugin will log a warning at startup if this flag is missing.
 
 `openclaw honcho setup` prompts for your Honcho API key, writes the config, and optionally uploads any legacy memory files to Honcho.
 
