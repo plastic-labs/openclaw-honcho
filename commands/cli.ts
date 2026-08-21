@@ -120,6 +120,29 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
             }
 
+            // Ensure allowConversationAccess is set
+            {
+              let currentConfig: Record<string, unknown> = {};
+              try { currentConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
+              const plugins = currentConfig.plugins as Record<string, unknown> | undefined;
+              const entries = plugins?.entries as Record<string, unknown> | undefined;
+              const entry = entries?.["openclaw-honcho"] as Record<string, unknown> | undefined;
+              const hooks = entry?.hooks as Record<string, unknown> | undefined;
+              if (hooks?.allowConversationAccess !== true) {
+                if (!currentConfig.plugins) currentConfig.plugins = {};
+                const p = currentConfig.plugins as Record<string, unknown>;
+                if (!p.entries) p.entries = {};
+                const e = p.entries as Record<string, unknown>;
+                const ent = (e["openclaw-honcho"] as Record<string, unknown>) ?? {};
+                const h = (ent.hooks as Record<string, unknown>) ?? {};
+                h.allowConversationAccess = true;
+                ent.hooks = h;
+                e["openclaw-honcho"] = ent;
+                fs.writeFileSync(configPath, JSON.stringify(currentConfig, null, 2));
+                console.log("✓ Enabled conversation access for message capture (hooks.allowConversationAccess)");
+              }
+            }
+
             // Resolve configured agents and their workspaces from config
             let savedConfig: Record<string, unknown> = {};
             try { savedConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }

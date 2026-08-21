@@ -10,9 +10,12 @@ This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-
 
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
+openclaw config set plugins.entries.openclaw-honcho.hooks.allowConversationAccess true
 openclaw honcho setup
 openclaw gateway restart
 ```
+
+> **Important:** The `allowConversationAccess` is required to save new messages to Honcho. The plugin will log a warning at startup if this flag is missing.
 
 `openclaw honcho setup` prompts for your Honcho API key, writes the config, and optionally uploads any legacy memory files to Honcho.
 
