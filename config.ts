@@ -2,6 +2,22 @@
  * Configuration schema and parsing for the Honcho memory plugin.
  */
 
+// @ts-ignore - resolved by openclaw runtime
+import type { SecretInput } from "openclaw/plugin-sdk/secret-input";
+
+export const DEFAULT_AUTH_BROKER_MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_AUTH_BROKER_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_AUTH_BROKER_RESPONSE_MODELS = ["gpt-5.4-mini", "gpt-5.4"];
+
+export type HonchoAuthBrokerConfig = {
+  enabled: boolean;
+  bearerToken?: SecretInput;
+  authAgentId?: string;
+  responseModels: string[];
+  maxRequestBytes: number;
+  timeoutMs: number;
+};
+
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
   "A scheduled reminder has been triggered",
@@ -18,6 +34,7 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  authBroker: HonchoAuthBrokerConfig;
 };
 
 /**
@@ -32,6 +49,99 @@ function resolveEnvVars(value: string): string {
     }
     return envValue;
   });
+}
+
+function positiveIntegerInRange(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : fallback;
+}
+
+function isSecretRefLike(value: unknown): value is Exclude<SecretInput, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const ref = value as Record<string, unknown>;
+  return (
+    typeof ref.source === "string" &&
+    ["env", "file", "exec"].includes(ref.source) &&
+    typeof ref.provider === "string" &&
+    typeof ref.id === "string" &&
+    ref.source.trim().length > 0 &&
+    ref.provider.trim().length > 0 &&
+    ref.id.trim().length > 0
+  );
+}
+
+function parseResponseModels(value: unknown): string[] {
+  if (value === undefined) return [...DEFAULT_AUTH_BROKER_RESPONSE_MODELS];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
+    throw new Error("authBroker.responseModels must contain between 1 and 16 model IDs");
+  }
+  const models = value.map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+  if (
+    models.some(
+      (model) =>
+        model.length === 0 || model.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(model),
+    )
+  ) {
+    throw new Error("authBroker.responseModels contains an invalid model ID");
+  }
+  if (new Set(models).size !== models.length) {
+    throw new Error("authBroker.responseModels must not contain duplicate model IDs");
+  }
+  return models;
+}
+
+function parseAuthBrokerConfig(value: unknown): HonchoAuthBrokerConfig {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const enabled = raw.enabled === true;
+  const configuredToken = raw.bearerToken ?? process.env.HONCHO_AUTH_BROKER_TOKEN;
+  const bearerToken =
+    typeof configuredToken === "string" && configuredToken.trim().length > 0
+      ? configuredToken.trim()
+      : isSecretRefLike(configuredToken)
+        ? configuredToken
+        : undefined;
+
+  if (enabled && bearerToken === undefined) {
+    throw new Error(
+      "authBroker.enabled requires authBroker.bearerToken or HONCHO_AUTH_BROKER_TOKEN",
+    );
+  }
+  // A SecretRef is validated after OpenClaw resolves it. Literal bearer tokens
+  // must be long enough to resist online guessing.
+  if (enabled && typeof bearerToken === "string" && bearerToken.length < 32) {
+    throw new Error("authBroker.bearerToken must contain at least 32 characters");
+  }
+
+  return {
+    enabled,
+    bearerToken,
+    authAgentId:
+      typeof raw.authAgentId === "string" && raw.authAgentId.trim().length > 0
+        ? raw.authAgentId.trim()
+        : undefined,
+    responseModels: parseResponseModels(raw.responseModels),
+    maxRequestBytes: positiveIntegerInRange(
+      raw.maxRequestBytes,
+      DEFAULT_AUTH_BROKER_MAX_REQUEST_BYTES,
+      1024,
+      16 * 1024 * 1024,
+    ),
+    timeoutMs: positiveIntegerInRange(
+      raw.timeoutMs,
+      DEFAULT_AUTH_BROKER_TIMEOUT_MS,
+      1000,
+      15 * 60 * 1000,
+    ),
+  };
 }
 
 export const honchoConfigSchema = {
@@ -81,6 +191,7 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      authBroker: parseAuthBrokerConfig(cfg.authBroker),
     };
   },
 };

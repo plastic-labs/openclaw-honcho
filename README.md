@@ -73,12 +73,97 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+| `authBroker`           | `object`   | disabled                   | Optional OpenClaw-owned auth broker for self-hosted Honcho. See below. |
 
 ### Self-Hosted / Local Honcho
 
 Run `openclaw honcho setup`, enter a blank API key, and set the Base URL to your instance (e.g., `http://localhost:8000`).
 
 For setting up a local Honcho server, see the [Honcho local development guide](https://github.com/plastic-labs/honcho?tab=readme-ov-file#local-development).
+
+### OpenClaw-owned auth broker (self-hosted)
+
+Self-hosted Honcho can use OpenClaw-owned OpenAI credentials without mounting
+`~/.openclaw`, `~/.codex`, or any auth database into a Honcho container. When
+explicitly enabled, this plugin registers two bearer-protected Gateway routes:
+
+- `POST /plugins/openclaw-honcho/auth-broker/v1/embeddings`
+- `POST /plugins/openclaw-honcho/auth-broker/v1/responses`
+
+The embeddings route resolves the same OpenClaw-owned ChatGPT/Codex OAuth
+profile, fixes the upstream to `https://api.openai.com/v1/embeddings`, and
+accepts only `text-embedding-3-small`. **Compatibility warning:** this route is
+opt-in because current OpenClaw documentation says Codex OAuth does not grant
+embeddings access. It has been observed to work for the deployment that
+motivated this feature, but it is not a guaranteed upstream API contract and
+may stop working. Operators who require a supported contract should use an
+OpenAI Platform API key outside this OAuth-only broker.
+
+The Responses route uses OpenClaw's canonical ChatGPT/Codex OAuth manager,
+forwards only to the Codex Responses endpoint, enforces an exact model allowlist,
+and forces `store: false`. The Honcho side receives only the separate broker
+bearer token; it never receives either upstream credential.
+
+Configure a random token of at least 32 characters. A SecretRef is preferred so
+the literal does not live in `openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "config": {
+          "authBroker": {
+            "enabled": true,
+            "authAgentId": "main",
+            "responseModels": ["gpt-5.4-mini", "gpt-5.4"],
+            "bearerToken": {
+              "source": "env",
+              "provider": "default",
+              "id": "HONCHO_AUTH_BROKER_TOKEN"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Stock Honcho calls OpenAI Chat Completions and therefore cannot call the
+Responses route directly. A separate Python OpenAI-compatibility adapter is a
+required deployment prerequisite; this plugin does not ship that adapter. The
+adapter must translate Honcho's Chat Completions calls into Responses payloads.
+Configure that adapter—not stock Honcho itself—to call these two broker routes:
+
+```text
+http://<gateway-host>:<gateway-port>/plugins/openclaw-honcho/auth-broker/v1
+```
+
+The adapter must be able to reach the Gateway listener. OpenClaw defaults to
+`gateway.bind: "loopback"`, which is not reachable from a separate Docker
+bridge container. Keep the route private: either use host networking or a
+private proxy/tunnel, or bind the Gateway with `gateway.bind: "custom"` to the
+specific Docker bridge gateway address. Do not switch to a wildcard or LAN bind
+solely for this broker. A specific custom bind also retains OpenClaw's same-host
+loopback listener.
+
+The adapter sends the broker token as its Bearer credential. It must not read or
+mount Codex/OpenClaw credential files. The Responses call must send a valid,
+allowlisted Responses payload; streaming callers should set `stream: true`.
+Pointing stock Honcho at the broker base URL without the adapter will return
+404 for `/chat/completions` by design.
+
+The broker accepts at most 2,048 embedding inputs per call (matching Honcho's
+stock batch default), 32,000 characters per input, and 1,200,000 characters in
+aggregate, with ten concurrent requests per client. If the adapter is tuned
+above those bounds, lower its batch/concurrency settings to match the broker.
+Keep the Gateway route private to the Honcho network even though it requires a
+strong bearer token, and use HTTPS whenever the token crosses a host boundary.
+This feature requires OpenClaw 2026.7.1 or newer. Set `authAgentId` to bind both
+credential lookups to one agent; otherwise the ambient owner agent is used. If
+multiple OpenAI profiles exist, configure that agent's normal OpenAI auth order;
+the broker deliberately does not implement a second credential selector.
 
 ### Noise Filtering
 

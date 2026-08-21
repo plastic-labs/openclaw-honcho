@@ -15,7 +15,7 @@ importers:
         specifier: ^0.32.0
         version: 0.32.35
       openclaw:
-        specifier: '>=2026.4.7'
+        specifier: '>=2026.7.1'
         version: 2026.7.1(@aws-sdk/credential-provider-node@3.972.24)
     devDependencies:
       '@types/node':
