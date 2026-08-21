@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { Honcho } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
 

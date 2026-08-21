@@ -6,7 +6,7 @@
 
 import { Honcho, type Peer } from "@honcho-ai/sdk";
 // @ts-ignore - resolved by openclaw runtime
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { honchoConfigSchema, type HonchoConfig } from "./config.js";
 import {
   PeersPersister,
