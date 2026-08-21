@@ -12,20 +12,20 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 // @ts-ignore - resolved by openclaw runtime
-import { resolveAgentDir } from "openclaw/plugin-sdk/agent-runtime";
+import {
+  loadAuthProfileStoreWithoutExternalProfiles,
+  resolveAgentDir,
+} from "openclaw/plugin-sdk/agent-runtime";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 // @ts-ignore - resolved by openclaw runtime
 import {
-  listUsableProviderAuthProfileIds,
+  listProfilesForProvider,
   resolveOpenAICodexAuthIdentity,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/provider-auth";
 // @ts-ignore - resolved by openclaw runtime
-import {
-  resolveApiKeyForProvider,
-  resolveProviderAuthProfileMetadata,
-} from "openclaw/plugin-sdk/provider-auth-runtime";
+import { resolveApiKeyForProvider } from "openclaw/plugin-sdk/provider-auth-runtime";
 // @ts-ignore - resolved by openclaw runtime
 import { getRuntimeConfigSourceSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
 // @ts-ignore - resolved by openclaw runtime
@@ -86,9 +86,9 @@ export type HonchoAuthBrokerDependencies = {
 
 export type CanonicalCodexCredentialDependencies = {
   resolveAgentDir: typeof resolveAgentDir;
-  listUsableProviderAuthProfileIds: typeof listUsableProviderAuthProfileIds;
+  loadAuthProfileStoreWithoutExternalProfiles: typeof loadAuthProfileStoreWithoutExternalProfiles;
+  listProfilesForProvider: typeof listProfilesForProvider;
   resolveApiKeyForProvider: typeof resolveApiKeyForProvider;
-  resolveProviderAuthProfileMetadata: typeof resolveProviderAuthProfileMetadata;
   resolveOpenAICodexAuthIdentity: typeof resolveOpenAICodexAuthIdentity;
 };
 
@@ -99,9 +99,9 @@ export type BrokerBearerTokenDependencies = {
 
 const canonicalCodexCredentialDependencies: CanonicalCodexCredentialDependencies = {
   resolveAgentDir,
-  listUsableProviderAuthProfileIds,
+  loadAuthProfileStoreWithoutExternalProfiles,
+  listProfilesForProvider,
   resolveApiKeyForProvider,
-  resolveProviderAuthProfileMetadata,
   resolveOpenAICodexAuthIdentity,
 };
 
@@ -438,16 +438,15 @@ export async function resolveCanonicalOpenAICodexCredential(
 
   const cfg = currentConfig(api);
   const agentDir = dependencies.resolveAgentDir(cfg, config.authAgentId);
-  const usable = dependencies.listUsableProviderAuthProfileIds({
-    provider: "openai",
-    cfg,
-    agentDir,
-    profileTypes: ["oauth"],
+  const store = dependencies.loadAuthProfileStoreWithoutExternalProfiles(agentDir, {
     allowKeychainPrompt: false,
-    includeExternalCliAuth: false,
   });
   const profileId = config.authProfileId;
-  if (!usable.profileIds.includes(profileId)) {
+  const storedProfile = store.profiles[profileId];
+  if (
+    storedProfile?.type !== "oauth" ||
+    !dependencies.listProfilesForProvider(store, "openai").includes(profileId)
+  ) {
     throw new BrokerCredentialUnavailableError();
   }
 
@@ -455,23 +454,18 @@ export async function resolveCanonicalOpenAICodexCredential(
     const auth = await dependencies.resolveApiKeyForProvider({
       provider: "openai",
       cfg,
-      agentDir: usable.agentDir || agentDir,
+      agentDir,
+      store,
       profileId,
       lockedProfile: true,
       forceRefresh: options.forceRefresh === true,
     });
-    if (auth.mode !== "oauth" || !auth.apiKey) {
+    if (auth.mode !== "oauth" || !auth.apiKey || auth.profileId !== profileId) {
       throw new BrokerCredentialUnavailableError();
     }
-    const metadata = dependencies.resolveProviderAuthProfileMetadata({
-      provider: "openai",
-      cfg,
-      agentDir: usable.agentDir || agentDir,
-      profileId,
-    });
     const accountId = dependencies.resolveOpenAICodexAuthIdentity({
       access: auth.apiKey,
-      accountId: metadata.accountId,
+      accountId: storedProfile.accountId,
     }).accountId;
     if (!accountId) throw new BrokerCredentialUnavailableError();
     return { accessToken: auth.apiKey, accountId, profileId };

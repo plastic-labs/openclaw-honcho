@@ -18,6 +18,7 @@ import type { HonchoAuthBrokerConfig } from "../config.js";
 
 const BROKER_TOKEN = "broker-test-token-that-is-at-least-32-characters";
 const OAUTH_TOKEN = "oauth-access-token-never-returned-to-the-client";
+const EXTERNAL_CLI_TOKEN = "external-cli-token-that-must-not-be-used";
 
 const config: HonchoAuthBrokerConfig = {
   enabled: true,
@@ -111,22 +112,41 @@ async function invokeBrokerDirectly(
 }
 
 function canonicalResolverHarness(profileIds: string[] = ["openai:codex"]) {
+  const store = {
+    version: 1,
+    profiles: Object.fromEntries(
+      profileIds.map((profileId) => [
+        profileId,
+        {
+          type: "oauth" as const,
+          provider: "openai",
+          access: OAUTH_TOKEN,
+          refresh: "refresh-token",
+          expires: Date.now() + 60_000,
+          accountId: "account-123",
+        },
+      ]),
+    ),
+  };
   const resolveAgentDir = vi.fn(() => "/agent/main");
-  const listUsableProviderAuthProfileIds = vi.fn(() => ({
-    agentDir: "/agent/main",
-    profileIds,
-  }));
-  const resolveApiKeyForProvider = vi.fn(async () => ({
-    apiKey: OAUTH_TOKEN,
-    mode: "oauth" as const,
-  }));
-  const resolveProviderAuthProfileMetadata = vi.fn(() => ({ accountId: "account-123" }));
+  const loadAuthProfileStoreWithoutExternalProfiles = vi.fn(() => store);
+  const listProfilesForProvider = vi.fn(() => profileIds);
+  const resolveApiKeyForProvider = vi.fn(
+    async (params: { store?: typeof store; profileId?: string }) => {
+      const profile = params.profileId ? params.store?.profiles[params.profileId] : undefined;
+      return {
+        apiKey: profile?.access ?? EXTERNAL_CLI_TOKEN,
+        mode: "oauth" as const,
+        profileId: params.profileId,
+      };
+    },
+  );
   const resolveOpenAICodexAuthIdentity = vi.fn(() => ({ accountId: "account-123" }));
   const dependencies = {
     resolveAgentDir,
-    listUsableProviderAuthProfileIds,
+    loadAuthProfileStoreWithoutExternalProfiles,
+    listProfilesForProvider,
     resolveApiKeyForProvider,
-    resolveProviderAuthProfileMetadata,
     resolveOpenAICodexAuthIdentity,
   } as unknown as CanonicalCodexCredentialDependencies;
   const api = {
@@ -136,11 +156,12 @@ function canonicalResolverHarness(profileIds: string[] = ["openai:codex"]) {
   return {
     api,
     dependencies,
-    listUsableProviderAuthProfileIds,
+    listProfilesForProvider,
+    loadAuthProfileStoreWithoutExternalProfiles,
     resolveAgentDir,
     resolveApiKeyForProvider,
     resolveOpenAICodexAuthIdentity,
-    resolveProviderAuthProfileMetadata,
+    store,
   };
 }
 
@@ -190,19 +211,17 @@ describe("canonical Codex OAuth resolution", () => {
     });
 
     expect(harness.resolveAgentDir).toHaveBeenCalledWith({}, "main");
-    expect(harness.listUsableProviderAuthProfileIds).toHaveBeenCalledWith({
-      provider: "openai",
-      cfg: {},
-      agentDir: "/agent/main",
-      profileTypes: ["oauth"],
-      allowKeychainPrompt: false,
-      includeExternalCliAuth: false,
-    });
+    expect(harness.loadAuthProfileStoreWithoutExternalProfiles).toHaveBeenCalledWith(
+      "/agent/main",
+      { allowKeychainPrompt: false },
+    );
+    expect(harness.listProfilesForProvider).toHaveBeenCalledWith(harness.store, "openai");
     expect(harness.resolveApiKeyForProvider).toHaveBeenCalledTimes(1);
     expect(harness.resolveApiKeyForProvider).toHaveBeenCalledWith(
       expect.objectContaining({
         provider: "openai",
         agentDir: "/agent/main",
+        store: harness.store,
         profileId: "openai:codex",
         lockedProfile: true,
         forceRefresh: false,
@@ -210,8 +229,25 @@ describe("canonical Codex OAuth resolution", () => {
     );
   });
 
+  it("cannot replace the stored OAuth token with a same-ID external CLI token", async () => {
+    const harness = canonicalResolverHarness();
+
+    const credential = await resolveCanonicalOpenAICodexCredential(
+      harness.api,
+      config,
+      {},
+      harness.dependencies,
+    );
+
+    expect(credential.accessToken).toBe(OAUTH_TOKEN);
+    expect(credential.accessToken).not.toBe(EXTERNAL_CLI_TOKEN);
+    expect(harness.resolveApiKeyForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ store: harness.store }),
+    );
+  });
+
   it("fails closed when the pin is unavailable or a retry requests another profile", async () => {
-    const unavailable = canonicalResolverHarness(["openai:other"]);
+    const unavailable = canonicalResolverHarness([]);
     await expect(
       resolveCanonicalOpenAICodexCredential(
         unavailable.api,
@@ -231,7 +267,7 @@ describe("canonical Codex OAuth resolution", () => {
         mismatchedRetry.dependencies,
       ),
     ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
-    expect(mismatchedRetry.listUsableProviderAuthProfileIds).not.toHaveBeenCalled();
+    expect(mismatchedRetry.loadAuthProfileStoreWithoutExternalProfiles).not.toHaveBeenCalled();
   });
 });
 

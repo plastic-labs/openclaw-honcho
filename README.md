@@ -189,9 +189,10 @@ Keep the Gateway route private to the Honcho network even though it requires a
 strong bearer token, and use HTTPS whenever the token crosses a host boundary.
 This feature requires OpenClaw 2026.7.1 or newer. `authAgentId` and
 `authProfileId` are both required. The broker reads only that agent-scoped,
-stored OAuth profile: it disables external CLI credential discovery, rejects
-API-key/token profile types, and never falls through to another profile. A 401
-may trigger one canonical refresh of the same pinned profile; a 403 never does.
+stored OAuth profile: it loads an auth store with external CLI profiles removed,
+passes that exact store into credential resolution, rejects API-key/token
+profile types, and never falls through to another profile. A 401 may trigger one
+canonical refresh of the same pinned profile; a 403 never does.
 
 ### Noise Filtering
 
