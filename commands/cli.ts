@@ -120,7 +120,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
             }
 
-            // Ensure allowConversationAccess is set (required since OpenClaw 2026.4.24)
+            // Ensure allowConversationAccess is set
             {
               let currentConfig: Record<string, unknown> = {};
               try { currentConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch { /* use empty */ }
