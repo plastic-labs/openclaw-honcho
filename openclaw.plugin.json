@@ -47,6 +47,11 @@
         "items": { "type": "string" },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
+      "ignoreSessionPatterns": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Glob-style OpenClaw session-key patterns to exclude from Honcho context injection and persistence. '*' stays within one colon-delimited segment; '**' may span segments."
+      },
       "ownerObserveOthers": {
         "type": "boolean",
         "default": false,
@@ -91,6 +96,11 @@
       "label": "Noise Patterns",
       "advanced": true,
       "help": "Additional substring patterns to filter. Messages containing any pattern are dropped before saving to Honcho."
+    },
+    "ignoreSessionPatterns": {
+      "label": "Ignored Session Patterns",
+      "advanced": true,
+      "help": "Exclude matching OpenClaw session keys from Honcho context and persistence. Example: agent:*:explicit:model-run-*"
     },
     "ownerObserveOthers": {
       "label": "Owner Observes Agent",

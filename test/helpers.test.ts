@@ -4,13 +4,58 @@ import {
   classifySession,
   extractSenderId,
   extractProvider,
+  matchesSessionPattern,
   normalizeSessionKey,
+  shouldSkipSession,
 } from "../helpers.js";
 
 const CHAT_ID_RE = /^chat-[a-z0-9]+-[a-z0-9_-]+-[0-9a-f]{24}$/;
 const CRON_OR_SUBAGENT_ID_RE = /^(cron|subagent)-[a-z0-9_-]+-[0-9a-f]{24}$/;
 const THREAD_ID_RE = /^thread-[a-z0-9]+-[a-z0-9_-]+-[0-9a-f]{24}$/;
 const UNKNOWN_ID_RE = /^unknown-[a-z0-9_-]+-[0-9a-f]{24}$/;
+
+describe("session pattern matching", () => {
+  it("matches a single-segment wildcard without crossing colons", () => {
+    expect(
+      matchesSessionPattern(
+        "agent:main:explicit:model-run-123",
+        "agent:*:explicit:model-run-*",
+      ),
+    ).toBe(true);
+    expect(
+      matchesSessionPattern(
+        "agent:main:explicit:nested:model-run-123",
+        "agent:*:explicit:model-run-*",
+      ),
+    ).toBe(false);
+  });
+
+  it("allows a double wildcard to span colon-delimited segments", () => {
+    expect(
+      matchesSessionPattern(
+        "agent:main:internal:nested:model-run-123",
+        "agent:*:**:model-run-*",
+      ),
+    ).toBe(true);
+  });
+
+  it("treats regex metacharacters as literals and ignores blank patterns", () => {
+    expect(matchesSessionPattern("agent:main:explicit:model.run-1", "agent:*:explicit:model.run-*"))
+      .toBe(true);
+    expect(matchesSessionPattern("agent:main:explicit:modelXrun-1", "agent:*:explicit:model.run-*"))
+      .toBe(false);
+    expect(matchesSessionPattern("agent:main:explicit:model?run-1", "agent:*:explicit:model?run-*"))
+      .toBe(true);
+    expect(shouldSkipSession("agent:main:discord:dm:1", ["", "agent:*:cron:**"])).toBe(false);
+  });
+
+  it("handles overlapping double wildcards without backtracking", () => {
+    const pattern = `${"**:".repeat(12)}z`;
+    const sessionKey = Array.from({ length: 36 }, () => "segment").join(":");
+
+    expect(matchesSessionPattern(sessionKey, pattern)).toBe(false);
+  });
+});
 
 describe("buildSessionKey", () => {
   it("stays well under Honcho's 100-char cap even for absurdly long cron keys", () => {

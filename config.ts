@@ -15,6 +15,7 @@ export type HonchoConfig = {
   baseUrl: string;
   timeoutMs?: number;
   noisePatterns: string[];
+  ignoreSessionPatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
@@ -56,6 +57,16 @@ export const honchoConfigSchema = {
     const noisePatterns = [
       ...new Set([...(disableDefaultNoisePatterns ? [] : DEFAULT_NOISE_PATTERNS), ...userPatterns]),
     ];
+    const ignoreSessionPatterns = Array.isArray(cfg.ignoreSessionPatterns)
+      ? [
+          ...new Set(
+            (cfg.ignoreSessionPatterns as unknown[])
+              .filter((pattern): pattern is string => typeof pattern === "string")
+              .map((pattern) => pattern.trim())
+              .filter((pattern) => pattern.length > 0),
+          ),
+        ]
+      : [];
 
     return {
       apiKey,
@@ -78,6 +89,7 @@ export const honchoConfigSchema = {
         return undefined;
       })(),
       noisePatterns,
+      ignoreSessionPatterns,
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
