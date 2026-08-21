@@ -8,6 +8,10 @@ import {
   HONCHO_MAX_EMBEDDING_INPUT_CHARS,
   HONCHO_MAX_EMBEDDING_INPUTS,
   registerHonchoAuthBroker,
+  resolveCanonicalOpenAICodexCredential,
+  resolveConfiguredBrokerBearerToken,
+  type BrokerBearerTokenDependencies,
+  type CanonicalCodexCredentialDependencies,
   type HonchoAuthBrokerDependencies,
 } from "../broker.js";
 import type { HonchoAuthBrokerConfig } from "../config.js";
@@ -19,6 +23,7 @@ const config: HonchoAuthBrokerConfig = {
   enabled: true,
   bearerToken: BROKER_TOKEN,
   authAgentId: "main",
+  authProfileId: "openai:codex",
   responseModels: ["gpt-5.4-mini", "gpt-5.4"],
   maxRequestBytes: 4096,
   timeoutMs: 5000,
@@ -104,6 +109,196 @@ async function invokeBrokerDirectly(
   await createHonchoAuthBrokerHandler(brokerConfig, dependencies)(request, response);
   return { body: responseBody, statusCode: response.statusCode };
 }
+
+function canonicalResolverHarness(profileIds: string[] = ["openai:codex"]) {
+  const resolveAgentDir = vi.fn(() => "/agent/main");
+  const listUsableProviderAuthProfileIds = vi.fn(() => ({
+    agentDir: "/agent/main",
+    profileIds,
+  }));
+  const resolveApiKeyForProvider = vi.fn(async () => ({
+    apiKey: OAUTH_TOKEN,
+    mode: "oauth" as const,
+  }));
+  const resolveProviderAuthProfileMetadata = vi.fn(() => ({ accountId: "account-123" }));
+  const resolveOpenAICodexAuthIdentity = vi.fn(() => ({ accountId: "account-123" }));
+  const dependencies = {
+    resolveAgentDir,
+    listUsableProviderAuthProfileIds,
+    resolveApiKeyForProvider,
+    resolveProviderAuthProfileMetadata,
+    resolveOpenAICodexAuthIdentity,
+  } as unknown as CanonicalCodexCredentialDependencies;
+  const api = {
+    config: {},
+    runtime: { config: { current: () => ({}) } },
+  } as never;
+  return {
+    api,
+    dependencies,
+    listUsableProviderAuthProfileIds,
+    resolveAgentDir,
+    resolveApiKeyForProvider,
+    resolveOpenAICodexAuthIdentity,
+    resolveProviderAuthProfileMetadata,
+  };
+}
+
+function brokerBearerResolverHarness(rawBearerToken: unknown, enabled = true) {
+  const sourceConfig = {
+    plugins: {
+      entries: {
+        "openclaw-honcho": {
+          config: {
+            authBroker: {
+              enabled,
+              bearerToken: rawBearerToken,
+            },
+          },
+        },
+      },
+    },
+  };
+  const getRuntimeConfigSourceSnapshot = vi.fn(() => sourceConfig);
+  const resolveConfiguredSecretInputString = vi.fn(async () => ({ value: BROKER_TOKEN }));
+  const dependencies = {
+    getRuntimeConfigSourceSnapshot,
+    resolveConfiguredSecretInputString,
+  } as unknown as BrokerBearerTokenDependencies;
+  return {
+    dependencies,
+    getRuntimeConfigSourceSnapshot,
+    resolveConfiguredSecretInputString,
+  };
+}
+
+describe("canonical Codex OAuth resolution", () => {
+  it("uses only the explicit agent-scoped stored OAuth profile", async () => {
+    const harness = canonicalResolverHarness(["openai:other", "openai:codex"]);
+
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        harness.api,
+        config,
+        {},
+        harness.dependencies,
+      ),
+    ).resolves.toEqual({
+      accessToken: OAUTH_TOKEN,
+      accountId: "account-123",
+      profileId: "openai:codex",
+    });
+
+    expect(harness.resolveAgentDir).toHaveBeenCalledWith({}, "main");
+    expect(harness.listUsableProviderAuthProfileIds).toHaveBeenCalledWith({
+      provider: "openai",
+      cfg: {},
+      agentDir: "/agent/main",
+      profileTypes: ["oauth"],
+      allowKeychainPrompt: false,
+      includeExternalCliAuth: false,
+    });
+    expect(harness.resolveApiKeyForProvider).toHaveBeenCalledTimes(1);
+    expect(harness.resolveApiKeyForProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "openai",
+        agentDir: "/agent/main",
+        profileId: "openai:codex",
+        lockedProfile: true,
+        forceRefresh: false,
+      }),
+    );
+  });
+
+  it("fails closed when the pin is unavailable or a retry requests another profile", async () => {
+    const unavailable = canonicalResolverHarness(["openai:other"]);
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        unavailable.api,
+        config,
+        {},
+        unavailable.dependencies,
+      ),
+    ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
+    expect(unavailable.resolveApiKeyForProvider).not.toHaveBeenCalled();
+
+    const mismatchedRetry = canonicalResolverHarness();
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        mismatchedRetry.api,
+        config,
+        { forceRefresh: true, profileId: "openai:other" },
+        mismatchedRetry.dependencies,
+      ),
+    ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
+    expect(mismatchedRetry.listUsableProviderAuthProfileIds).not.toHaveBeenCalled();
+  });
+});
+
+describe("broker bearer SecretRef resolution", () => {
+  it.each([
+    {
+      name: "a raw literal",
+      rawBearerToken: BROKER_TOKEN,
+    },
+    {
+      name: "a raw environment shorthand",
+      rawBearerToken: "${HONCHO_AUTH_BROKER_TOKEN}",
+    },
+    {
+      name: "a store SecretRef",
+      rawBearerToken: {
+        source: "store",
+        provider: "default",
+        id: "HONCHO_AUTH_BROKER_TOKEN",
+      },
+    },
+  ])("rejects $name before reading secret material", async ({ rawBearerToken }) => {
+    const harness = brokerBearerResolverHarness(rawBearerToken);
+
+    await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBeUndefined();
+    expect(harness.getRuntimeConfigSourceSnapshot).toHaveBeenCalledTimes(1);
+    expect(harness.resolveConfiguredSecretInputString).not.toHaveBeenCalled();
+  });
+
+  it.each(["env", "file", "exec"] as const)(
+    "resolves an explicit raw %s SecretRef from the canonical source snapshot",
+    async (source) => {
+      const rawBearerToken = {
+        source,
+        provider: "default",
+        id: "HONCHO_AUTH_BROKER_TOKEN",
+      };
+      const harness = brokerBearerResolverHarness(rawBearerToken);
+
+      await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBe(
+        BROKER_TOKEN,
+      );
+      expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.any(Object),
+          value: rawBearerToken,
+          path: "plugins.entries.openclaw-honcho.config.authBroker.bearerToken",
+          unresolvedReasonStyle: "generic",
+        }),
+      );
+    },
+  );
+
+  it("fails closed when the raw broker is disabled", async () => {
+    const harness = brokerBearerResolverHarness(
+      {
+        source: "env",
+        provider: "default",
+        id: "HONCHO_AUTH_BROKER_TOKEN",
+      },
+      false,
+    );
+
+    await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBeUndefined();
+    expect(harness.resolveConfiguredSecretInputString).not.toHaveBeenCalled();
+  });
+});
 
 describe("Honcho auth broker", () => {
   it("rejects unauthenticated requests before resolving OAuth or reading upstream", async () => {
@@ -214,7 +409,48 @@ describe("Honcho auth broker", () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       model: "text-embedding-3-small",
       input: ["hello"],
+      encoding_format: "float",
     });
+  });
+
+  it("normalizes the OpenAI Python SDK base64 wire default to float arrays", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: "text-embedding-3-small",
+        input: ["hello"],
+        encoding_format: "float",
+      });
+      return new Response(
+        JSON.stringify({
+          object: "list",
+          model: "text-embedding-3-small",
+          data: [{ object: "embedding", index: 0, embedding: [0.25, 0.5] }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/embeddings`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "text-embedding-3-small",
+          input: "hello",
+          encoding_format: "base64",
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        data: [{ embedding: [0.25, 0.5] }],
+      });
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -228,6 +464,14 @@ describe("Honcho auth broker", () => {
         model: "text-embedding-3-small",
         input: "hello",
         url: "https://attacker.invalid/v1/embeddings",
+      },
+    },
+    {
+      name: "an unsupported encoding format",
+      body: {
+        model: "text-embedding-3-small",
+        input: "hello",
+        encoding_format: "binary",
       },
     },
     {

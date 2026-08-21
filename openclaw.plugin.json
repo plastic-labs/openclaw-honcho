@@ -15,7 +15,8 @@
       "paths": [
         {
           "path": "authBroker.bearerToken",
-          "expected": "string"
+          "expected": "string",
+          "ownerKind": "route"
         }
       ]
     }
@@ -47,12 +48,6 @@
           "id": { "type": "string", "minLength": 1 }
         },
         "required": ["source", "provider", "id"]
-      },
-      "secretInput": {
-        "anyOf": [
-          { "type": "string", "minLength": 32 },
-          { "$ref": "#/$defs/secretRef" }
-        ]
       }
     },
     "properties": {
@@ -103,13 +98,28 @@
             "default": false
           },
           "bearerToken": {
-            "$ref": "#/$defs/secretInput",
-            "description": "Strong bearer token Honcho presents to the broker. Prefer an OpenClaw SecretRef."
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 32
+              },
+              {
+                "$ref": "#/$defs/secretRef"
+              }
+            ],
+            "description": "SecretRef resolving the strong bearer token Honcho presents to the broker. The string form exists only for OpenClaw's host-resolved runtime config; the route rejects raw literal configuration and ambient fallback."
           },
           "authAgentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Optional agent whose OpenAI auth scope the broker uses."
+            "description": "Required agent whose stored OpenAI auth scope the broker uses."
+          },
+          "authProfileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]*$",
+            "description": "Required stored OpenAI OAuth profile ID. The broker fails closed rather than trying another profile or external CLI auth."
           },
           "responseModels": {
             "type": "array",
@@ -136,7 +146,18 @@
             "maximum": 900000,
             "default": 600000
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "enabled": { "const": true } },
+              "required": ["enabled"]
+            },
+            "then": {
+              "required": ["bearerToken", "authAgentId", "authProfileId"]
+            }
+          }
+        ]
       }
     }
   },
@@ -192,12 +213,17 @@
       "label": "Auth Broker Bearer Token",
       "sensitive": true,
       "advanced": true,
-      "help": "Use a random value of at least 32 characters. Prefer an OpenClaw SecretRef."
+      "help": "Required SecretRef for a random bearer of at least 32 characters. Literal and ambient environment fallbacks are rejected."
     },
     "authBroker.authAgentId": {
       "label": "Auth Agent ID",
       "advanced": true,
-      "help": "Bind Codex OAuth resolution to one agent. Omit to use OpenClaw's ambient owner agent."
+      "help": "Required agent whose stored Codex OAuth profile is used. No ambient-agent fallback."
+    },
+    "authBroker.authProfileId": {
+      "label": "Auth Profile ID",
+      "advanced": true,
+      "help": "Required stored OpenAI OAuth profile ID. External CLI auth and alternate-profile fallback are disabled."
     },
     "authBroker.responseModels": {
       "label": "Allowed Responses Models",

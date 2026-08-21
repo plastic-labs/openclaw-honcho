@@ -13,6 +13,7 @@ export type HonchoAuthBrokerConfig = {
   enabled: boolean;
   bearerToken?: SecretInput;
   authAgentId?: string;
+  authProfileId?: string;
   responseModels: string[];
   maxRequestBytes: number;
   timeoutMs: number;
@@ -76,6 +77,10 @@ function isSecretRefLike(value: unknown): value is Exclude<SecretInput, string> 
   );
 }
 
+function isResolvedBrokerBearerToken(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length >= 32;
+}
+
 function parseResponseModels(value: unknown): string[] {
   if (value === undefined) return [...DEFAULT_AUTH_BROKER_RESPONSE_MODELS];
   if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
@@ -102,46 +107,53 @@ function parseAuthBrokerConfig(value: unknown): HonchoAuthBrokerConfig {
       ? (value as Record<string, unknown>)
       : {};
   const enabled = raw.enabled === true;
-  const configuredToken = raw.bearerToken ?? process.env.HONCHO_AUTH_BROKER_TOKEN;
-  const bearerToken =
-    typeof configuredToken === "string" && configuredToken.trim().length > 0
+  const configuredToken = raw.bearerToken;
+  const bearerToken = isSecretRefLike(configuredToken)
+    ? configuredToken
+    : isResolvedBrokerBearerToken(configuredToken)
       ? configuredToken.trim()
-      : isSecretRefLike(configuredToken)
-        ? configuredToken
-        : undefined;
+      : undefined;
+  const authAgentId =
+    typeof raw.authAgentId === "string" && raw.authAgentId.trim().length > 0
+      ? raw.authAgentId.trim()
+      : undefined;
+  const authProfileId =
+    typeof raw.authProfileId === "string" && raw.authProfileId.trim().length > 0
+      ? raw.authProfileId.trim()
+      : undefined;
 
   if (
-    enabled &&
-    configuredToken &&
-    typeof configuredToken === "object" &&
-    !Array.isArray(configuredToken) &&
-    typeof (configuredToken as Record<string, unknown>).source === "string" &&
-    !["env", "file", "exec"].includes(
-      (configuredToken as Record<string, unknown>).source as string,
-    )
+    configuredToken !== undefined &&
+    !isSecretRefLike(configuredToken) &&
+    !isResolvedBrokerBearerToken(configuredToken)
   ) {
     throw new Error(
-      "authBroker.bearerToken SecretRef source must be env, file, or exec for OpenClaw 2026.7.1 compatibility",
+      "authBroker.bearerToken must be an env, file, or exec OpenClaw SecretRef or a host-resolved string of at least 32 characters",
     );
   }
   if (enabled && bearerToken === undefined) {
     throw new Error(
-      "authBroker.enabled requires authBroker.bearerToken or HONCHO_AUTH_BROKER_TOKEN",
+      "authBroker.enabled requires an explicit authBroker.bearerToken SecretRef or host-resolved token",
     );
   }
-  // A SecretRef is validated after OpenClaw resolves it. Literal bearer tokens
-  // must be long enough to resist online guessing.
-  if (enabled && typeof bearerToken === "string" && bearerToken.length < 32) {
-    throw new Error("authBroker.bearerToken must contain at least 32 characters");
+  if (enabled && authAgentId === undefined) {
+    throw new Error("authBroker.enabled requires an explicit authBroker.authAgentId");
+  }
+  if (enabled && authProfileId === undefined) {
+    throw new Error("authBroker.enabled requires an explicit authBroker.authProfileId");
+  }
+  if (
+    authProfileId !== undefined &&
+    (authProfileId.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:@+-]*$/.test(authProfileId))
+  ) {
+    throw new Error("authBroker.authProfileId contains an invalid profile ID");
   }
 
   return {
     enabled,
     bearerToken,
-    authAgentId:
-      typeof raw.authAgentId === "string" && raw.authAgentId.trim().length > 0
-        ? raw.authAgentId.trim()
-        : undefined,
+    authAgentId,
+    authProfileId,
     responseModels: parseResponseModels(raw.responseModels),
     maxRequestBytes: positiveIntegerInRange(
       raw.maxRequestBytes,

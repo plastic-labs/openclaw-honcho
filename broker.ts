@@ -27,9 +27,14 @@ import {
   resolveProviderAuthProfileMetadata,
 } from "openclaw/plugin-sdk/provider-auth-runtime";
 // @ts-ignore - resolved by openclaw runtime
+import { getRuntimeConfigSourceSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
+// @ts-ignore - resolved by openclaw runtime
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 // @ts-ignore - resolved by openclaw runtime
-import { resolveConfiguredSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
+import {
+  isSecretRef,
+  resolveConfiguredSecretInputString,
+} from "openclaw/plugin-sdk/secret-input-runtime";
 // @ts-ignore - resolved by openclaw runtime
 import {
   createFixedWindowRateLimiter,
@@ -77,6 +82,32 @@ export type HonchoAuthBrokerDependencies = {
   ) => Promise<OpenAICodexBrokerCredential>;
   resolveBearerToken: () => Promise<string | undefined>;
   logger?: Pick<OpenClawPluginApi["logger"], "warn">;
+};
+
+export type CanonicalCodexCredentialDependencies = {
+  resolveAgentDir: typeof resolveAgentDir;
+  listUsableProviderAuthProfileIds: typeof listUsableProviderAuthProfileIds;
+  resolveApiKeyForProvider: typeof resolveApiKeyForProvider;
+  resolveProviderAuthProfileMetadata: typeof resolveProviderAuthProfileMetadata;
+  resolveOpenAICodexAuthIdentity: typeof resolveOpenAICodexAuthIdentity;
+};
+
+export type BrokerBearerTokenDependencies = {
+  getRuntimeConfigSourceSnapshot: typeof getRuntimeConfigSourceSnapshot;
+  resolveConfiguredSecretInputString: typeof resolveConfiguredSecretInputString;
+};
+
+const canonicalCodexCredentialDependencies: CanonicalCodexCredentialDependencies = {
+  resolveAgentDir,
+  listUsableProviderAuthProfileIds,
+  resolveApiKeyForProvider,
+  resolveProviderAuthProfileMetadata,
+  resolveOpenAICodexAuthIdentity,
+};
+
+const brokerBearerTokenDependencies: BrokerBearerTokenDependencies = {
+  getRuntimeConfigSourceSnapshot,
+  resolveConfiguredSecretInputString,
 };
 
 class BrokerCredentialUnavailableError extends Error {
@@ -173,8 +204,12 @@ function validateEmbeddingPayload(
   if (payload.model !== HONCHO_EMBEDDING_MODEL) {
     return { ok: false, message: `Embeddings model must be ${HONCHO_EMBEDDING_MODEL}` };
   }
-  if (payload.encoding_format !== undefined && payload.encoding_format !== "float") {
-    return { ok: false, message: "Embeddings encoding_format must be float" };
+  if (
+    payload.encoding_format !== undefined &&
+    payload.encoding_format !== "float" &&
+    payload.encoding_format !== "base64"
+  ) {
+    return { ok: false, message: "Embeddings encoding_format must be float or base64" };
   }
   if (payload.dimensions !== undefined && payload.dimensions !== 1536) {
     return { ok: false, message: "Embeddings dimensions must be 1536" };
@@ -210,7 +245,14 @@ function validateEmbeddingPayload(
       message: `Total embeddings input is limited to ${HONCHO_MAX_EMBEDDING_TOTAL_CHARS} characters`,
     };
   }
-  return { ok: true, value: { ...payload, input: stringInputs } };
+  // OpenAI's Python SDK sends `base64` by default when its caller omits this
+  // option, but its post-parser also accepts float-array responses. Force the
+  // fixed upstream request to float so the broker never decodes caller-shaped
+  // binary data and Honcho consistently receives number arrays.
+  return {
+    ok: true,
+    value: { ...payload, input: stringInputs, encoding_format: "float" },
+  };
 }
 
 function validateResponsePayload(
@@ -381,79 +423,87 @@ function currentConfig(api: OpenClawPluginApi): OpenClawConfig {
   return (api.runtime.config?.current?.() ?? api.config) as OpenClawConfig;
 }
 
-function configuredAgentDir(
-  cfg: OpenClawConfig,
-  config: HonchoAuthBrokerConfig,
-): string | undefined {
-  return config.authAgentId ? resolveAgentDir(cfg, config.authAgentId) : undefined;
-}
-
 export async function resolveCanonicalOpenAICodexCredential(
   api: OpenClawPluginApi,
   config: HonchoAuthBrokerConfig,
   options: ResolveCodexCredentialOptions = {},
+  dependencies: CanonicalCodexCredentialDependencies = canonicalCodexCredentialDependencies,
 ): Promise<OpenAICodexBrokerCredential> {
+  if (!config.authAgentId || !config.authProfileId) {
+    throw new BrokerCredentialUnavailableError();
+  }
+  if (options.profileId && options.profileId !== config.authProfileId) {
+    throw new BrokerCredentialUnavailableError();
+  }
+
   const cfg = currentConfig(api);
-  const agentDir = configuredAgentDir(cfg, config);
-  const usable = listUsableProviderAuthProfileIds({
+  const agentDir = dependencies.resolveAgentDir(cfg, config.authAgentId);
+  const usable = dependencies.listUsableProviderAuthProfileIds({
     provider: "openai",
     cfg,
     agentDir,
     profileTypes: ["oauth"],
     allowKeychainPrompt: false,
-    includeExternalCliAuth: true,
+    includeExternalCliAuth: false,
   });
-  const profileIds = options.profileId
-    ? usable.profileIds.includes(options.profileId)
-      ? [options.profileId]
-      : []
-    : usable.profileIds;
-
-  for (const profileId of profileIds) {
-    try {
-      const auth = await resolveApiKeyForProvider({
-        provider: "openai",
-        cfg,
-        agentDir: usable.agentDir || agentDir,
-        profileId,
-        lockedProfile: true,
-        forceRefresh: options.forceRefresh === true,
-      });
-      if (auth.mode !== "oauth" || !auth.apiKey) continue;
-      const metadata = resolveProviderAuthProfileMetadata({
-        provider: "openai",
-        cfg,
-        agentDir: usable.agentDir || agentDir,
-        profileId,
-      });
-      const accountId = resolveOpenAICodexAuthIdentity({
-        access: auth.apiKey,
-        accountId: metadata.accountId,
-      }).accountId;
-      if (!accountId) continue;
-      return { accessToken: auth.apiKey, accountId, profileId };
-    } catch {
-      // Try the next configured OAuth profile in normal resolution. A
-      // profile-pinned refresh has exactly one candidate and therefore fails
-      // closed without silently switching accounts.
-    }
+  const profileId = config.authProfileId;
+  if (!usable.profileIds.includes(profileId)) {
+    throw new BrokerCredentialUnavailableError();
   }
-  throw new BrokerCredentialUnavailableError();
+
+  try {
+    const auth = await dependencies.resolveApiKeyForProvider({
+      provider: "openai",
+      cfg,
+      agentDir: usable.agentDir || agentDir,
+      profileId,
+      lockedProfile: true,
+      forceRefresh: options.forceRefresh === true,
+    });
+    if (auth.mode !== "oauth" || !auth.apiKey) {
+      throw new BrokerCredentialUnavailableError();
+    }
+    const metadata = dependencies.resolveProviderAuthProfileMetadata({
+      provider: "openai",
+      cfg,
+      agentDir: usable.agentDir || agentDir,
+      profileId,
+    });
+    const accountId = dependencies.resolveOpenAICodexAuthIdentity({
+      access: auth.apiKey,
+      accountId: metadata.accountId,
+    }).accountId;
+    if (!accountId) throw new BrokerCredentialUnavailableError();
+    return { accessToken: auth.apiKey, accountId, profileId };
+  } catch {
+    throw new BrokerCredentialUnavailableError();
+  }
 }
 
-async function resolveConfiguredBrokerBearerToken(
-  api: OpenClawPluginApi,
+export async function resolveConfiguredBrokerBearerToken(
+  dependencies: BrokerBearerTokenDependencies = brokerBearerTokenDependencies,
 ): Promise<string | undefined> {
-  const cfg = currentConfig(api);
+  const cfg = dependencies.getRuntimeConfigSourceSnapshot();
+  if (!cfg) return undefined;
   const pluginEntry = cfg.plugins?.entries?.["openclaw-honcho"];
   const pluginConfig = isRecord(pluginEntry?.config) ? pluginEntry.config : undefined;
   const authBroker = isRecord(pluginConfig?.authBroker) ? pluginConfig.authBroker : undefined;
-  const configuredValue = authBroker
-    ? Object.hasOwn(authBroker, "bearerToken")
-      ? authBroker.bearerToken
-      : process.env.HONCHO_AUTH_BROKER_TOKEN
-    : process.env.HONCHO_AUTH_BROKER_TOKEN;
-  const resolved = await resolveConfiguredSecretInputString({
+  const configuredValue = authBroker?.bearerToken;
+
+  // The host materializes SecretRefs before plugin manifest/runtime validation,
+  // so the parsed plugin config legitimately contains a string. Authentication
+  // must nevertheless be authorized from the canonical authored-source
+  // snapshot on every request. A raw literal, shorthand, store ref, missing
+  // snapshot, or disabled broker therefore fails closed before secret access.
+  if (
+    authBroker?.enabled !== true ||
+    !isSecretRef(configuredValue) ||
+    !["env", "file", "exec"].includes(configuredValue.source)
+  ) {
+    return undefined;
+  }
+
+  const resolved = await dependencies.resolveConfiguredSecretInputString({
     config: cfg,
     env: process.env,
     value: configuredValue,
@@ -665,7 +715,7 @@ export function registerHonchoAuthBroker(
     auth: "plugin",
     match: "prefix",
     handler: createHonchoAuthBrokerHandler(config, {
-      resolveBearerToken: () => resolveConfiguredBrokerBearerToken(api),
+      resolveBearerToken: () => resolveConfiguredBrokerBearerToken(),
       resolveCredential: (options) => resolveCanonicalOpenAICodexCredential(api, config, options),
       logger: api.logger,
     }),

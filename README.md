@@ -104,8 +104,9 @@ forwards only to the Codex Responses endpoint, enforces an exact model allowlist
 and forces `store: false`. The Honcho side receives only the separate broker
 bearer token; it never receives either upstream credential.
 
-Configure a random token of at least 32 characters. A SecretRef is preferred so
-the literal does not live in `openclaw.json`:
+Configure a random token of at least 32 characters through an explicit env,
+file, or exec SecretRef. Literal tokens and ambient environment fallback are
+rejected. Pin both the owning agent and the exact stored OpenAI OAuth profile:
 
 ```json
 {
@@ -116,6 +117,7 @@ the literal does not live in `openclaw.json`:
           "authBroker": {
             "enabled": true,
             "authAgentId": "main",
+            "authProfileId": "openai:owner@example.com",
             "responseModels": ["gpt-5.4-mini", "gpt-5.4"],
             "bearerToken": {
               "source": "env",
@@ -129,6 +131,13 @@ the literal does not live in `openclaw.json`:
   }
 }
 ```
+
+OpenClaw resolves that SecretRef before validating the plugin's runtime config,
+so the runtime schema also accepts the resulting string. This does not make
+literal configuration valid: for every broker request, the route checks
+OpenClaw's canonical authored-source snapshot and refuses authentication unless
+the raw value is an explicit env, file, or exec SecretRef. It never authenticates
+from the resolved runtime string, a raw literal, or an ambient token fallback.
 
 Stock Honcho calls OpenAI Chat Completions and therefore cannot call the
 Responses route directly. A separate Python OpenAI-compatibility adapter is a
@@ -160,10 +169,13 @@ reads use the shorter of the configured timeout and 30 seconds. Unknown
 top-level fields are rejected on both routes. Route-specific constraints are:
 
 - Embeddings: only `model`, `input`, `encoding_format`, and `dimensions` are
-  accepted. `encoding_format`, when present, must be `float`; `dimensions`,
-  when present, must be `1536`. A call may contain at most 2,048 non-empty
-  string inputs (matching Honcho's stock batch default), 32,000 characters per
-  input, and 1,200,000 input characters in aggregate.
+  accepted. `encoding_format` may be omitted, `float`, or `base64`; the broker
+  always requests `float` upstream and returns OpenAI-compatible number arrays.
+  This accommodates the OpenAI Python SDK's default `base64` wire request while
+  keeping binary decoding out of the broker. `dimensions`, when present, must
+  be `1536`. A call may contain at most 2,048 non-empty string inputs (matching
+  Honcho's stock batch default), 32,000 characters per input, and 1,200,000
+  input characters in aggregate.
 - Responses: array input is limited to 256 items and serialized input to
   512,000 characters. Instructions are limited to 64,000 characters;
   `temperature` to 0 through 2; integer `max_output_tokens` to 1 through
@@ -175,10 +187,11 @@ or timeout settings to match the broker. Oversized request bodies return 413,
 request-body read timeouts return 408, and upstream timeouts return 504.
 Keep the Gateway route private to the Honcho network even though it requires a
 strong bearer token, and use HTTPS whenever the token crosses a host boundary.
-This feature requires OpenClaw 2026.7.1 or newer. Set `authAgentId` to bind both
-credential lookups to one agent; otherwise the ambient owner agent is used. If
-multiple OpenAI profiles exist, configure that agent's normal OpenAI auth order;
-the broker deliberately does not implement a second credential selector.
+This feature requires OpenClaw 2026.7.1 or newer. `authAgentId` and
+`authProfileId` are both required. The broker reads only that agent-scoped,
+stored OAuth profile: it disables external CLI credential discovery, rejects
+API-key/token profile types, and never falls through to another profile. A 401
+may trigger one canonical refresh of the same pinned profile; a 403 never does.
 
 ### Noise Filtering
 
