@@ -61,6 +61,11 @@
         "type": "boolean",
         "default": true,
         "description": "Default scope for memory_search. When true (default), results span every session the participant peer has written to. When false, results are scoped to the active session. Per-call override available via the memory_search `crossSession` parameter."
+      },
+      "enableMemoryCompatibilityTools": {
+        "type": "boolean",
+        "default": false,
+        "description": "Register legacy memory_search and memory_get aliases for older OpenClaw hosts. Keep disabled on modern OpenClaw, which provides canonical tools with these names."
       }
     }
   },
@@ -106,6 +111,11 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
+    },
+    "enableMemoryCompatibilityTools": {
+      "label": "Legacy Memory Tool Aliases",
+      "advanced": true,
+      "help": "Register Honcho's legacy memory_search and memory_get aliases. Leave disabled on modern OpenClaw to avoid duplicate tool-name warnings."
     }
   }
 }
