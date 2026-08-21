@@ -225,6 +225,15 @@ function validateResponsePayload(
   if (typeof payload.input !== "string" && !Array.isArray(payload.input)) {
     return { ok: false, message: "Responses input must be a string or array" };
   }
+  const normalizedInput =
+    typeof payload.input === "string"
+      ? [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: payload.input }],
+          },
+        ]
+      : payload.input;
   if (
     Array.isArray(payload.input) &&
     (payload.input.length === 0 || payload.input.length > HONCHO_MAX_RESPONSE_INPUT_ITEMS)
@@ -307,7 +316,7 @@ function validateResponsePayload(
   ) {
     return { ok: false, message: "Responses tool_choice must be a string or object" };
   }
-  return { ok: true, value: { ...payload, store: false } };
+  return { ok: true, value: { ...payload, input: normalizedInput, store: false } };
 }
 
 function upstreamHeaders(

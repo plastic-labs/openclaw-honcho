@@ -343,7 +343,12 @@ describe("Honcho auth broker", () => {
     expect(headers.get("x-client-request-id")).toBe(headers.get("session_id"));
     expect(JSON.parse(String(init?.body))).toMatchObject({
       model: "gpt-5.4-mini",
-      input: "hello",
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: "hello" }],
+        },
+      ],
       stream: true,
       store: false,
     });
