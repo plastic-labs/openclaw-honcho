@@ -154,10 +154,25 @@ allowlisted Responses payload; streaming callers should set `stream: true`.
 Pointing stock Honcho at the broker base URL without the adapter will return
 404 for `/chat/completions` by design.
 
-The broker accepts at most 2,048 embedding inputs per call (matching Honcho's
-stock batch default), 32,000 characters per input, and 1,200,000 characters in
-aggregate, with ten concurrent requests per client. If the adapter is tuned
-above those bounds, lower its batch/concurrency settings to match the broker.
+The broker accepts at most ten concurrent requests per client. Its default
+request-body cap is 2 MiB and its default upstream timeout is 600,000 ms. Body
+reads use the shorter of the configured timeout and 30 seconds. Unknown
+top-level fields are rejected on both routes. Route-specific constraints are:
+
+- Embeddings: only `model`, `input`, `encoding_format`, and `dimensions` are
+  accepted. `encoding_format`, when present, must be `float`; `dimensions`,
+  when present, must be `1536`. A call may contain at most 2,048 non-empty
+  string inputs (matching Honcho's stock batch default), 32,000 characters per
+  input, and 1,200,000 input characters in aggregate.
+- Responses: array input is limited to 256 items and serialized input to
+  512,000 characters. Instructions are limited to 64,000 characters;
+  `temperature` to 0 through 2; integer `max_output_tokens` to 1 through
+  65,536; and `tools` to 64 entries. `include` may contain only
+  `reasoning.encrypted_content`. The broker always sends `store: false`.
+
+If the adapter is tuned above those bounds, lower its body, batch, concurrency,
+or timeout settings to match the broker. Oversized request bodies return 413,
+request-body read timeouts return 408, and upstream timeouts return 504.
 Keep the Gateway route private to the Honcho network even though it requires a
 strong bearer token, and use HTTPS whenever the token crosses a host boundary.
 This feature requires OpenClaw 2026.7.1 or newer. Set `authAgentId` to bind both

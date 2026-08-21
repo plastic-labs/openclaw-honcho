@@ -110,6 +110,20 @@ function parseAuthBrokerConfig(value: unknown): HonchoAuthBrokerConfig {
         ? configuredToken
         : undefined;
 
+  if (
+    enabled &&
+    configuredToken &&
+    typeof configuredToken === "object" &&
+    !Array.isArray(configuredToken) &&
+    typeof (configuredToken as Record<string, unknown>).source === "string" &&
+    !["env", "file", "exec"].includes(
+      (configuredToken as Record<string, unknown>).source as string,
+    )
+  ) {
+    throw new Error(
+      "authBroker.bearerToken SecretRef source must be env, file, or exec for OpenClaw 2026.7.1 compatibility",
+    );
+  }
   if (enabled && bearerToken === undefined) {
     throw new Error(
       "authBroker.enabled requires authBroker.bearerToken or HONCHO_AUTH_BROKER_TOKEN",

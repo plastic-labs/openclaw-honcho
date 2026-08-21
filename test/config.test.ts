@@ -85,7 +85,7 @@ describe("Honcho auth broker config", () => {
           },
         },
       }),
-    ).toThrow(/requires authBroker\.bearerToken/);
+    ).toThrow(/source must be env, file, or exec for OpenClaw 2026\.7\.1 compatibility/);
   });
 
   it("rejects invalid or duplicate Responses model allowlists", () => {
