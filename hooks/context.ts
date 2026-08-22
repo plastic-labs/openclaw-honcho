@@ -26,10 +26,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
         : await state.resolveSessionParticipantPeer(sessionKey);
 
       const sections: string[] = [];
+      const maxConclusions = state.cfg.contextMaxConclusions;
 
       if (isSubagent) {
         try {
-          const peerCtx = await agentPeer.context({ target: participantPeer });
+          const peerCtx = await agentPeer.context({
+            target: participantPeer,
+            ...(maxConclusions !== undefined ? { maxConclusions } : {}),
+          });
           if (peerCtx.peerCard?.length) {
             sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
           }
@@ -53,6 +57,9 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
             tokens: 2000,
             peerTarget: participantPeer,
             peerPerspective: agentPeer,
+            ...(maxConclusions !== undefined
+              ? { representationOptions: { maxConclusions } }
+              : {}),
           });
         } catch (e: unknown) {
           const isNotFound =

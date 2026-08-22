@@ -69,10 +69,31 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+| `contextMaxConclusions` | `number` | —                          | Optional cap (1-100) for conclusions included in automatically injected Honcho context. |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+
+### Context Injection
+
+On each turn, the plugin appends Honcho context to the system prompt during OpenClaw's `before_prompt_build` phase. By default, this includes key facts, the peer representation, and any available conversation summary.
+
+For workspaces with large peer representations, cap the automatic injection:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "config": {
+          "contextMaxConclusions": 25
+        }
+      }
+    }
+  }
+}
+```
 
 ### Self-Hosted / Local Honcho
 
