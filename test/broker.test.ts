@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createConfiguredBrokerBearerTokenResolver,
   createHonchoAuthBrokerHandler,
   HONCHO_AUTH_BROKER_BASE_PATH,
   HONCHO_MAX_EMBEDDING_INPUT_CHARS,
@@ -165,11 +166,15 @@ function canonicalResolverHarness(profileIds: string[] = ["openai:codex"]) {
   };
 }
 
-function brokerBearerResolverHarness(rawBearerToken: unknown, enabled = true) {
+function brokerBearerResolverHarness(
+  rawBearerToken: unknown,
+  enabled = true,
+  pluginId = "openclaw-honcho",
+) {
   const sourceConfig = {
     plugins: {
       entries: {
-        "openclaw-honcho": {
+        [pluginId]: {
           config: {
             authBroker: {
               enabled,
@@ -269,6 +274,84 @@ describe("canonical Codex OAuth resolution", () => {
     ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
     expect(mismatchedRetry.loadAuthProfileStoreWithoutExternalProfiles).not.toHaveBeenCalled();
   });
+
+  it("fails closed when the pinned stored profile is not OAuth", async () => {
+    const harness = canonicalResolverHarness();
+    harness.store.profiles["openai:codex"] = {
+      type: "api_key",
+      provider: "openai",
+      key: "platform-api-key-that-must-not-be-used",
+    } as never;
+
+    await expect(
+      resolveCanonicalOpenAICodexCredential(harness.api, config, {}, harness.dependencies),
+    ).rejects.toMatchObject({
+      name: "BrokerCredentialUnavailableError",
+      message: "OpenAI Codex OAuth is unavailable",
+    });
+    expect(harness.resolveApiKeyForProvider).not.toHaveBeenCalled();
+  });
+
+  it("normalizes config, agent-directory, and store failures", async () => {
+    const configFailure = canonicalResolverHarness();
+    const failingApi = {
+      config: {},
+      runtime: {
+        config: {
+          current: () => {
+            throw new Error("config snapshot failed");
+          },
+        },
+      },
+    } as never;
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        failingApi,
+        config,
+        {},
+        configFailure.dependencies,
+      ),
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
+
+    const agentDirFailure = canonicalResolverHarness();
+    agentDirFailure.resolveAgentDir.mockImplementation(() => {
+      throw new Error("agent path failed");
+    });
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        agentDirFailure.api,
+        config,
+        {},
+        agentDirFailure.dependencies,
+      ),
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
+
+    const storeFailure = canonicalResolverHarness();
+    storeFailure.loadAuthProfileStoreWithoutExternalProfiles.mockImplementation(() => {
+      throw new Error("store read failed");
+    });
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        storeFailure.api,
+        config,
+        {},
+        storeFailure.dependencies,
+      ),
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
+
+    const malformedStore = canonicalResolverHarness();
+    malformedStore.loadAuthProfileStoreWithoutExternalProfiles.mockReturnValue({
+      version: 1,
+    } as never);
+    await expect(
+      resolveCanonicalOpenAICodexCredential(
+        malformedStore.api,
+        config,
+        {},
+        malformedStore.dependencies,
+      ),
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
+  });
 });
 
 describe("broker bearer SecretRef resolution", () => {
@@ -292,7 +375,9 @@ describe("broker bearer SecretRef resolution", () => {
   ])("rejects $name before reading secret material", async ({ rawBearerToken }) => {
     const harness = brokerBearerResolverHarness(rawBearerToken);
 
-    await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBeUndefined();
+    await expect(
+      resolveConfiguredBrokerBearerToken("openclaw-honcho", harness.dependencies),
+    ).resolves.toBeUndefined();
     expect(harness.getRuntimeConfigSourceSnapshot).toHaveBeenCalledTimes(1);
     expect(harness.resolveConfiguredSecretInputString).not.toHaveBeenCalled();
   });
@@ -307,9 +392,9 @@ describe("broker bearer SecretRef resolution", () => {
       };
       const harness = brokerBearerResolverHarness(rawBearerToken);
 
-      await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBe(
-        BROKER_TOKEN,
-      );
+      await expect(
+        resolveConfiguredBrokerBearerToken("openclaw-honcho", harness.dependencies),
+      ).resolves.toBe(BROKER_TOKEN);
       expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledWith(
         expect.objectContaining({
           config: expect.any(Object),
@@ -331,8 +416,120 @@ describe("broker bearer SecretRef resolution", () => {
       false,
     );
 
-    await expect(resolveConfiguredBrokerBearerToken(harness.dependencies)).resolves.toBeUndefined();
+    await expect(
+      resolveConfiguredBrokerBearerToken("openclaw-honcho", harness.dependencies),
+    ).resolves.toBeUndefined();
     expect(harness.resolveConfiguredSecretInputString).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "the reference does not resolve",
+      resolved: { unresolvedRefReason: "unavailable" },
+    },
+    {
+      name: "the resolved secret is too short",
+      resolved: { value: "short-token" },
+    },
+  ])("fails closed when $name", async ({ resolved }) => {
+    const harness = brokerBearerResolverHarness({
+      source: "env",
+      provider: "default",
+      id: "HONCHO_AUTH_BROKER_TOKEN",
+    });
+    harness.resolveConfiguredSecretInputString.mockResolvedValue(resolved);
+
+    await expect(
+      resolveConfiguredBrokerBearerToken("openclaw-honcho", harness.dependencies),
+    ).resolves.toBeUndefined();
+  });
+
+  it("derives the authored entry key and SecretRef path from the plugin API id", async () => {
+    const pluginId = "renamed-honcho";
+    const rawBearerToken = {
+      source: "file",
+      provider: "default",
+      id: "HONCHO_AUTH_BROKER_TOKEN",
+    };
+    const harness = brokerBearerResolverHarness(rawBearerToken, true, pluginId);
+
+    await expect(
+      resolveConfiguredBrokerBearerToken(pluginId, harness.dependencies),
+    ).resolves.toBe(BROKER_TOKEN);
+    expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledWith(
+      expect.objectContaining({
+        value: rawBearerToken,
+        path: "plugins.entries.renamed-honcho.config.authBroker.bearerToken",
+      }),
+    );
+  });
+
+  it("caches successful resolution until expiry", async () => {
+    let now = 1_000;
+    const harness = brokerBearerResolverHarness({
+      source: "exec",
+      provider: "default",
+      id: "HONCHO_AUTH_BROKER_TOKEN",
+    });
+    const resolveBearerToken = createConfiguredBrokerBearerTokenResolver(
+      "openclaw-honcho",
+      harness.dependencies,
+      { cacheTtlMs: 100, now: () => now },
+    );
+
+    await expect(resolveBearerToken(BROKER_TOKEN)).resolves.toBe(BROKER_TOKEN);
+    await expect(resolveBearerToken(BROKER_TOKEN)).resolves.toBe(BROKER_TOKEN);
+    expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledTimes(1);
+
+    now += 101;
+    await expect(resolveBearerToken(BROKER_TOKEN)).resolves.toBe(BROKER_TOKEN);
+    expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one in-flight SecretRef resolution across concurrent requests", async () => {
+    let settle!: (value: { value: string }) => void;
+    const pending = new Promise<{ value: string }>((resolve) => {
+      settle = resolve;
+    });
+    const harness = brokerBearerResolverHarness({
+      source: "exec",
+      provider: "default",
+      id: "HONCHO_AUTH_BROKER_TOKEN",
+    });
+    harness.resolveConfiguredSecretInputString.mockReturnValue(pending);
+    const resolveBearerToken = createConfiguredBrokerBearerTokenResolver(
+      "openclaw-honcho",
+      harness.dependencies,
+    );
+
+    const first = resolveBearerToken(BROKER_TOKEN);
+    const second = resolveBearerToken(BROKER_TOKEN);
+    expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledTimes(1);
+    settle({ value: BROKER_TOKEN });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([BROKER_TOKEN, BROKER_TOKEN]);
+  });
+
+  it("refreshes a still-live cache when the presented token rotates", async () => {
+    const rotatedToken = "rotated-broker-test-token-that-is-at-least-32-characters";
+    const harness = brokerBearerResolverHarness({
+      source: "file",
+      provider: "default",
+      id: "HONCHO_AUTH_BROKER_TOKEN",
+    });
+    harness.resolveConfiguredSecretInputString
+      .mockResolvedValueOnce({ value: BROKER_TOKEN })
+      .mockResolvedValueOnce({ value: rotatedToken });
+    const resolveBearerToken = createConfiguredBrokerBearerTokenResolver(
+      "openclaw-honcho",
+      harness.dependencies,
+      { cacheTtlMs: 60_000 },
+    );
+
+    await expect(resolveBearerToken(BROKER_TOKEN)).resolves.toBe(BROKER_TOKEN);
+    await expect(resolveBearerToken(rotatedToken)).resolves.toBe(rotatedToken);
+    await expect(resolveBearerToken(rotatedToken)).resolves.toBe(rotatedToken);
+    expect(harness.resolveConfiguredSecretInputString).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -743,7 +940,7 @@ describe("Honcho auth broker", () => {
 
   it("registers one plugin-authenticated prefix only when enabled", () => {
     const registerHttpRoute = vi.fn();
-    const api = { registerHttpRoute } as never;
+    const api = { id: "openclaw-honcho", registerHttpRoute } as never;
 
     registerHonchoAuthBroker(api, { ...config, enabled: false });
     expect(registerHttpRoute).not.toHaveBeenCalled();

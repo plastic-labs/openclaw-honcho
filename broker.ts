@@ -49,7 +49,6 @@ export const HONCHO_AUTH_BROKER_BASE_PATH = "/plugins/openclaw-honcho/auth-broke
 
 const EMBEDDINGS_UPSTREAM_URL = "https://api.openai.com/v1/embeddings";
 const CODEX_RESPONSES_UPSTREAM_URL = "https://chatgpt.com/backend-api/codex/responses";
-const BROKER_TOKEN_CONFIG_PATH = "plugins.entries.openclaw-honcho.config.authBroker.bearerToken";
 
 export const HONCHO_EMBEDDING_MODEL = "text-embedding-3-small";
 // Match stock Honcho's default 2,048-item embedding batch while retaining an
@@ -80,7 +79,7 @@ export type HonchoAuthBrokerDependencies = {
   resolveCredential: (
     options?: ResolveCodexCredentialOptions,
   ) => Promise<OpenAICodexBrokerCredential>;
-  resolveBearerToken: () => Promise<string | undefined>;
+  resolveBearerToken: (presentedToken?: string) => Promise<string | undefined>;
   logger?: Pick<OpenClawPluginApi["logger"], "warn">;
 };
 
@@ -97,6 +96,11 @@ export type BrokerBearerTokenDependencies = {
   resolveConfiguredSecretInputString: typeof resolveConfiguredSecretInputString;
 };
 
+export type BrokerBearerTokenResolverOptions = {
+  cacheTtlMs?: number;
+  now?: () => number;
+};
+
 const canonicalCodexCredentialDependencies: CanonicalCodexCredentialDependencies = {
   resolveAgentDir,
   loadAuthProfileStoreWithoutExternalProfiles,
@@ -109,6 +113,8 @@ const brokerBearerTokenDependencies: BrokerBearerTokenDependencies = {
   getRuntimeConfigSourceSnapshot,
   resolveConfiguredSecretInputString,
 };
+
+const BROKER_BEARER_TOKEN_CACHE_TTL_MS = 5_000;
 
 class BrokerCredentialUnavailableError extends Error {
   constructor() {
@@ -429,28 +435,28 @@ export async function resolveCanonicalOpenAICodexCredential(
   options: ResolveCodexCredentialOptions = {},
   dependencies: CanonicalCodexCredentialDependencies = canonicalCodexCredentialDependencies,
 ): Promise<OpenAICodexBrokerCredential> {
-  if (!config.authAgentId || !config.authProfileId) {
-    throw new BrokerCredentialUnavailableError();
-  }
-  if (options.profileId && options.profileId !== config.authProfileId) {
-    throw new BrokerCredentialUnavailableError();
-  }
-
-  const cfg = currentConfig(api);
-  const agentDir = dependencies.resolveAgentDir(cfg, config.authAgentId);
-  const store = dependencies.loadAuthProfileStoreWithoutExternalProfiles(agentDir, {
-    allowKeychainPrompt: false,
-  });
-  const profileId = config.authProfileId;
-  const storedProfile = store.profiles[profileId];
-  if (
-    storedProfile?.type !== "oauth" ||
-    !dependencies.listProfilesForProvider(store, "openai").includes(profileId)
-  ) {
-    throw new BrokerCredentialUnavailableError();
-  }
-
   try {
+    if (!config.authAgentId || !config.authProfileId) {
+      throw new BrokerCredentialUnavailableError();
+    }
+    if (options.profileId && options.profileId !== config.authProfileId) {
+      throw new BrokerCredentialUnavailableError();
+    }
+
+    const cfg = currentConfig(api);
+    const agentDir = dependencies.resolveAgentDir(cfg, config.authAgentId);
+    const store = dependencies.loadAuthProfileStoreWithoutExternalProfiles(agentDir, {
+      allowKeychainPrompt: false,
+    });
+    const profileId = config.authProfileId;
+    const storedProfile = store.profiles?.[profileId];
+    if (
+      storedProfile?.type !== "oauth" ||
+      !dependencies.listProfilesForProvider(store, "openai").includes(profileId)
+    ) {
+      throw new BrokerCredentialUnavailableError();
+    }
+
     const auth = await dependencies.resolveApiKeyForProvider({
       provider: "openai",
       cfg,
@@ -475,11 +481,12 @@ export async function resolveCanonicalOpenAICodexCredential(
 }
 
 export async function resolveConfiguredBrokerBearerToken(
+  pluginId: string,
   dependencies: BrokerBearerTokenDependencies = brokerBearerTokenDependencies,
 ): Promise<string | undefined> {
   const cfg = dependencies.getRuntimeConfigSourceSnapshot();
   if (!cfg) return undefined;
-  const pluginEntry = cfg.plugins?.entries?.["openclaw-honcho"];
+  const pluginEntry = cfg.plugins?.entries?.[pluginId];
   const pluginConfig = isRecord(pluginEntry?.config) ? pluginEntry.config : undefined;
   const authBroker = isRecord(pluginConfig?.authBroker) ? pluginConfig.authBroker : undefined;
   const configuredValue = authBroker?.bearerToken;
@@ -501,12 +508,56 @@ export async function resolveConfiguredBrokerBearerToken(
     config: cfg,
     env: process.env,
     value: configuredValue,
-    path: BROKER_TOKEN_CONFIG_PATH,
+    path: `plugins.entries.${pluginId}.config.authBroker.bearerToken`,
     unresolvedReasonStyle: "generic",
   });
   if (resolved.unresolvedRefReason) return undefined;
   const token = resolved.value?.trim();
   return token && token.length >= 32 ? token : undefined;
+}
+
+/** Cache SecretRef material briefly while allowing a newly rotated token through immediately. */
+export function createConfiguredBrokerBearerTokenResolver(
+  pluginId: string,
+  dependencies: BrokerBearerTokenDependencies = brokerBearerTokenDependencies,
+  options: BrokerBearerTokenResolverOptions = {},
+): (presentedToken?: string) => Promise<string | undefined> {
+  const cacheTtlMs = Math.max(1, options.cacheTtlMs ?? BROKER_BEARER_TOKEN_CACHE_TTL_MS);
+  const now = options.now ?? Date.now;
+  let cachedToken: string | undefined;
+  let cacheExpiresAt = 0;
+  let inFlight: Promise<string | undefined> | undefined;
+
+  return async (presentedToken?: string): Promise<string | undefined> => {
+    if (
+      cachedToken &&
+      now() < cacheExpiresAt &&
+      (!presentedToken || safeEqualSecret(cachedToken, presentedToken))
+    ) {
+      return cachedToken;
+    }
+
+    if (!inFlight) {
+      // A cache miss can mean expiry, configuration disablement, or rotation.
+      // Invalidate before resolving so a failed refresh never revives stale
+      // material for another request.
+      cachedToken = undefined;
+      cacheExpiresAt = 0;
+      const pending = resolveConfiguredBrokerBearerToken(pluginId, dependencies);
+      inFlight = pending;
+      const clearInFlight = () => {
+        if (inFlight === pending) inFlight = undefined;
+      };
+      void pending.then(clearInFlight, clearInFlight);
+    }
+
+    const resolved = await inFlight;
+    if (resolved) {
+      cachedToken = resolved;
+      cacheExpiresAt = now() + cacheTtlMs;
+    }
+    return resolved;
+  };
 }
 
 /** Build the prefix-route handler. Exported for focused loopback tests. */
@@ -546,7 +597,7 @@ export function createHonchoAuthBrokerHandler(
 
     let expectedToken: string | undefined;
     try {
-      expectedToken = await dependencies.resolveBearerToken();
+      expectedToken = await dependencies.resolveBearerToken(presentedToken);
     } catch {
       dependencies.logger?.warn("Honcho auth broker could not resolve its bearer token");
       respondJson(
@@ -704,12 +755,13 @@ export function registerHonchoAuthBroker(
   config: HonchoAuthBrokerConfig,
 ): void {
   if (!config.enabled) return;
+  const resolveBearerToken = createConfiguredBrokerBearerTokenResolver(api.id);
   api.registerHttpRoute({
     path: HONCHO_AUTH_BROKER_BASE_PATH,
     auth: "plugin",
     match: "prefix",
     handler: createHonchoAuthBrokerHandler(config, {
-      resolveBearerToken: () => resolveConfiguredBrokerBearerToken(),
+      resolveBearerToken,
       resolveCredential: (options) => resolveCanonicalOpenAICodexCredential(api, config, options),
       logger: api.logger,
     }),

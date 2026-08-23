@@ -143,6 +143,12 @@ function parseAuthBrokerConfig(value: unknown): HonchoAuthBrokerConfig {
     throw new Error("authBroker.enabled requires an explicit authBroker.authProfileId");
   }
   if (
+    authAgentId !== undefined &&
+    (authAgentId.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(authAgentId))
+  ) {
+    throw new Error("authBroker.authAgentId contains an invalid agent ID");
+  }
+  if (
     authProfileId !== undefined &&
     (authProfileId.length > 256 || !/^[A-Za-z0-9][A-Za-z0-9._:@+-]*$/.test(authProfileId))
   ) {

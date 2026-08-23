@@ -106,6 +106,22 @@ describe("Honcho auth broker config", () => {
     ).toThrow(/invalid profile ID/);
   });
 
+  it.each(["../main", "main/child", `a${"b".repeat(256)}`])(
+    "rejects malformed auth agent ID %s",
+    (authAgentId) => {
+      expect(() =>
+        honchoConfigSchema.parse({
+          authBroker: {
+            enabled: true,
+            bearerToken,
+            authAgentId,
+            authProfileId: requiredAuthScope.authProfileId,
+          },
+        }),
+      ).toThrow(/invalid agent ID/);
+    },
+  );
+
   it("accepts an OpenClaw SecretRef without resolving it in plugin code", () => {
     const parsed = honchoConfigSchema.parse({
       authBroker: {
