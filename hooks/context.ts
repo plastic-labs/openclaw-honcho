@@ -3,6 +3,43 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
 
+type SenderResolution =
+  | { status: "valid"; senderId?: string }
+  | { status: "conflict" };
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function nestedChannelSenderId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const channelContext = (value as Record<string, unknown>).channelContext;
+  if (!channelContext || typeof channelContext !== "object") return undefined;
+  const sender = (channelContext as Record<string, unknown>).sender;
+  if (!sender || typeof sender !== "object") return undefined;
+  return nonEmptyString((sender as Record<string, unknown>).id);
+}
+
+function resolveCurrentSender(ctx: unknown, prompt: string): SenderResolution {
+  const context = ctx && typeof ctx === "object" ? (ctx as Record<string, unknown>) : {};
+  const typedSenders = [nonEmptyString(context.senderId), nestedChannelSenderId(context)].filter(
+    (senderId): senderId is string => Boolean(senderId),
+  );
+  const uniqueTypedSenders = [...new Set(typedSenders)];
+
+  if (uniqueTypedSenders.length > 1) return { status: "conflict" };
+  if (uniqueTypedSenders.length === 1) {
+    return { status: "valid", senderId: uniqueTypedSenders[0] };
+  }
+
+  // Compatibility for older OpenClaw hosts that did not expose typed sender
+  // identity to before_prompt_build. Current hosts must use the typed path so
+  // model-facing prompt text cannot override the participant selection.
+  return { status: "valid", senderId: extractSenderId(prompt) };
+}
+
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
@@ -13,6 +50,14 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
 
     state.turnStartIndex.set(sessionKey, event.messages.length);
 
+    const sender = resolveCurrentSender(ctx, event.prompt);
+    if (sender.status === "conflict") {
+      api.logger.warn?.(
+        "[honcho] Conflicting typed sender identities; skipping automatic context injection",
+      );
+      return;
+    }
+
     try {
       await state.ensureInitialized();
       const agentPeer = await state.getAgentPeer(agentId);
@@ -20,9 +65,8 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
       // run yet for this turn, so session metadata still reflects the previous
       // speaker. In group chats this would otherwise build context against the
       // prior participant's representation whenever the speaker changes.
-      const currentSenderId = extractSenderId(event.prompt);
-      const participantPeer = currentSenderId
-        ? await state.getParticipantPeer(currentSenderId)
+      const participantPeer = sender.senderId
+        ? await state.getParticipantPeer(sender.senderId)
         : await state.resolveSessionParticipantPeer(sessionKey);
 
       const sections: string[] = [];

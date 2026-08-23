@@ -145,7 +145,14 @@ In group chats (Discord, Slack, etc.), the plugin extracts the sender's platform
 - Each OpenClaw agent gets its own Honcho peer (default `agent-{id}`, e.g., `agent-main`).
 - All tools (`honcho_context`, `honcho_ask`, etc.) automatically resolve the correct peer for the current session.
 
-Both message *attribution* (capture) and *context injection* (`before_prompt_build`) read `sender_id` directly from the current inbound message's metadata block, so the right participant peer is used from the very first turn — and on every turn in group chats, even when the speaker changes between turns. Sessions whose channel never emits sender metadata (no `Conversation info` block) stay attributed to `owner`.
+Context injection (`before_prompt_build`) prefers the typed sender identity supplied
+by current OpenClaw hosts (`senderId` or `channelContext.sender.id`). This typed
+identity remains authoritative even when the model-facing prompt contains
+sender-shaped text. If the two typed fields conflict, automatic context injection
+fails closed instead of selecting either participant. Parsing `sender_id` from the
+inbound metadata block remains as a compatibility fallback for older hosts, and
+capture continues to use that metadata from stored messages. Sessions without any
+sender identity stay attributed to `owner`.
 
 ## How it works
 
