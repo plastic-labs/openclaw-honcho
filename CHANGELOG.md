@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.5.5] - 2026-08-24
+
+### Fixed
+- **update check resolving `package.json`**: The version lookup now tries both the built and source layouts, validates the package name, and degrades to skipping the update check instead of throwing.
+
 ## [1.5.4] - 2026-08-20
 
 ### Fixed
