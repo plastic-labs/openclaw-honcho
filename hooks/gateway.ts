@@ -12,7 +12,23 @@ const NPM_PACKAGE = "@honcho-ai/openclaw-honcho";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const PLUGIN_VERSION: string = require(join(__dirname, "..", "package.json")).version;
+
+// Compiled to dist/hooks/, so the package root is two levels up; one level up
+// covers running straight from source. Never throws — an unknown version just
+// skips the update check.
+function readPluginVersion(): string | null {
+  for (const rel of [["..", "..", "package.json"], ["..", "package.json"]]) {
+    try {
+      const pkg = require(join(__dirname, ...rel));
+      if (pkg?.name === NPM_PACKAGE && pkg.version) return pkg.version;
+    } catch {
+      // Not here — try the next candidate.
+    }
+  }
+  return null;
+}
+
+const PLUGIN_VERSION = readPluginVersion();
 
 function getConfigPath(): string {
   return join(
@@ -57,6 +73,8 @@ function parseSemver(v: string): [number, number, number] | null {
 }
 
 async function checkForUpdate(logger: OpenClawPluginApi["logger"]): Promise<void> {
+  if (!PLUGIN_VERSION) return;
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
