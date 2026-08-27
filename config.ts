@@ -18,6 +18,7 @@ export type HonchoConfig = {
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
+  enableMemoryCompatibilityTools: boolean;
 };
 
 /**
@@ -81,6 +82,7 @@ export const honchoConfigSchema = {
       disableDefaultNoisePatterns,
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
+      enableMemoryCompatibilityTools: cfg.enableMemoryCompatibilityTools === true,
     };
   },
 };

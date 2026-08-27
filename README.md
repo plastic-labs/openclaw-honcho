@@ -73,6 +73,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+| `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw, which owns these canonical tool names. |
 
 ### Self-Hosted / Local Honcho
 
@@ -202,7 +203,14 @@ openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (t
 
 ## Local File Search (QMD Integration)
 
-This plugin automatically exposes OpenClaw's `memory_search` and `memory_get` tools when a memory backend is configured. This allows you to use both Honcho's cloud-based memory AND local file search together.
+Modern OpenClaw exposes its canonical `memory_search` and `memory_get` tools
+when a memory backend is configured. Honcho therefore leaves its legacy aliases
+disabled by default, avoiding duplicate tool-name warnings while still allowing
+Honcho's named tools and local file search to be used together.
+
+Only older OpenClaw hosts that do not provide canonical memory tools should set
+`enableMemoryCompatibilityTools: true`. Do not enable it on a host that already
+offers `memory_search` and `memory_get`.
 
 ### Setup
 
