@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 // @ts-ignore - resolved by openclaw runtime
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
 import { buildSessionKey } from "../helpers.js";
 

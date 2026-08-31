@@ -1,5 +1,5 @@
 // @ts-ignore - resolved by openclaw runtime
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
