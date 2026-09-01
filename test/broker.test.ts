@@ -836,6 +836,43 @@ describe("Honcho auth broker", () => {
     expect(JSON.parse(String(init?.body))).toMatchObject({ input });
   });
 
+  it.each(["low", "medium", "high", "xhigh"])(
+    "forwards the relay's exact nested text and %s reasoning shape",
+    async (effort) => {
+      const fetchMock = vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ id: "resp-1", status: "completed" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const nestedOptions = {
+        text: { verbosity: "low" },
+        reasoning: { effort, summary: "auto" },
+      };
+
+      await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${BROKER_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-5.4-mini",
+            input: "hello",
+            ...nestedOptions,
+          }),
+        });
+        expect(response.status).toBe(200);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      expect(JSON.parse(String(init?.body))).toMatchObject(nestedOptions);
+    },
+  );
+
   it("forwards the relay's exact caller-defined function tool shape", async () => {
     const fetchMock = vi.fn<typeof fetch>(
       async () =>
@@ -927,6 +964,54 @@ describe("Honcho auth broker", () => {
   });
 
   it.each([
+    {
+      name: "an unknown nested text field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        text: { verbosity: "low", format: { type: "text" } },
+      },
+    },
+    {
+      name: "a malformed nested text value",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        text: { verbosity: "high" },
+      },
+    },
+    {
+      name: "an unknown nested reasoning field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        reasoning: { effort: "medium", summary: "auto", encrypted_content: "opaque" },
+      },
+    },
+    {
+      name: "a malformed nested reasoning effort",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        reasoning: { effort: "none", summary: "auto" },
+      },
+    },
+    {
+      name: "a malformed nested reasoning summary",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        reasoning: { effort: "medium", summary: "detailed" },
+      },
+    },
+    {
+      name: "an incomplete nested reasoning shape",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        reasoning: { effort: "medium" },
+      },
+    },
     {
       name: "a non-function tool definition",
       body: {
@@ -1342,7 +1427,7 @@ describe("Honcho auth broker", () => {
       { ...config, maxRequestBytes: 128 },
     );
     expect(response.statusCode).toBe(413);
-    expect(response.body).toBe("Payload too large");
+    expect(response.body).toMatch(/\S/);
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });

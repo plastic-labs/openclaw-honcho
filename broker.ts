@@ -208,6 +208,9 @@ const FUNCTION_TOOL_FIELDS = new Set([
   "strict",
 ]);
 const FUNCTION_TOOL_CHOICE_FIELDS = new Set(["type", "name"]);
+const RESPONSE_TEXT_FIELDS = new Set(["verbosity"]);
+const RESPONSE_REASONING_FIELDS = new Set(["effort", "summary"]);
+const RESPONSE_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const SIMPLE_TOOL_CHOICES = new Set(["auto", "none", "required"]);
 
 function findUnsupportedField(
@@ -319,6 +322,24 @@ function isAllowedToolChoice(value: unknown): boolean {
     value.type === "function" &&
     typeof value.name === "string" &&
     value.name.length > 0
+  );
+}
+
+function isAllowedResponseText(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, RESPONSE_TEXT_FIELDS) &&
+    value.verbosity === "low"
+  );
+}
+
+function isAllowedResponseReasoning(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, RESPONSE_REASONING_FIELDS) &&
+    typeof value.effort === "string" &&
+    RESPONSE_REASONING_EFFORTS.has(value.effort) &&
+    value.summary === "auto"
   );
 }
 
@@ -472,13 +493,11 @@ function validateResponsePayload(
   ) {
     return { ok: false, message: "Responses include contains an unsupported value" };
   }
-  for (const [field, value] of [
-    ["text", payload.text],
-    ["reasoning", payload.reasoning],
-  ] as const) {
-    if (value !== undefined && !isRecord(value)) {
-      return { ok: false, message: `Responses ${field} must be an object` };
-    }
+  if (payload.text !== undefined && !isAllowedResponseText(payload.text)) {
+    return { ok: false, message: "Responses text contains unsupported options" };
+  }
+  if (payload.reasoning !== undefined && !isAllowedResponseReasoning(payload.reasoning)) {
+    return { ok: false, message: "Responses reasoning contains unsupported options" };
   }
   if (
     payload.parallel_tool_calls !== undefined &&
