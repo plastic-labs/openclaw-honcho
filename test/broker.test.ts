@@ -777,11 +777,149 @@ describe("Honcho auth broker", () => {
 
   it.each([
     {
-      name: "a hosted web-search tool",
+      name: "an assistant message with output text",
+      input: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "I will check.", annotations: [] }],
+          status: "completed",
+          id: "msg_0123456789abcdef",
+        },
+      ],
+    },
+    {
+      name: "a function call",
+      input: [
+        {
+          type: "function_call",
+          id: "fc_0123456789abcdef",
+          call_id: "call_0123456789abcdef",
+          name: "lookup_memory",
+          arguments: '{"query":"Taipei"}',
+        },
+      ],
+    },
+    {
+      name: "a function call output",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_0123456789abcdef",
+          output: '{"timezone":"Asia/Taipei"}',
+        },
+      ],
+    },
+  ])("forwards the relay's exact Responses shape for $name", async ({ input }) => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "resp-1", status: "completed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: "gpt-5.4-mini", input, tool_choice: "auto" }),
+      });
+      expect(response.status).toBe(200);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ input });
+  });
+
+  it("forwards the relay's exact caller-defined function tool shape", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ id: "resp-1", status: "completed" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const tools = [
+      {
+        type: "function",
+        name: "lookup_memory",
+        description: "Look up memory",
+        parameters: {
+          type: "object",
+          properties: { query: { type: "string" } },
+          required: ["query"],
+        },
+        strict: false,
+      },
+    ];
+
+    await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-5.4-mini",
+          input: "hello",
+          tools,
+          tool_choice: { type: "function", name: "lookup_memory" },
+        }),
+      });
+      expect(response.status).toBe(200);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(JSON.parse(String(init?.body))).toMatchObject({ tools });
+  });
+
+  it.each([
+    {
+      name: "a non-function tool definition",
       body: {
         model: "gpt-5.4-mini",
         input: "hello",
         tools: [{ type: "web_search_preview" }],
+      },
+    },
+    {
+      name: "a function tool definition with an extra field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tools: [
+          {
+            type: "function",
+            name: "lookup_memory",
+            description: "Look up memory",
+            parameters: { type: "object", properties: {} },
+            strict: false,
+            endpoint: "https://attacker.invalid/tool",
+          },
+        ],
+      },
+    },
+    {
+      name: "a hosted tool choice",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tool_choice: { type: "web_search_preview" },
+      },
+    },
+    {
+      name: "a hosted string tool choice",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tool_choice: "web_search_preview",
       },
     },
     {
@@ -811,6 +949,112 @@ describe("Honcho auth broker", () => {
           {
             role: "user",
             content: [{ type: "input_image", image_url: "https://attacker.invalid/image" }],
+          },
+        ],
+      },
+    },
+    {
+      name: "an arbitrary input item type",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [{ type: "reasoning", encrypted_content: "opaque" }],
+      },
+    },
+    {
+      name: "an extra assistant-message field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "hello", annotations: [] }],
+            status: "completed",
+            id: "msg_0123456789abcdef",
+            file_url: "https://attacker.invalid/file",
+          },
+        ],
+      },
+    },
+    {
+      name: "an extra output-text field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: "hello",
+                annotations: [],
+                file_url: "https://attacker.invalid/file",
+              },
+            ],
+            status: "completed",
+            id: "msg_0123456789abcdef",
+          },
+        ],
+      },
+    },
+    {
+      name: "an extra function-call field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            type: "function_call",
+            id: "fc_0123456789abcdef",
+            call_id: "call_0123456789abcdef",
+            name: "lookup_memory",
+            arguments: "{}",
+            url: "https://attacker.invalid/call",
+          },
+        ],
+      },
+    },
+    {
+      name: "an extra function-call-output field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            type: "function_call_output",
+            call_id: "call_0123456789abcdef",
+            output: "done",
+            file_id: "file-123",
+          },
+        ],
+      },
+    },
+    {
+      name: "an extra user-message field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "hello" }],
+            name: "attacker-controlled",
+          },
+        ],
+      },
+    },
+    {
+      name: "an extra input-text field",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "hello",
+                image_url: "https://attacker.invalid/image",
+              },
+            ],
           },
         ],
       },

@@ -176,19 +176,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isTextOnlyResponseInput(input: unknown[]): boolean {
-  return input.every(
-    (item) =>
-      isRecord(item) &&
-      (typeof item.content === "string" ||
-        (Array.isArray(item.content) &&
-          item.content.every(
-            (content) =>
-              isRecord(content) && content.type === "input_text" && typeof content.text === "string",
-          ))),
-  );
-}
-
 type PayloadValidation<T> = { ok: true; value: T } | { ok: false; message: string };
 
 const EMBEDDING_REQUEST_FIELDS = new Set(["model", "input", "encoding_format", "dimensions"]);
@@ -207,12 +194,132 @@ const RESPONSE_REQUEST_FIELDS = new Set([
   "parallel_tool_calls",
   "reasoning",
 ]);
+const USER_MESSAGE_FIELDS = new Set(["role", "content"]);
+const INPUT_TEXT_FIELDS = new Set(["type", "text"]);
+const ASSISTANT_MESSAGE_FIELDS = new Set(["type", "role", "content", "status", "id"]);
+const OUTPUT_TEXT_FIELDS = new Set(["type", "text", "annotations"]);
+const FUNCTION_CALL_FIELDS = new Set(["type", "id", "call_id", "name", "arguments"]);
+const FUNCTION_CALL_OUTPUT_FIELDS = new Set(["type", "call_id", "output"]);
+const FUNCTION_TOOL_FIELDS = new Set([
+  "type",
+  "name",
+  "description",
+  "parameters",
+  "strict",
+]);
+const FUNCTION_TOOL_CHOICE_FIELDS = new Set(["type", "name"]);
+const SIMPLE_TOOL_CHOICES = new Set(["auto", "none", "required"]);
 
 function findUnsupportedField(
   payload: Record<string, unknown>,
   allowed: ReadonlySet<string>,
 ): string | undefined {
   return Object.keys(payload).find((field) => !allowed.has(field));
+}
+
+function hasOnlyFields(value: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return findUnsupportedField(value, allowed) === undefined;
+}
+
+function isInputTextPart(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, INPUT_TEXT_FIELDS) &&
+    value.type === "input_text" &&
+    typeof value.text === "string"
+  );
+}
+
+function isUserMessageItem(value: Record<string, unknown>): boolean {
+  return (
+    hasOnlyFields(value, USER_MESSAGE_FIELDS) &&
+    value.role === "user" &&
+    Array.isArray(value.content) &&
+    value.content.length > 0 &&
+    value.content.every(isInputTextPart)
+  );
+}
+
+function isOutputTextPart(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, OUTPUT_TEXT_FIELDS) &&
+    value.type === "output_text" &&
+    typeof value.text === "string" &&
+    Array.isArray(value.annotations) &&
+    value.annotations.length === 0
+  );
+}
+
+function isAssistantMessageItem(value: Record<string, unknown>): boolean {
+  return (
+    hasOnlyFields(value, ASSISTANT_MESSAGE_FIELDS) &&
+    value.type === "message" &&
+    value.role === "assistant" &&
+    Array.isArray(value.content) &&
+    value.content.length > 0 &&
+    value.content.every(isOutputTextPart) &&
+    value.status === "completed" &&
+    typeof value.id === "string" &&
+    value.id.length > 0
+  );
+}
+
+function isFunctionCallItem(value: Record<string, unknown>): boolean {
+  return (
+    hasOnlyFields(value, FUNCTION_CALL_FIELDS) &&
+    value.type === "function_call" &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.call_id === "string" &&
+    value.call_id.length > 0 &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    typeof value.arguments === "string"
+  );
+}
+
+function isFunctionCallOutputItem(value: Record<string, unknown>): boolean {
+  return (
+    hasOnlyFields(value, FUNCTION_CALL_OUTPUT_FIELDS) &&
+    value.type === "function_call_output" &&
+    typeof value.call_id === "string" &&
+    value.call_id.length > 0 &&
+    typeof value.output === "string"
+  );
+}
+
+function isAllowedResponseInputItem(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.type === undefined) return isUserMessageItem(value);
+  if (value.type === "message") return isAssistantMessageItem(value);
+  if (value.type === "function_call") return isFunctionCallItem(value);
+  if (value.type === "function_call_output") return isFunctionCallOutputItem(value);
+  return false;
+}
+
+function isFunctionTool(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, FUNCTION_TOOL_FIELDS) &&
+    value.type === "function" &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    typeof value.description === "string" &&
+    isRecord(value.parameters) &&
+    value.strict === false
+  );
+}
+
+function isAllowedToolChoice(value: unknown): boolean {
+  if (typeof value === "string") return SIMPLE_TOOL_CHOICES.has(value);
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, FUNCTION_TOOL_CHOICE_FIELDS) &&
+    value.type === "function" &&
+    typeof value.name === "string" &&
+    value.name.length > 0
+  );
 }
 
 function validateEmbeddingPayload(
@@ -304,8 +411,8 @@ function validateResponsePayload(
       message: `Responses input is limited to ${HONCHO_MAX_RESPONSE_INPUT_ITEMS} items`,
     };
   }
-  if (Array.isArray(payload.input) && !isTextOnlyResponseInput(payload.input)) {
-    return { ok: false, message: "Responses input only supports text content" };
+  if (Array.isArray(payload.input) && !payload.input.every(isAllowedResponseInputItem)) {
+    return { ok: false, message: "Responses input contains an unsupported item" };
   }
   const inputChars =
     typeof payload.input === "string" ? payload.input.length : JSON.stringify(payload.input).length;
@@ -352,8 +459,9 @@ function validateResponsePayload(
   if (
     payload.tools !== undefined &&
     (!Array.isArray(payload.tools) ||
+      payload.tools.length === 0 ||
       payload.tools.length > 64 ||
-      payload.tools.some((tool) => !isRecord(tool) || tool.type !== "function"))
+      !payload.tools.every(isFunctionTool))
   ) {
     return { ok: false, message: "Responses tools must contain only caller-defined functions" };
   }
@@ -378,12 +486,8 @@ function validateResponsePayload(
   ) {
     return { ok: false, message: "Responses parallel_tool_calls must be a boolean" };
   }
-  if (
-    payload.tool_choice !== undefined &&
-    typeof payload.tool_choice !== "string" &&
-    !isRecord(payload.tool_choice)
-  ) {
-    return { ok: false, message: "Responses tool_choice must be a string or object" };
+  if (payload.tool_choice !== undefined && !isAllowedToolChoice(payload.tool_choice)) {
+    return { ok: false, message: "Responses tool_choice must select caller-defined functions" };
   }
   return { ok: true, value: { ...payload, input: normalizedInput, store: false } };
 }
