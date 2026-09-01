@@ -176,6 +176,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isTextOnlyResponseInput(input: unknown[]): boolean {
+  return input.every(
+    (item) =>
+      isRecord(item) &&
+      (typeof item.content === "string" ||
+        (Array.isArray(item.content) &&
+          item.content.every(
+            (content) =>
+              isRecord(content) && content.type === "input_text" && typeof content.text === "string",
+          ))),
+  );
+}
+
 type PayloadValidation<T> = { ok: true; value: T } | { ok: false; message: string };
 
 const EMBEDDING_REQUEST_FIELDS = new Set(["model", "input", "encoding_format", "dimensions"]);
@@ -291,6 +304,9 @@ function validateResponsePayload(
       message: `Responses input is limited to ${HONCHO_MAX_RESPONSE_INPUT_ITEMS} items`,
     };
   }
+  if (Array.isArray(payload.input) && !isTextOnlyResponseInput(payload.input)) {
+    return { ok: false, message: "Responses input only supports text content" };
+  }
   const inputChars =
     typeof payload.input === "string" ? payload.input.length : JSON.stringify(payload.input).length;
   if (inputChars === 0 || inputChars > HONCHO_MAX_RESPONSE_INPUT_CHARS) {
@@ -333,8 +349,13 @@ function validateResponsePayload(
   ) {
     return { ok: false, message: "Responses max_output_tokens must be between 1 and 65536" };
   }
-  if (payload.tools !== undefined && (!Array.isArray(payload.tools) || payload.tools.length > 64)) {
-    return { ok: false, message: "Responses tools must be an array with at most 64 entries" };
+  if (
+    payload.tools !== undefined &&
+    (!Array.isArray(payload.tools) ||
+      payload.tools.length > 64 ||
+      payload.tools.some((tool) => !isRecord(tool) || tool.type !== "function"))
+  ) {
+    return { ok: false, message: "Responses tools must contain only caller-defined functions" };
   }
   if (
     payload.include !== undefined &&
@@ -409,6 +430,12 @@ async function discardResponseBody(response: Response): Promise<void> {
   try {
     await response.body?.cancel();
   } catch {}
+}
+
+function safeRetryAfter(upstream: Response): string | undefined {
+  const value = upstream.headers.get("retry-after");
+  if (!value || !/^(?:0|[1-9]\d{0,4})$/.test(value) || Number(value) > 86_400) return undefined;
+  return value;
 }
 
 async function streamUpstreamResponse(upstream: Response, res: ServerResponse): Promise<void> {
@@ -722,6 +749,23 @@ export function createHonchoAuthBrokerHandler(
             "oauth_rejected",
             "OpenAI rejected the current OAuth credential; renew the OpenClaw login and retry",
           );
+          return true;
+        }
+        if (upstream.status === 429) {
+          const retryAfter = safeRetryAfter(upstream);
+          await discardResponseBody(upstream);
+          if (retryAfter) res.setHeader("retry-after", retryAfter);
+          respondJson(
+            res,
+            429,
+            "upstream_rate_limited",
+            "OpenAI upstream rate limit exceeded; retry later",
+          );
+          return true;
+        }
+        if (!upstream.ok) {
+          await discardResponseBody(upstream);
+          respondJson(res, 502, "upstream_error", "OpenAI upstream request failed");
           return true;
         }
         await streamUpstreamResponse(upstream, res);

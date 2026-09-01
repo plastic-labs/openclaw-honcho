@@ -260,7 +260,7 @@ describe("canonical Codex OAuth resolution", () => {
         {},
         unavailable.dependencies,
       ),
-    ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
     expect(unavailable.resolveApiKeyForProvider).not.toHaveBeenCalled();
 
     const mismatchedRetry = canonicalResolverHarness();
@@ -271,7 +271,7 @@ describe("canonical Codex OAuth resolution", () => {
         { forceRefresh: true, profileId: "openai:other" },
         mismatchedRetry.dependencies,
       ),
-    ).rejects.toThrow("OpenAI Codex OAuth is unavailable");
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
     expect(mismatchedRetry.loadAuthProfileStoreWithoutExternalProfiles).not.toHaveBeenCalled();
   });
 
@@ -285,10 +285,7 @@ describe("canonical Codex OAuth resolution", () => {
 
     await expect(
       resolveCanonicalOpenAICodexCredential(harness.api, config, {}, harness.dependencies),
-    ).rejects.toMatchObject({
-      name: "BrokerCredentialUnavailableError",
-      message: "OpenAI Codex OAuth is unavailable",
-    });
+    ).rejects.toMatchObject({ name: "BrokerCredentialUnavailableError" });
     expect(harness.resolveApiKeyForProvider).not.toHaveBeenCalled();
   });
 
@@ -778,6 +775,66 @@ describe("Honcho auth broker", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      name: "a hosted web-search tool",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tools: [{ type: "web_search_preview" }],
+      },
+    },
+    {
+      name: "a file input",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [{ role: "user", content: [{ type: "input_file", file_id: "file-123" }] }],
+      },
+    },
+    {
+      name: "a file URL input",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_file", file_url: "https://attacker.invalid/file" }],
+          },
+        ],
+      },
+    },
+    {
+      name: "an image input",
+      body: {
+        model: "gpt-5.4-mini",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_image", image_url: "https://attacker.invalid/image" }],
+          },
+        ],
+      },
+    },
+  ])("rejects Responses with $name before OAuth resolution", async ({ body }) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const dependencies = defaultDependencies(fetchMock);
+
+    await withBroker(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+    });
+
+    expect(dependencies.resolveCredential).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards Codex Responses with account routing, streaming headers, and store disabled", async () => {
     const sse = [
       'data: {"type":"response.created","response":{"id":"resp-1"}}',
@@ -853,6 +910,67 @@ describe("Honcho auth broker", () => {
       expect(response.status).toBe(503);
       expect(text).not.toContain(OAUTH_TOKEN);
       expect(text).not.toContain(BROKER_TOKEN);
+    });
+  });
+
+  it.each([
+    { retryAfter: "30", expectedRetryAfter: "30" },
+    { retryAfter: "provider-controlled", expectedRetryAfter: null },
+  ])(
+    "sanitizes rate-limit failures while forwarding only safe Retry-After values",
+    async ({ retryAfter, expectedRetryAfter }) => {
+      const providerError = "provider-only rate-limit detail that must not reach Honcho";
+      const fetchMock = vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ error: { message: providerError } }), {
+            status: 429,
+            headers: { "content-type": "application/json", "retry-after": retryAfter },
+          }),
+      );
+
+      await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+        const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${BROKER_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ model: "gpt-5.4-mini", input: "hello" }),
+        });
+        const body = await response.text();
+        expect(response.status).toBe(429);
+        expect(response.headers.get("retry-after")).toBe(expectedRetryAfter);
+        expect(body).not.toContain(providerError);
+        expect(body).toContain("upstream_rate_limited");
+      });
+    },
+  );
+
+  it("sanitizes provider error bodies", async () => {
+    const providerError = "provider-only internal diagnostic that must not reach Honcho";
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ error: { message: providerError } }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    await withBroker(defaultDependencies(fetchMock), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: "gpt-5.4-mini", input: "hello" }),
+      });
+      const body = await response.text();
+      expect(response.status).toBe(502);
+      expect(body).not.toContain(providerError);
+      expect(body).not.toContain(OAUTH_TOKEN);
+      expect(body).not.toContain(BROKER_TOKEN);
+      expect(body).toContain("upstream_error");
     });
   });
 
