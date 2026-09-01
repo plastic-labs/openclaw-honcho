@@ -882,6 +882,52 @@ describe("Honcho auth broker", () => {
 
   it.each([
     {
+      name: 'tool_choice "required" without declared tools',
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tool_choice: "required",
+      },
+    },
+    {
+      name: "a named function tool_choice absent from declared tools",
+      body: {
+        model: "gpt-5.4-mini",
+        input: "hello",
+        tools: [
+          {
+            type: "function",
+            name: "lookup_memory",
+            description: "Look up memory",
+            parameters: { type: "object", properties: {} },
+            strict: false,
+          },
+        ],
+        tool_choice: { type: "function", name: "missing" },
+      },
+    },
+  ])("rejects Responses with $name before OAuth resolution", async ({ body }) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const dependencies = defaultDependencies(fetchMock);
+
+    await withBroker(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}${HONCHO_AUTH_BROKER_BASE_PATH}/responses`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${BROKER_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+    });
+
+    expect(dependencies.resolveCredential).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
       name: "a non-function tool definition",
       body: {
         model: "gpt-5.4-mini",
@@ -1159,6 +1205,7 @@ describe("Honcho auth broker", () => {
 
   it.each([
     { retryAfter: "30", expectedRetryAfter: "30" },
+    { retryAfter: "86401", expectedRetryAfter: null },
     { retryAfter: "provider-controlled", expectedRetryAfter: null },
   ])(
     "sanitizes rate-limit failures while forwarding only safe Retry-After values",

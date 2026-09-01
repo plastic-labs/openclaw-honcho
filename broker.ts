@@ -489,6 +489,19 @@ function validateResponsePayload(
   if (payload.tool_choice !== undefined && !isAllowedToolChoice(payload.tool_choice)) {
     return { ok: false, message: "Responses tool_choice must select caller-defined functions" };
   }
+  const declaredFunctionTools = Array.isArray(payload.tools) ? payload.tools : [];
+  if (payload.tool_choice === "required" && declaredFunctionTools.length === 0) {
+    return { ok: false, message: "Responses tool_choice required needs declared functions" };
+  }
+  if (isRecord(payload.tool_choice)) {
+    const selectedToolName = payload.tool_choice.name;
+    if (
+      typeof selectedToolName === "string" &&
+      !declaredFunctionTools.some((tool) => isRecord(tool) && tool.name === selectedToolName)
+    ) {
+      return { ok: false, message: "Responses tool_choice function must be declared" };
+    }
+  }
   return { ok: true, value: { ...payload, input: normalizedInput, store: false } };
 }
 
