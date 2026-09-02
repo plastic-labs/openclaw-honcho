@@ -89,6 +89,8 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
+  // Dual-kind on purpose: OpenClaw >= 2026.8 hard-disables pure memory-kind plugins that don't own slots.memory.
+  // No context engine is registered; the second kind only keeps the plugin loaded as a companion. Do not select this plugin for slots.contextEngine.
   kind: ["memory", "context-engine"],
   configSchema: honchoConfigSchema,
 
