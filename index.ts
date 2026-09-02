@@ -89,7 +89,7 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
-  kind: "memory",
+  kind: ["memory", "context-engine"],
   configSchema: honchoConfigSchema,
 
   register(api) {
