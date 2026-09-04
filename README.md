@@ -10,10 +10,13 @@ This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-
 
 ```bash
 openclaw plugins install @honcho-ai/openclaw-honcho
+openclaw plugins enable openclaw-honcho
 openclaw config set plugins.entries.openclaw-honcho.hooks.allowConversationAccess true
 openclaw honcho setup
 openclaw gateway restart
 ```
+
+> **Important:** `openclaw plugins enable openclaw-honcho` sets `plugins.slots.memory` to `openclaw-honcho`, which OpenClaw requires in order to load this plugin. On OpenClaw 2026.8.x and earlier, `plugins install` alone does not set the slot and the plugin is silently disabled at startup: no tools, no capture, and a single loader line, `plugin disabled (memory slot set to "memory-core")`. OpenClaw 2026.9.1 sets the slot during install, so the step is redundant there but harmless. See [Running alongside memory-core](#running-alongside-memory-core).
 
 > **Important:** The `allowConversationAccess` is required to save new messages to Honcho. The plugin will log a warning at startup if this flag is missing.
 
@@ -36,6 +39,14 @@ openclaw gateway restart
 #    The skill will prompt for your Honcho API key and run setup interactively
 ```
 </details>
+
+## Running alongside memory-core
+
+OpenClaw allows one active memory plugin, selected by `plugins.slots.memory`. This plugin replaces `memory-core` when it owns that slot. Running Honcho **alongside** `memory-core` is not currently supported: if `plugins.slots.memory` is unset or set to `memory-core`, OpenClaw disables this plugin at load. This is the loader's behaviour on every OpenClaw release from at least 2026.6.34 through 2026.9.1, so pinning an OpenClaw version does not avoid it.
+
+A companion mode, where Honcho stays loaded with its hooks and `honcho_*` tools while `memory-core` keeps the slot, is tracked in [#132](https://github.com/plastic-labs/openclaw-honcho/pull/132) and planned for the next release.
+
+Do not set `plugins.slots.contextEngine` to `openclaw-honcho`. The plugin provides no context engine, and OpenClaw logs a "degraded to legacy" warning on every turn.
 
 ## Migrating Legacy Memory
 
@@ -286,6 +297,10 @@ qmd query "test"
 ```
 
 ## Known Issues
+
+### Plugin loads but `honcho_*` tools are missing, or nothing lands in Honcho
+
+Run `openclaw plugins inspect openclaw-honcho --runtime` and check `activationReason`. If it reads `memory slot set to "memory-core"`, the plugin does not own the memory slot. Fix with `openclaw plugins enable openclaw-honcho`, then `openclaw gateway restart`.
 
 ### OpenClaw 2026.4.5: Hooks silently stop firing
 
