@@ -2,6 +2,13 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Plugin disabled when `memory-core` owns the memory slot (#132)**: OpenClaw hard-disables plain `kind: "memory"` plugins that are not the selected slot, and the slot's implicit default is `memory-core` (verified on 2026.6.34 through 2026.9.1). The plugin declares `kind: ["memory", "context-engine"]` so it stays loaded as a companion (hooks, capture, `honcho_*` tools) while `memory-core` keeps the slot. Slot-owner behaviour is unchanged. Thanks @prbdias.
+- **Config path honours `OPENCLAW_CONFIG_PATH` and `OPENCLAW_STATE_DIR`**: the gateway hook appended `openclaw.json` to `OPENCLAW_CONFIG_PATH`, which OpenClaw treats as the file itself, so the startup config repairs silently did nothing under that variable; `openclaw honcho setup` always wrote to `~/.openclaw`. Both now resolve the path the way OpenClaw does.
+- **`plugins.slots.contextEngine` pin removed automatically**: OpenClaw's `plugins install` / `plugins enable` pin the context-engine slot to any dual-kind plugin, and this plugin registers no context engine, which made the gateway log a "degraded to legacy" warning on every turn. The plugin now drops that pin at gateway start and in `openclaw honcho setup`.
+
 ## [1.5.5] - 2026-08-24
 
 ### Fixed

@@ -1,9 +1,10 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
+import { repairContextEngineSlotFile } from "../slot-repair.js";
+import { resolveOpenClawConfigPath } from "../openclaw-config-path.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -31,10 +32,7 @@ function readPluginVersion(): string | null {
 const PLUGIN_VERSION = readPluginVersion();
 
 function getConfigPath(): string {
-  return join(
-    process.env.OPENCLAW_CONFIG_PATH ?? join(homedir(), ".openclaw"),
-    "openclaw.json",
-  );
+  return resolveOpenClawConfigPath();
 }
 
 function ensureConversationAccess(logger: OpenClawPluginApi["logger"]): void {
@@ -104,6 +102,7 @@ async function checkForUpdate(logger: OpenClawPluginApi["logger"]): Promise<void
 
 export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("gateway_start", async (_event, _ctx) => {
+    repairContextEngineSlotFile(getConfigPath(), api.logger);
     ensureConversationAccess(api.logger);
     void checkForUpdate(api.logger);
 

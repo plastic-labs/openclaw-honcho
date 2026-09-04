@@ -8,6 +8,8 @@ import { Honcho } from "@honcho-ai/sdk";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
 import { OWNER_ID } from "../state.js";
+import { repairContextEngineSlotFile } from "../slot-repair.js";
+import { resolveOpenClawConfigPath } from "../openclaw-config-path.js";
 
 /* ── Upload manifest ─────────────────────────────────────────────────── */
 
@@ -44,8 +46,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
         .description("Configure Honcho API key and upload memory files to Honcho")
         .option("--reconfigure", "Force re-entry of all configuration values")
         .action(async (options: { reconfigure?: boolean }) => {
-          const configDir = path.join(os.homedir(), ".openclaw");
-          const configPath = path.join(configDir, "openclaw.json");
+          const configPath = resolveOpenClawConfigPath();
+          const configDir = path.dirname(configPath);
 
           // Load existing config to use as defaults
           let config: Record<string, unknown> = {};
@@ -117,7 +119,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
               if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
               fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-              console.log("\n✓ Configuration saved to ~/.openclaw/openclaw.json");
+              console.log(`\n✓ Configuration saved to ${configPath}`);
             }
 
             // Ensure allowConversationAccess is set
@@ -141,6 +143,12 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 fs.writeFileSync(configPath, JSON.stringify(currentConfig, null, 2));
                 console.log("✓ Enabled conversation access for message capture (hooks.allowConversationAccess)");
               }
+            }
+
+            // Drop a context-engine slot pin that OpenClaw's install/enable writes for
+            // dual-kind plugins; this plugin registers no context engine.
+            if (repairContextEngineSlotFile(configPath)) {
+              console.log("✓ Removed plugins.slots.contextEngine pin (the plugin provides no context engine)");
             }
 
             // Resolve configured agents and their workspaces from config

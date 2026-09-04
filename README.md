@@ -4,7 +4,7 @@
 
 AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
 
-This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
+This plugin uses OpenClaw's slot system to replace the built-in memory plugins (`memory-core`, `memory-lancedb`) when it owns `plugins.slots.memory`, and to run alongside `memory-core` as a companion when it does not (see [Running alongside memory-core](#running-alongside-memory-core)). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
 
 ## Install
 
@@ -36,6 +36,20 @@ openclaw gateway restart
 #    The skill will prompt for your Honcho API key and run setup interactively
 ```
 </details>
+
+## Running alongside memory-core
+
+OpenClaw disables any plain `kind: "memory"` plugin that does not own `plugins.slots.memory`, and the slot's implicit default is `memory-core` (verified on every release from 2026.6.34 through 2026.9.1). To stay loaded in that setup the plugin declares `kind: ["memory", "context-engine"]`:
+
+- **Slot owner** (`plugins.slots.memory: "openclaw-honcho"`): unchanged behaviour. Honcho provides the memory runtime, `memory-core` is disabled.
+- **Companion** (`plugins.slots.memory` unset or `"memory-core"`): the plugin stays loaded with its hooks, capture, and `honcho_*` tools. OpenClaw logs `dual-kind plugin not selected for memory slot; skipping memory capability registration` once at startup, which is expected.
+
+The plugin registers **no context engine**. OpenClaw's `plugins install` / `plugins enable` pin every slot a plugin's kind implies, so they also write `plugins.slots.contextEngine: "openclaw-honcho"`. The plugin removes that pin at gateway start and during `openclaw honcho setup`, logging once; do not set it by hand.
+
+Version notes:
+
+- On OpenClaw 2026.8.x and earlier, `openclaw plugins install` does not pin the memory slot (2026.9.1 does). Run `openclaw plugins enable openclaw-honcho` (or set the slot) if you want Honcho to own memory; otherwise it runs as a companion.
+- Installing from a local tarball or an unreviewed source needs `--force --accept-capabilities`.
 
 ## Migrating Legacy Memory
 
