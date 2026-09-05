@@ -1,6 +1,6 @@
 {
   "id": "openclaw-honcho",
-  "kind": "memory",
+  "kind": ["memory", "context-engine"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
