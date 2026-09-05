@@ -81,6 +81,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
+| `ignoreSessionPatterns` | `string[]` | `[]`                      | Glob-style OpenClaw session-key patterns to exclude from Honcho context injection and persistence. `*` stays within one colon-delimited segment; `**` may span segments. |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
@@ -117,6 +118,29 @@ Add custom patterns via `noisePatterns` in your config:
 ```
 
 Custom patterns are merged with the built-in defaults. Each pattern matches if the message **equals** it or **starts with** it. Patterns starting with `/` are treated as anchored regex (e.g., `/^HEARTBEAT/i`).
+
+### Session Filtering
+
+Use `ignoreSessionPatterns` when an entire internal session lane should neither
+receive Honcho context nor be persisted:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "config": {
+          "ignoreSessionPatterns": ["agent:*:explicit:model-run-*"]
+        }
+      }
+    }
+  }
+}
+```
+
+Patterns are matched case-sensitively against the normalized OpenClaw session
+key. `*` matches within one colon-delimited segment, `**` may span multiple
+segments, and every other character is literal.
 
 ### Owner Peer Observation
 

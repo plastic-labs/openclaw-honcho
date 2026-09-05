@@ -1,13 +1,22 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
+import {
+  buildSessionKey,
+  extractSenderId,
+  isSubagentSession,
+  normalizeSessionKey,
+  shouldSkipSession,
+} from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
 
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
+    const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
+    if (shouldSkipSession(openclawSessionKey, state.cfg.ignoreSessionPatterns)) return;
+
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
     const isSubagent = isSubagentSession(ctx);
 

@@ -125,6 +125,7 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
       workspaceId: "openclaw",
       baseUrl,
       noisePatterns: [],
+      ignoreSessionPatterns: [],
       disableDefaultNoisePatterns: false,
       ownerObserveOthers: false,
       crossSessionSearch,

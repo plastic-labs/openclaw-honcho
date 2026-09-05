@@ -7,6 +7,7 @@ import {
   classifySession,
   isSubagentSession,
   normalizeSessionKey,
+  shouldSkipSession,
   extractMessages,
   extractSenderId,
   getRawContent,
@@ -27,10 +28,12 @@ export async function flushMessages(
   if (!messages?.length) return 0;
 
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
+  const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
+  if (shouldSkipSession(openclawSessionKey, state.cfg.ignoreSessionPatterns)) return 0;
+
   const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
-  const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
   const sessionClass = classifySession(openclawSessionKey);
 
   await state.ensureInitialized();
