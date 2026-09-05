@@ -26,6 +26,7 @@ import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
 import { registerCli } from "./commands/cli.js";
 import { createHonchoMemoryRuntime } from "./runtime.js";
+import { registerHonchoAuthBroker } from "./broker.js";
 
 /**
  * Memory prompt section builder for Honcho tools.
@@ -113,6 +114,11 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
     registerAskTool(api, state);
     registerMessageSearchTool(api, state);
     registerMemoryPassthrough(api, state);
+
+    // Optional OpenClaw-owned auth broker for self-hosted Honcho. The broker
+    // exposes only embeddings and Codex Responses and never shares a credential
+    // store with the Honcho containers.
+    registerHonchoAuthBroker(api, state.cfg.authBroker);
 
     // CLI
     registerCli(api, state);

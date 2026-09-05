@@ -10,6 +10,17 @@
       }
     ]
   },
+  "configContracts": {
+    "secretInputs": {
+      "paths": [
+        {
+          "path": "authBroker.bearerToken",
+          "expected": "string",
+          "ownerKind": "route"
+        }
+      ]
+    }
+  },
   "contracts": {
     "tools": [
       "honcho_session",
@@ -24,6 +35,21 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
+    "$defs": {
+      "secretRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["env", "file", "exec"]
+          },
+          "provider": { "type": "string", "minLength": 1 },
+          "id": { "type": "string", "minLength": 1 }
+        },
+        "required": ["source", "provider", "id"]
+      }
+    },
     "properties": {
       "apiKey": {
         "type": "string",
@@ -61,6 +87,79 @@
         "type": "boolean",
         "default": true,
         "description": "Default scope for memory_search. When true (default), results span every session the participant peer has written to. When false, results are scoped to the active session. Per-call override available via the memory_search `crossSession` parameter."
+      },
+      "authBroker": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Optional OpenClaw-owned auth broker for self-hosted Honcho.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "bearerToken": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 32
+              },
+              {
+                "$ref": "#/$defs/secretRef"
+              }
+            ],
+            "description": "SecretRef resolving the strong bearer token Honcho presents to the broker. The string form exists only for OpenClaw's host-resolved runtime config; the route rejects raw literal configuration and ambient fallback."
+          },
+          "authAgentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "description": "Required agent whose stored OpenAI auth scope the broker uses."
+          },
+          "authProfileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@+-]*$",
+            "description": "Required stored OpenAI OAuth profile ID. The broker fails closed rather than trying another profile or external CLI auth."
+          },
+          "responseModels": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "default": ["gpt-5.4-mini", "gpt-5.4"]
+          },
+          "maxRequestBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 16777216,
+            "default": 2097152
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 900000,
+            "default": 600000
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "enabled": { "const": true } },
+              "required": ["enabled"]
+            },
+            "then": {
+              "required": ["bearerToken", "authAgentId", "authProfileId"]
+            }
+          }
+        ]
       }
     }
   },
@@ -106,6 +205,40 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When enabled (default), memory tools can return results from any session in the workspace. Disable to scope results to the active session only."
+    },
+    "authBroker.enabled": {
+      "label": "Enable OpenClaw Auth Broker",
+      "advanced": true,
+      "help": "Expose narrowly scoped embeddings and Codex Responses routes for self-hosted Honcho."
+    },
+    "authBroker.bearerToken": {
+      "label": "Auth Broker Bearer Token",
+      "sensitive": true,
+      "advanced": true,
+      "help": "Required SecretRef for a random bearer of at least 32 characters. Literal and ambient environment fallbacks are rejected."
+    },
+    "authBroker.authAgentId": {
+      "label": "Auth Agent ID",
+      "advanced": true,
+      "help": "Required agent whose stored Codex OAuth profile is used. No ambient-agent fallback."
+    },
+    "authBroker.authProfileId": {
+      "label": "Auth Profile ID",
+      "advanced": true,
+      "help": "Required stored OpenAI OAuth profile ID. External CLI auth and alternate-profile fallback are disabled."
+    },
+    "authBroker.responseModels": {
+      "label": "Allowed Responses Models",
+      "advanced": true,
+      "help": "Exact Codex Responses model IDs accepted by the broker."
+    },
+    "authBroker.maxRequestBytes": {
+      "label": "Auth Broker Request Limit",
+      "advanced": true
+    },
+    "authBroker.timeoutMs": {
+      "label": "Auth Broker Timeout (ms)",
+      "advanced": true
     }
   }
 }
