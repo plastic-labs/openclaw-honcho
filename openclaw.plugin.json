@@ -42,6 +42,12 @@
         "minimum": 1,
         "description": "HTTP timeout in milliseconds for Honcho SDK requests. Useful for slower self-hosted local models."
       },
+      "contextMaxChars": {
+        "type": "integer",
+        "minimum": 512,
+        "maximum": 100000,
+        "description": "Optional hard character limit for the complete automatically injected Honcho system-context block. Full memory remains available through Honcho tools."
+      },
       "noisePatterns": {
         "type": "array",
         "items": { "type": "string" },
@@ -86,6 +92,12 @@
       "advanced": true,
       "placeholder": "60000",
       "help": "Increase this for self-hosted Honcho deployments backed by slower local models."
+    },
+    "contextMaxChars": {
+      "label": "Context Character Limit",
+      "advanced": true,
+      "placeholder": "6000",
+      "help": "Hard limit for the complete automatic Honcho context block. Does not delete or limit memory available through Honcho tools."
     },
     "noisePatterns": {
       "label": "Noise Patterns",

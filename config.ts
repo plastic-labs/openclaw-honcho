@@ -14,6 +14,7 @@ export type HonchoConfig = {
   workspaceId: string;
   baseUrl: string;
   timeoutMs?: number;
+  contextMaxChars?: number;
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
   ownerObserveOthers: boolean;
@@ -74,6 +75,17 @@ export const honchoConfigSchema = {
         if (process.env.HONCHO_TIMEOUT_MS !== undefined) {
           const parsed = Number(process.env.HONCHO_TIMEOUT_MS);
           if (Number.isFinite(parsed) && parsed > 0) return parsed;
+        }
+        return undefined;
+      })(),
+      contextMaxChars: (() => {
+        if (
+          typeof cfg.contextMaxChars === "number" &&
+          Number.isInteger(cfg.contextMaxChars) &&
+          cfg.contextMaxChars >= 512 &&
+          cfg.contextMaxChars <= 100_000
+        ) {
+          return cfg.contextMaxChars;
         }
         return undefined;
       })(),

@@ -80,10 +80,38 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
+| `contextMaxChars`      | `number`   | —                          | Optional hard limit (512–100000 characters) for the complete automatically injected Honcho context block. |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+
+### Automatic Context Size
+
+For workspaces with large Honcho representations or summaries, set a hard
+limit on the complete block injected into each prompt:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openclaw-honcho": {
+        "config": {
+          "contextMaxChars": 6000
+        }
+      }
+    }
+  }
+}
+```
+
+The limit includes headings, peer-card facts, the representation, the session
+summary, the truncation notice, and the final safety instruction. When content
+must be reduced, Honcho preserves the peer card and current-session summary
+before the broader representation. This affects only automatic prompt
+injection: full memory remains stored and available through Honcho tools. Use
+`honcho_context` for user facts and representations, or `honcho_session` for
+session history.
 
 ### Self-Hosted / Local Honcho
 
