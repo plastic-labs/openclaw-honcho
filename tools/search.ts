@@ -36,15 +36,22 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
                 "Sender ID of the user to query about. Defaults to the last active sender. Pass a specific sender_id to search conclusions about a different participant.",
             })
           ),
+          session_id: Type.Optional(
+            Type.String({
+              description:
+                "Session ID to scope the search to. Only searches conclusions from this specific session.",
+            })
+          ),
         },
         { additionalProperties: false }
       ),
       async execute(_toolCallId, params) {
-        const { query, topK, maxDistance, about } = params as {
+        const { query, topK, maxDistance, about, session_id } = params as {
           query: string;
           topK?: number;
           maxDistance?: number;
           about?: string;
+          session_id?: string;
         };
 
         await state.ensureInitialized();
@@ -58,6 +65,7 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
           searchQuery: query,
           searchTopK: topK ?? 10,
           searchMaxDistance: maxDistance ?? 0.5,
+          session: session_id,
         });
 
         if (!representation) {
