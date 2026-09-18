@@ -94,3 +94,16 @@ describe("recall option builders", () => {
     expect(peerRecallOptions("workspace", undefined, "sid")).toEqual({});
   });
 });
+
+describe("no configured path is left unwired", () => {
+  it("every key the config exposes is read by a call site", () => {
+    // A setting that parses but is never applied is worse than no setting: it
+    // reads as a guarantee and silently does nothing. `tools` was removed for
+    // exactly that reason — peer.card() takes no scoping and peer.search()
+    // takes only filters, so it could not cover honcho_context or
+    // honcho_search_messages.
+    const cfg = honchoConfigSchema.parse({ baseUrl: "http://x" });
+    const paths = Object.keys(cfg.recall).filter((k) => k !== "scopeName");
+    expect(paths.sort()).toEqual(["ask", "automatic"]);
+  });
+});

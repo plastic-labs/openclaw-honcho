@@ -227,8 +227,7 @@ hand rather than everything the peer has ever said:
   "recall": {
     "automatic": "workspace",  // context injected before every prompt
     "ask": "workspace",        // honcho_ask
-    "tools": "workspace",      // honcho_context, honcho_search_conclusions, honcho_search_messages
-    "scopeName": null          // Honcho scope used by any path set to "scope"
+    "scopeName": "client-a"    // Honcho scope used by either path set to "scope"
   }
 }
 ```
@@ -241,6 +240,12 @@ hand rather than everything the peer has ever said:
 
 A path set to `scope` without a `scopeName` falls back to `session` rather than
 silently widening.
+
+The explicitly invoked tools (`honcho_context`, `honcho_search_conclusions`,
+`honcho_search_messages`) are always workspace-wide. They cannot be bounded
+uniformly on the current SDK surface — `peer.card()` takes no scoping and
+`peer.search()` takes only filters — so rather than ship a setting that applies to
+some of their calls and quietly skips others, they are left alone.
 
 ### Keeping tenants apart
 

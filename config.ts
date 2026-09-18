@@ -32,11 +32,15 @@ export type RecallScope = (typeof RECALL_SCOPES)[number];
  * Narrowing is not a tenancy boundary. Keeping separate tenants apart belongs
  * at the workspace level, or in a scope — not in how far a single recall call
  * reaches inside a shared workspace.
+ *
+ * Only the automatic and ask paths are covered. The explicitly invoked tools
+ * cannot be bounded uniformly on the current SDK surface: `peer.card()` takes
+ * no scoping at all and `peer.search()` takes only `filters`, so a setting for
+ * them would apply to some of their calls and silently skip others.
  */
 export type RecallConfig = {
   automatic: RecallScope;
   ask: RecallScope;
-  tools: RecallScope;
   scopeName?: string;
 };
 
@@ -136,7 +140,6 @@ export const honchoConfigSchema = {
         return {
           automatic: resolve(raw.automatic, "workspace"),
           ask: resolve(raw.ask, "workspace"),
-          tools: resolve(raw.tools, "workspace"),
           scopeName,
         };
       })(),
