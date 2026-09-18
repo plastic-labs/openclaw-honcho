@@ -41,7 +41,8 @@ async function buildSessionTranscript(
 
   const participantPeer = await state.resolveSessionParticipantPeer(sessionId);
   const agentPeer = await state.getAgentPeer(agentId);
-  const session = await state.honcho.session(sessionId, { metadata: { agentId } });
+  // No metadata: it replaces persisted metadata, wiping the capture watermark.
+  const session = await state.honcho.session(sessionId);
   const context = await session.context({
     summary: true,
     tokens: 20000,
@@ -144,7 +145,7 @@ export async function getHonchoMemorySearchManager(
         const rawResults: Array<any> = crossSession || !sessionKey
           ? await participantPeer.search(query, { limit })
           : await (
-              await state.honcho.session(sessionKey, { metadata: { agentId } })
+              await state.honcho.session(sessionKey)
             ).search(query, { limit });
 
         const seen = new Set<string>();
