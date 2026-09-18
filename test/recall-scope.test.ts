@@ -51,22 +51,17 @@ async function askArgs(recall: Record<string, unknown>) {
 }
 
 describe("recall boundaries are applied per path", () => {
-  it("scopes automatic injection to the session by default", async () => {
+  it("reaches across the workspace by default, which is what a workspace is for", async () => {
     const args = await contextArgs({});
-    expect(args.limitToSession).toBe(true);
-    expect(args.scope).toBeUndefined();
-    expect(args.peerPerspective).toBeDefined();
-  });
-
-  it("scopes honcho_ask to the session by default", async () => {
-    expect((await askArgs({})).session).toBe(buildSessionKey(ctx));
-  });
-
-  it("sends no boundary when a path is set to workspace", async () => {
-    const args = await contextArgs({ automatic: "workspace" });
     expect(args.limitToSession).toBeUndefined();
     expect(args.scope).toBeUndefined();
-    expect((await askArgs({ ask: "workspace" })).session).toBeUndefined();
+    expect(args.peerPerspective).toBeDefined();
+    expect((await askArgs({})).session).toBeUndefined();
+  });
+
+  it("narrows to the session when asked", async () => {
+    expect((await contextArgs({ automatic: "session" })).limitToSession).toBe(true);
+    expect((await askArgs({ ask: "session" })).session).toBe(buildSessionKey(ctx));
   });
 
   it("uses the scope and drops peerPerspective, which the SDK rejects alongside scope", async () => {
@@ -77,14 +72,15 @@ describe("recall boundaries are applied per path", () => {
     expect((await askArgs({ ask: "scope", scopeName: "client-a" })).scope).toBe("client-a");
   });
 
-  it("falls back to session when scope is selected without a name", () => {
+  it("falls back to the session when scope is selected without a name", () => {
+    // Narrower than intended beats wider than intended.
     const cfg = honchoConfigSchema.parse({ baseUrl: "http://x", recall: { automatic: "scope" } });
     expect(cfg.recall.automatic).toBe("session");
   });
 
-  it("rejects unknown values rather than passing them through", () => {
+  it("ignores unknown values rather than passing them through", () => {
     const cfg = honchoConfigSchema.parse({ baseUrl: "http://x", recall: { automatic: "everything" } });
-    expect(cfg.recall.automatic).toBe("session");
+    expect(cfg.recall.automatic).toBe("workspace");
   });
 });
 

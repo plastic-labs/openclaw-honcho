@@ -74,7 +74,7 @@
       "recall": {
         "type": "object",
         "additionalProperties": false,
-        "description": "How far each recall path may reach. Automatic and model-invoked paths default to the active session; explicitly human-invoked tools stay workspace-wide.",
+        "description": "How far each recall path may reach. All default to workspace-wide, which is Honcho's design; narrowing is opt-in.",
         "properties": {
           "automatic": {
             "type": "string",
@@ -83,7 +83,7 @@
               "scope",
               "workspace"
             ],
-            "default": "session",
+            "default": "workspace",
             "description": "Boundary for the memory context injected before every prompt."
           },
           "ask": {
@@ -93,8 +93,8 @@
               "scope",
               "workspace"
             ],
-            "default": "session",
-            "description": "Boundary for honcho_ask, which the model calls on its own."
+            "default": "workspace",
+            "description": "Boundary for honcho_ask."
           },
           "tools": {
             "type": "string",
@@ -165,7 +165,7 @@
     "recall": {
       "label": "Recall Boundaries",
       "advanced": true,
-      "help": "Limit how far memory recall reaches, per path. Automatic injection and honcho_ask default to the current session so one conversation cannot surface another's content; the explicit tools stay workspace-wide."
+      "help": "Narrow how far memory recall reaches, per path. Defaults to workspace-wide. Use this to focus recall on the current conversation — to keep separate tenants apart, give them separate workspaces or a scope instead."
     }
   }
 }

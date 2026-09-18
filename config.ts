@@ -22,12 +22,16 @@ export const RECALL_SCOPES = ["session", "scope", "workspace"] as const;
 export type RecallScope = (typeof RECALL_SCOPES)[number];
 
 /**
- * Recall boundaries, set per path because the paths carry different risk.
+ * Recall boundaries, set per path.
  *
- * `automatic` and `ask` run without anyone choosing them — the context hook
- * fires every turn, and the model decides when to call honcho_ask — so they
- * default to the active session. `tools` covers the explicitly human-invoked
- * tools, where broad recall is the point, so it stays workspace-wide.
+ * All three default to `workspace`, which is Honcho's design: a workspace is
+ * the memory universe, and a peer's representation is synthesized across its
+ * sessions. Narrowing is opt-in, for operators who want recall focused on the
+ * conversation at hand rather than everything the peer has ever said.
+ *
+ * Narrowing is not a tenancy boundary. Keeping separate tenants apart belongs
+ * at the workspace level, or in a scope — not in how far a single recall call
+ * reaches inside a shared workspace.
  */
 export type RecallConfig = {
   automatic: RecallScope;
@@ -130,8 +134,8 @@ export const honchoConfigSchema = {
           return parsed === "scope" && !scopeName ? "session" : parsed;
         };
         return {
-          automatic: resolve(raw.automatic, "session"),
-          ask: resolve(raw.ask, "session"),
+          automatic: resolve(raw.automatic, "workspace"),
+          ask: resolve(raw.ask, "workspace"),
           tools: resolve(raw.tools, "workspace"),
           scopeName,
         };

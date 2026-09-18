@@ -215,41 +215,41 @@ openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (t
 
 ## Recall Boundaries
 
-Recall is bounded per path, because the paths carry different risk. The context
-injected before every turn and `honcho_ask` are not chosen by a person — the hook
-fires automatically and the model decides when to ask — so they stay inside the
-current session by default. The explicitly invoked tools are left workspace-wide,
-since broad recall is the reason someone calls them.
+A Honcho workspace is the memory universe: a peer's representation is synthesized
+across every session in it, and that synthesis is the point. Recall is therefore
+workspace-wide by default on every path.
+
+Narrowing is opt-in, per path, when you want recall focused on the conversation at
+hand rather than everything the peer has ever said:
 
 ```jsonc
 {
   "recall": {
-    "automatic": "session",   // context injected before every prompt
-    "ask": "session",         // honcho_ask, which the model calls on its own
-    "tools": "workspace",     // honcho_context, honcho_search_conclusions, honcho_search_messages
-    "scopeName": null         // Honcho scope used by any path set to "scope"
+    "automatic": "workspace",  // context injected before every prompt
+    "ask": "workspace",        // honcho_ask
+    "tools": "workspace",      // honcho_context, honcho_search_conclusions, honcho_search_messages
+    "scopeName": null          // Honcho scope used by any path set to "scope"
   }
 }
 ```
 
-Each path takes one of:
-
 | value | Reach |
 |---|---|
+| `workspace` | Every session the peer has written to. The default. |
 | `session` | The current Honcho session only. |
 | `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when the scope is empty, and needs a workspace-level API key. |
-| `workspace` | Every session the peer has written to. |
-
-**Single-user setups** can set `automatic` and `ask` to `workspace` to get recall
-across all their conversations.
-
-**Multi-tenant gateways** — one agent serving several channels, accounts or
-clients — should keep the defaults, or use `scope` with one scope per tenant so
-recall spans that tenant's sessions and nothing else. Leaving these at
-`workspace` means one conversation's content can be injected into another's.
 
 A path set to `scope` without a `scopeName` falls back to `session` rather than
-silently widening to the whole workspace.
+silently widening.
+
+### Keeping tenants apart
+
+These settings tune relevance, not tenancy. If one agent serves several clients,
+accounts or teams whose memory must not mix, **give them separate workspaces** —
+`workspaceId` is per plugin entry — or put each tenant's sessions in their own
+Honcho scope and point `scopeName` at it. Narrowing recall inside a shared
+workspace limits what any one turn retrieves, but the memory is still derived and
+stored together.
 
 ## Local File Search (QMD Integration)
 
