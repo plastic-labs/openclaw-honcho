@@ -1,7 +1,7 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, isSubagentSession } from "../helpers.js";
+import { buildSessionKey, extractSenderId, sessionRecallOptions } from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
@@ -9,7 +9,6 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
 
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
-    const isSubagent = isSubagentSession(ctx);
 
     state.turnStartIndex.set(sessionKey, event.messages.length);
 
@@ -27,53 +26,43 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
 
       const sections: string[] = [];
 
-      if (isSubagent) {
-        try {
-          const peerCtx = await agentPeer.context({ target: participantPeer });
-          if (peerCtx.peerCard?.length) {
-            sections.push(`Key facts:\n${peerCtx.peerCard.map((f: string) => `• ${f}`).join("\n")}`);
-          }
-          if (peerCtx.representation) {
-            sections.push(`User context:\n${peerCtx.representation}`);
-          }
-        } catch (e: unknown) {
-          const isNotFound =
-            e instanceof Error &&
-            (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
-          if (isNotFound) return;
-          throw e;
-        }
-      } else {
-        // Don't pass metadata: it replaces persisted metadata on existing
-        // sessions, wiping the capture watermark that flushMessages relies on.
-        // agentId is redundant here — flushMessages writes it on every flush.
-        const session = await state.honcho.session(sessionKey);
+      // Don't pass metadata: it replaces persisted metadata on existing
+      // sessions, wiping the capture watermark that flushMessages relies on.
+      // agentId is redundant here — flushMessages writes it on every flush.
+      const session = await state.honcho.session(sessionKey);
 
-        let context;
-        try {
-          context = await session.context({
-            summary: true,
-            tokens: 2000,
-            peerTarget: participantPeer,
-            peerPerspective: agentPeer,
-          });
-        } catch (e: unknown) {
-          const isNotFound =
-            e instanceof Error &&
-            (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
-          if (isNotFound) return;
-          throw e;
-        }
+      const recall = sessionRecallOptions(
+        state.cfg.recall.automatic,
+        state.cfg.recall.scopeName,
+      );
 
-        if (context.peerCard?.length) {
-          sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
-        }
-        if (context.peerRepresentation) {
-          sections.push(`User context:\n${context.peerRepresentation}`);
-        }
-        if (context.summary?.content) {
-          sections.push(`Earlier in this conversation:\n${context.summary.content}`);
-        }
+      let context;
+      try {
+        context = await session.context({
+          summary: true,
+          tokens: 2000,
+          peerTarget: participantPeer,
+          // A scope replaces the perspective peer as the observer, and the
+          // SDK rejects both together.
+          ...(recall.scope ? {} : { peerPerspective: agentPeer }),
+          ...recall,
+        });
+      } catch (e: unknown) {
+        const isNotFound =
+          e instanceof Error &&
+          (e.name === "NotFoundError" || e.message.toLowerCase().includes("not found"));
+        if (isNotFound) return;
+        throw e;
+      }
+
+      if (context.peerCard?.length) {
+        sections.push(`Key facts:\n${context.peerCard.map((f) => `• ${f}`).join("\n")}`);
+      }
+      if (context.peerRepresentation) {
+        sections.push(`User context:\n${context.peerRepresentation}`);
+      }
+      if (context.summary?.content) {
+        sections.push(`Earlier in this conversation:\n${context.summary.content}`);
       }
 
       if (sections.length === 0) return;

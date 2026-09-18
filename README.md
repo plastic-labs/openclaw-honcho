@@ -85,6 +85,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 | `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw, which owns these canonical tool names. |
+| `recall` | `object` | see below | How far each recall path may reach. See [Recall Boundaries](#recall-boundaries). |
 
 ### Self-Hosted / Local Honcho
 
@@ -211,6 +212,44 @@ openclaw honcho status                          # Show current installation and 
 openclaw honcho ask <question>                  # Query Honcho about the user
 openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
 ```
+
+## Recall Boundaries
+
+Recall is bounded per path, because the paths carry different risk. The context
+injected before every turn and `honcho_ask` are not chosen by a person — the hook
+fires automatically and the model decides when to ask — so they stay inside the
+current session by default. The explicitly invoked tools are left workspace-wide,
+since broad recall is the reason someone calls them.
+
+```jsonc
+{
+  "recall": {
+    "automatic": "session",   // context injected before every prompt
+    "ask": "session",         // honcho_ask, which the model calls on its own
+    "tools": "workspace",     // honcho_context, honcho_search_conclusions, honcho_search_messages
+    "scopeName": null         // Honcho scope used by any path set to "scope"
+  }
+}
+```
+
+Each path takes one of:
+
+| value | Reach |
+|---|---|
+| `session` | The current Honcho session only. |
+| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when the scope is empty, and needs a workspace-level API key. |
+| `workspace` | Every session the peer has written to. |
+
+**Single-user setups** can set `automatic` and `ask` to `workspace` to get recall
+across all their conversations.
+
+**Multi-tenant gateways** — one agent serving several channels, accounts or
+clients — should keep the defaults, or use `scope` with one scope per tenant so
+recall spans that tenant's sessions and nothing else. Leaving these at
+`workspace` means one conversation's content can be injected into another's.
+
+A path set to `scope` without a `scopeName` falls back to `session` rather than
+silently widening to the whole workspace.
 
 ## Local File Search (QMD Integration)
 

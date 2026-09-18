@@ -9,6 +9,33 @@ export const DEFAULT_NOISE_PATTERNS: string[] = [
   "Queued messages from",
 ];
 
+/**
+ * How far a recall call may reach.
+ *
+ * - `session`   — this Honcho session only.
+ * - `scope`     — the sessions in `recall.scopeName`, a Honcho scope. Fails
+ *                 closed when the scope is empty and needs a workspace-level
+ *                 API key.
+ * - `workspace` — every session the peer has written to.
+ */
+export const RECALL_SCOPES = ["session", "scope", "workspace"] as const;
+export type RecallScope = (typeof RECALL_SCOPES)[number];
+
+/**
+ * Recall boundaries, set per path because the paths carry different risk.
+ *
+ * `automatic` and `ask` run without anyone choosing them — the context hook
+ * fires every turn, and the model decides when to call honcho_ask — so they
+ * default to the active session. `tools` covers the explicitly human-invoked
+ * tools, where broad recall is the point, so it stays workspace-wide.
+ */
+export type RecallConfig = {
+  automatic: RecallScope;
+  ask: RecallScope;
+  tools: RecallScope;
+  scopeName?: string;
+};
+
 export type HonchoConfig = {
   apiKey?: string;
   workspaceId: string;
@@ -19,7 +46,14 @@ export type HonchoConfig = {
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
   enableMemoryCompatibilityTools: boolean;
+  recall: RecallConfig;
 };
+
+function parseRecallScope(value: unknown, fallback: RecallScope): RecallScope {
+  return typeof value === "string" && (RECALL_SCOPES as readonly string[]).includes(value)
+    ? (value as RecallScope)
+    : fallback;
+}
 
 /**
  * Resolve environment variable references in config values.
@@ -83,6 +117,25 @@ export const honchoConfigSchema = {
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
       enableMemoryCompatibilityTools: cfg.enableMemoryCompatibilityTools === true,
+      recall: (() => {
+        const raw = (cfg.recall ?? {}) as Record<string, unknown>;
+        const scopeName =
+          typeof raw.scopeName === "string" && raw.scopeName.trim().length > 0
+            ? raw.scopeName.trim()
+            : undefined;
+        const resolve = (value: unknown, fallback: RecallScope): RecallScope => {
+          const parsed = parseRecallScope(value, fallback);
+          // "scope" without a name has no boundary to apply. Fall back to the
+          // session rather than silently widening to the whole workspace.
+          return parsed === "scope" && !scopeName ? "session" : parsed;
+        };
+        return {
+          automatic: resolve(raw.automatic, "session"),
+          ask: resolve(raw.ask, "session"),
+          tools: resolve(raw.tools, "workspace"),
+          scopeName,
+        };
+      })(),
     };
   },
 };
