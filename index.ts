@@ -10,10 +10,11 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 // @ts-ignore - resolved by openclaw runtime
 import type {
   MemoryPluginCapability,
+  OpenClawPluginApi,
   OpenClawPluginDefinition,
 } from "openclaw/plugin-sdk/core";
 import { honchoConfigSchema } from "./config.js";
-import { createPluginState } from "./state.js";
+import { createPluginState, type PluginState } from "./state.js";
 import { registerGatewayHook } from "./hooks/gateway.js";
 import { registerContextHook } from "./hooks/context.js";
 import { registerCaptureHook } from "./hooks/capture.js";
@@ -85,6 +86,26 @@ export const buildPromptSection: NonNullable<MemoryPluginCapability["promptBuild
 
 let _loggedLoaded = false;
 
+/**
+ * Register Honcho's named tools and, only when explicitly requested, the
+ * legacy memory_search/memory_get compatibility aliases.
+ *
+ * Modern OpenClaw provides the canonical memory tools itself. Registering the
+ * aliases there creates name-conflict warnings and the host rejects them, so
+ * they are opt-in for older hosts that still need the compatibility surface.
+ */
+export function registerHonchoTools(api: OpenClawPluginApi, state: PluginState): void {
+  registerSessionTool(api, state);
+  registerContextTool(api, state);
+  registerSearchTool(api, state);
+  registerAskTool(api, state);
+  registerMessageSearchTool(api, state);
+
+  if (state.cfg.enableMemoryCompatibilityTools) {
+    registerMemoryPassthrough(api, state);
+  }
+}
+
 const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
@@ -106,13 +127,8 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
     registerContextHook(api, state);
     registerCaptureHook(api, state);
 
-    // Tools (5 core + 2 passthrough)
-    registerSessionTool(api, state);
-    registerContextTool(api, state);
-    registerSearchTool(api, state);
-    registerAskTool(api, state);
-    registerMessageSearchTool(api, state);
-    registerMemoryPassthrough(api, state);
+    // Five Honcho tools; legacy memory aliases are explicit opt-in.
+    registerHonchoTools(api, state);
 
     // CLI
     registerCli(api, state);
