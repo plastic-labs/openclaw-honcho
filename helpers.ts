@@ -286,6 +286,38 @@ export function extractSenderId(content: string): string | undefined {
 }
 
 /**
+ * Stable identity for a raw OpenClaw message.
+ *
+ * Used to anchor the capture watermark on a specific message rather than on an
+ * array index. Index-based anchoring is unsafe because `before_prompt_build`
+ * and `agent_end` are not contractually guaranteed to deliver the same slice:
+ * the gateway path sends the full transcript to both, but a runtime that sends
+ * only the current turn to `agent_end` makes any index recorded from
+ * `before_prompt_build` meaningless.
+ *
+ * Prefers OpenClaw's own `idempotencyKey` when present. Otherwise derives a
+ * digest from role, timestamp and content — stable for the same message across
+ * hook invocations, and distinct for messages that differ in any of the three.
+ */
+export function getMessageIdentity(msg: unknown): string | undefined {
+  if (!msg || typeof msg !== "object") return undefined;
+  const m = msg as Record<string, unknown>;
+
+  const key = m.idempotencyKey;
+  if (typeof key === "string" && key.length > 0) return `k:${key}`;
+
+  const role = typeof m.role === "string" ? m.role : "";
+  const content = getRawContent(msg);
+  if (!role && !content) return undefined;
+  const ts = typeof m.timestamp === "number" ? String(m.timestamp) : "";
+
+  return `h:${createHash("sha256")
+    .update(`${role}\0${ts}\0${content}`)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+/**
  * Returns true if the message should be dropped entirely.
  * Patterns starting with "/" are treated as anchored regexes (e.g. "/^HEARTBEAT/i").
  * All other patterns match by exact equality or prefix (startsWith).
