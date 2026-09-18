@@ -9,6 +9,7 @@ import {
   normalizeSessionKey,
   extractMessages,
   extractSenderId,
+  getMessageIdentity,
   getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
@@ -63,14 +64,68 @@ export async function flushMessages(
   const existingMeta: Record<string, unknown> =
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
-  const turnStartIndex = Math.min(
-    Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
-    messages.length,
-  );
-  const rawLastSavedIndex =
-    typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
-  const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
-  const startIndex = Math.max(turnStartIndex, lastSavedIndex);
+  // Resolve where this batch's unsaved region starts.
+  //
+  // The watermark is anchored on the identity of the last message we covered,
+  // not on an array index. `before_prompt_build` and `agent_end` are not
+  // guaranteed to deliver the same slice — the gateway path sends the full
+  // transcript to both, but a runtime that sends only the current turn to
+  // `agent_end` makes a recorded index meaningless, and comparing the two
+  // silently selects an empty range (see issue #134).
+  const lastSavedMessageId =
+    typeof existingMeta.lastSavedMessageId === "string"
+      ? existingMeta.lastSavedMessageId
+      : undefined;
+
+  let anchorIndex = -1;
+  if (lastSavedMessageId) {
+    // Fast path: lastSavedIndex points just past the anchor whenever the batch
+    // is shaped the same way as the previous one, which is the steady state on
+    // the gateway path. Checking it first keeps this O(1) per flush instead of
+    // hashing every message in a long transcript.
+    const hinted =
+      typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex - 1 : -1;
+    if (
+      hinted >= 0 &&
+      hinted < messages.length &&
+      getMessageIdentity(messages[hinted]) === lastSavedMessageId
+    ) {
+      anchorIndex = hinted;
+    } else {
+      // Last occurrence: if the same message appears twice, resume after the
+      // later one rather than re-saving the span between them.
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (getMessageIdentity(messages[i]) === lastSavedMessageId) {
+          anchorIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  let startIndex: number;
+  if (anchorIndex >= 0) {
+    // Authoritative: we know exactly which message we stopped at.
+    startIndex = anchorIndex + 1;
+  } else if (lastSavedMessageId) {
+    // We have an anchor but this batch does not contain it. The anchor was the
+    // newest message we saved, so nothing here can predate it: either this is
+    // a delta batch of only-new messages, or the transcript was truncated past
+    // the anchor. Both mean the whole batch is unsaved.
+    startIndex = 0;
+  } else {
+    // No anchor yet: first flush for this session, or a session written by a
+    // version that only persisted lastSavedIndex. Fall back to the index
+    // watermark once so existing history is not re-saved on upgrade.
+    const turnStartIndex = Math.min(
+      Math.max(state.turnStartIndex.get(sessionKey) ?? 0, 0),
+      messages.length,
+    );
+    const rawLastSavedIndex =
+      typeof existingMeta.lastSavedIndex === "number" ? existingMeta.lastSavedIndex : 0;
+    const lastSavedIndex = Math.min(Math.max(rawLastSavedIndex, 0), messages.length);
+    startIndex = Math.max(turnStartIndex, lastSavedIndex);
+  }
 
   if (messages.length <= startIndex) {
     return 0;
@@ -144,13 +199,21 @@ export async function flushMessages(
     if (message) extracted.push({ message, rawIndex: startIndex + offset });
   }
 
+  // Anchor for the next flush: the last message this batch covered, whether or
+  // not it survived filtering. Trailing noise must still advance the watermark,
+  // otherwise it is rescanned on every subsequent turn.
+  const batchTailIdentity = getMessageIdentity(messages[messages.length - 1]);
+
   // participantSenderId = last active sender, used by tools to resolve the
   // session's current participant peer. Named "sender" (not "peer") to
   // distinguish raw channel IDs from resolved Honcho peer IDs.
   const updatedMeta: Record<string, unknown> = {
     ...existingMeta,
     ...sessionMeta,
+    // Retained so a downgrade, or a session read by an older build, still has a
+    // usable index watermark. Correctness now comes from lastSavedMessageId.
     lastSavedIndex: messages.length,
+    ...(batchTailIdentity ? { lastSavedMessageId: batchTailIdentity } : {}),
   };
   if (lastSenderId) {
     updatedMeta.participantSenderId = lastSenderId;
@@ -169,10 +232,18 @@ export async function flushMessages(
     const chunk = extracted.slice(i, i + addMessagesLimit);
     await session.addMessages(chunk.map((e) => e.message));
     const isLastChunk = i + addMessagesLimit >= extracted.length;
-    const lastSavedIndex = isLastChunk
-      ? messages.length
-      : chunk[chunk.length - 1].rawIndex + 1;
-    await session.setMetadata({ ...updatedMeta, lastSavedIndex });
+    const chunkTailRawIndex = chunk[chunk.length - 1].rawIndex;
+    const lastSavedIndex = isLastChunk ? messages.length : chunkTailRawIndex + 1;
+    // Mid-batch chunks anchor on the raw message they reached, so a failure in
+    // a later chunk resumes from there instead of re-sending persisted ones.
+    const chunkIdentity = isLastChunk
+      ? batchTailIdentity
+      : getMessageIdentity(messages[chunkTailRawIndex]);
+    await session.setMetadata({
+      ...updatedMeta,
+      lastSavedIndex,
+      ...(chunkIdentity ? { lastSavedMessageId: chunkIdentity } : {}),
+    });
   }
   return extracted.length;
 }
