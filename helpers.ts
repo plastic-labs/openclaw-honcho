@@ -121,6 +121,63 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
 }
 
 /**
+ * Match an OpenClaw session key against a glob-style pattern.
+ *
+ * `*` matches within one colon-delimited segment, while `**` may span
+ * segments. All other characters are treated literally.
+ */
+export function matchesSessionPattern(sessionKey: string, pattern: string): boolean {
+  const normalized = normalizeSessionKey(sessionKey);
+  const trimmed = pattern.trim();
+  if (!trimmed) return false;
+
+  type Token = { kind: "literal"; value: string } | { kind: "star" | "globstar" };
+  const tokens: Token[] = [];
+  for (let index = 0; index < trimmed.length; index++) {
+    const char = trimmed[index];
+    if (char === "*") {
+      if (trimmed[index + 1] === "*") {
+        tokens.push({ kind: "globstar" });
+        index++;
+      } else {
+        tokens.push({ kind: "star" });
+      }
+      continue;
+    }
+    tokens.push({ kind: "literal", value: char });
+  }
+
+  // Dynamic programming has predictable O(pattern length × key length) work
+  // and avoids the catastrophic backtracking possible with a generated RegExp.
+  let previous = new Uint8Array(normalized.length + 1);
+  previous[0] = 1;
+
+  for (const token of tokens) {
+    const current = new Uint8Array(normalized.length + 1);
+    if (token.kind === "literal") {
+      for (let keyIndex = 1; keyIndex <= normalized.length; keyIndex++) {
+        current[keyIndex] =
+          previous[keyIndex - 1] === 1 && normalized[keyIndex - 1] === token.value ? 1 : 0;
+      }
+    } else {
+      current[0] = previous[0];
+      for (let keyIndex = 1; keyIndex <= normalized.length; keyIndex++) {
+        const mayConsume = token.kind === "globstar" || normalized[keyIndex - 1] !== ":";
+        current[keyIndex] =
+          previous[keyIndex] === 1 || (mayConsume && current[keyIndex - 1] === 1) ? 1 : 0;
+      }
+    }
+    previous = current;
+  }
+
+  return previous[normalized.length] === 1;
+}
+
+export function shouldSkipSession(sessionKey: string, ignoreSessionPatterns: string[]): boolean {
+  return ignoreSessionPatterns.some((pattern) => matchesSessionPattern(sessionKey, pattern));
+}
+
+/**
  * Port of OpenClaw's strip-inbound-meta.ts core stripping behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.
  *

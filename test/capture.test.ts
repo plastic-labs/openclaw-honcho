@@ -35,6 +35,7 @@ function createMockState(): { state: PluginState; session: SessionStub } {
   const state = {
     cfg: {
       noisePatterns: [],
+      ignoreSessionPatterns: [],
       ownerObserveOthers: false,
       crossSessionSearch: true,
       workspaceId: "openclaw",
@@ -69,6 +70,29 @@ function loggerStub() {
 }
 
 describe("flushMessages metadata", () => {
+  it("does not initialize or create a Honcho session for ignored OpenClaw sessions", async () => {
+    const { state } = createMockState();
+    state.cfg.ignoreSessionPatterns = ["agent:*:explicit:model-run-*"];
+    const api = { logger: loggerStub() } as never;
+
+    const saved = await flushMessages(
+      api,
+      state,
+      [
+        { role: "user", content: "internal prompt", timestamp: 1 },
+        { role: "assistant", content: "internal reply", timestamp: 2 },
+      ],
+      {
+        sessionKey: "agent:main:explicit:model-run-123",
+        agentId: "main",
+      },
+    );
+
+    expect(saved).toBe(0);
+    expect(state.ensureInitialized).not.toHaveBeenCalled();
+    expect(state.honcho.session).not.toHaveBeenCalled();
+  });
+
   it("writes openclawSessionKey, sessionClass, messageProvider, and lastSessionId", async () => {
     const { state, session } = createMockState();
     const api = { logger: loggerStub() } as never;
