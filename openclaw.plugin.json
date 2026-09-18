@@ -6,7 +6,9 @@
     "providers": [
       {
         "id": "honcho",
-        "envVars": ["HONCHO_API_KEY"]
+        "envVars": [
+          "HONCHO_API_KEY"
+        ]
       }
     ]
   },
@@ -44,7 +46,9 @@
       },
       "noisePatterns": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
       "ownerObserveOthers": {
@@ -66,6 +70,37 @@
         "type": "boolean",
         "default": false,
         "description": "Register legacy memory_search and memory_get aliases for older OpenClaw hosts. Keep disabled on modern OpenClaw, which provides canonical tools with these names."
+      },
+      "recall": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "How far automatic context injection and honcho_ask may reach. Both default to workspace-wide, which is Honcho's design; narrowing is opt-in.",
+        "properties": {
+          "automatic": {
+            "type": "string",
+            "enum": [
+              "session",
+              "scope",
+              "workspace"
+            ],
+            "default": "workspace",
+            "description": "Boundary for the memory context injected before every prompt."
+          },
+          "ask": {
+            "type": "string",
+            "enum": [
+              "session",
+              "scope",
+              "workspace"
+            ],
+            "default": "workspace",
+            "description": "Boundary for honcho_ask."
+          },
+          "scopeName": {
+            "type": "string",
+            "description": "Honcho scope name used by any path set to \"scope\". Requires a workspace-level API key. A path set to \"scope\" without this falls back to \"session\"."
+          }
+        }
       }
     }
   },
@@ -116,6 +151,11 @@
       "label": "Legacy Memory Tool Aliases",
       "advanced": true,
       "help": "Register Honcho's legacy memory_search and memory_get aliases. Leave disabled on modern OpenClaw to avoid duplicate tool-name warnings."
+    },
+    "recall": {
+      "label": "Recall Boundaries",
+      "advanced": true,
+      "help": "Narrow how far memory recall reaches, per path. Defaults to workspace-wide. Use this to focus recall on the current conversation — to keep separate tenants apart, give them separate workspaces or a scope instead."
     }
   }
 }

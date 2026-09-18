@@ -85,6 +85,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 | `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw, which owns these canonical tool names. |
+| `recall` | `object` | see below | How far each recall path may reach. See [Recall Boundaries](#recall-boundaries). |
 
 ### Self-Hosted / Local Honcho
 
@@ -211,6 +212,49 @@ openclaw honcho status                          # Show current installation and 
 openclaw honcho ask <question>                  # Query Honcho about the user
 openclaw honcho search <query> [-k N] [-d D]    # Semantic search over memory (topK, maxDistance)
 ```
+
+## Recall Boundaries
+
+A Honcho workspace is the memory universe: a peer's representation is synthesized
+across every session in it, and that synthesis is the point. Recall is therefore
+workspace-wide by default on every path.
+
+Narrowing is opt-in, per path, when you want recall focused on the conversation at
+hand rather than everything the peer has ever said:
+
+```jsonc
+{
+  "recall": {
+    "automatic": "workspace",  // context injected before every prompt
+    "ask": "workspace",        // honcho_ask
+    "scopeName": "client-a"    // Honcho scope used by either path set to "scope"
+  }
+}
+```
+
+| value | Reach |
+|---|---|
+| `workspace` | Every session the peer has written to. The default. |
+| `session` | The current Honcho session only. |
+| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when the scope is empty, and needs a workspace-level API key. |
+
+A path set to `scope` without a `scopeName` falls back to `session` rather than
+silently widening.
+
+The explicitly invoked tools (`honcho_context`, `honcho_search_conclusions`,
+`honcho_search_messages`) are always workspace-wide. They cannot be bounded
+uniformly on the current SDK surface — `peer.card()` takes no scoping and
+`peer.search()` takes only filters — so rather than ship a setting that applies to
+some of their calls and quietly skips others, they are left alone.
+
+### Keeping tenants apart
+
+These settings tune relevance, not tenancy. If one agent serves several clients,
+accounts or teams whose memory must not mix, **give them separate workspaces** —
+`workspaceId` is per plugin entry — or put each tenant's sessions in their own
+Honcho scope and point `scopeName` at it. Narrowing recall inside a shared
+workspace limits what any one turn retrieves, but the memory is still derived and
+stored together.
 
 ## Local File Search (QMD Integration)
 
