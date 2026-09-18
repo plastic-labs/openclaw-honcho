@@ -92,9 +92,13 @@ export async function flushMessages(
     ) {
       anchorIndex = hinted;
     } else {
-      // Last occurrence: if the same message appears twice, resume after the
-      // later one rather than re-saving the span between them.
-      for (let i = messages.length - 1; i >= 0; i--) {
+      // Earliest occurrence. An identity can repeat — two messages with the
+      // same role, timestamp and content collide under the digest fallback —
+      // and once the hint is wrong there is no way to tell which occurrence
+      // was the saved one. Resuming after the earliest may resend messages;
+      // resuming after the latest would silently skip everything between them.
+      // Prefer duplication over loss, which is the whole point of this fix.
+      for (let i = 0; i < messages.length; i++) {
         if (getMessageIdentity(messages[i]) === lastSavedMessageId) {
           anchorIndex = i;
           break;
@@ -202,7 +206,20 @@ export async function flushMessages(
   // Anchor for the next flush: the last message this batch covered, whether or
   // not it survived filtering. Trailing noise must still advance the watermark,
   // otherwise it is rescanned on every subsequent turn.
-  const batchTailIdentity = getMessageIdentity(messages[messages.length - 1]);
+  //
+  // Scans backward for the last *identifiable* message rather than taking the
+  // final element outright: an unidentifiable tail would leave the anchor unset,
+  // the previous anchor would persist, and the next flush would fail to find it
+  // and re-save the whole batch.
+  const identityAtOrBefore = (index: number): string | undefined => {
+    for (let i = Math.min(index, messages.length - 1); i >= 0; i--) {
+      const identity = getMessageIdentity(messages[i]);
+      if (identity) return identity;
+    }
+    return undefined;
+  };
+
+  const batchTailIdentity = identityAtOrBefore(messages.length - 1);
 
   // participantSenderId = last active sender, used by tools to resolve the
   // session's current participant peer. Named "sender" (not "peer") to
@@ -238,7 +255,7 @@ export async function flushMessages(
     // a later chunk resumes from there instead of re-sending persisted ones.
     const chunkIdentity = isLastChunk
       ? batchTailIdentity
-      : getMessageIdentity(messages[chunkTailRawIndex]);
+      : identityAtOrBefore(chunkTailRawIndex);
     await session.setMetadata({
       ...updatedMeta,
       lastSavedIndex,
