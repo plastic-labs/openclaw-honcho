@@ -26,11 +26,17 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
                 "Sender ID of the user to query about. Defaults to the last active sender. Pass a specific sender_id to get context about a different participant.",
             })
           ),
+          session_id: Type.Optional(
+            Type.String({
+              description:
+                "Session ID to scope the context to. Only considers information from this specific session.",
+            })
+          ),
         },
         { additionalProperties: false }
       ),
       async execute(_toolCallId, params) {
-        const { detail = "card", about } = params as { detail?: "card" | "full"; about?: string };
+        const { detail = "card", about, session_id } = params as { detail?: "card" | "full"; about?: string; session_id?: string };
 
         await state.ensureInitialized();
         const participantPeer = about
@@ -74,6 +80,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
         // detail === "full"
         const representation = await participantPeer.representation({
           includeMostFrequent: true,
+          session: session_id,
         });
 
         if (!representation) {

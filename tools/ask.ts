@@ -29,14 +29,21 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
                 "Sender ID of the user to ask about. Defaults to the last active sender. Pass a specific sender_id to ask about a different participant.",
             })
           ),
+          session_id: Type.Optional(
+            Type.String({
+              description:
+                "Session ID to scope the question to. Only considers information from this specific session.",
+            })
+          ),
         },
         { additionalProperties: false }
       ),
       async execute(_toolCallId, params) {
-        const { query, depth = "quick", about } = params as {
+        const { query, depth = "quick", about, session_id } = params as {
           query: string;
           depth?: "quick" | "thorough";
           about?: string;
+          session_id?: string;
         };
 
         await state.ensureInitialized();
@@ -51,6 +58,7 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
         const answer = await agentPeer.chat(query, {
           target: participantPeer,
           reasoningLevel,
+          session: session_id,
         });
 
         return {
