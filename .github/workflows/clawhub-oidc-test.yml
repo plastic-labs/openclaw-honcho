@@ -7,6 +7,8 @@
 name: ClawHub OIDC test
 
 on:
+  push:
+    branches: [ci/clawhub-publish]
   workflow_dispatch:
 
 jobs:
