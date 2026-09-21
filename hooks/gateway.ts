@@ -9,9 +9,7 @@ import { getPluginVersion } from "../honcho-client.js";
 const PLUGIN_ID = "openclaw-honcho";
 const NPM_PACKAGE = "@honcho-ai/openclaw-honcho";
 
-// Shared with the telemetry headers so the two cannot disagree about what
-// version this plugin is. "unknown" means the manifest could not be read, which
-// just skips the update check.
+// Shared with the telemetry headers so the two cannot disagree.
 const rawPluginVersion = getPluginVersion();
 const PLUGIN_VERSION = rawPluginVersion === "unknown" ? null : rawPluginVersion;
 

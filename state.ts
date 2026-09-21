@@ -48,7 +48,6 @@ export type PluginState = {
    * Used by the capture hook to determine where the current turn starts in the
    * accumulated message array, so first-init skips pre-installation history. */
   turnStartIndex: Map<string, number>;
-  /** Last model seen, for X-Honcho-Agent-Model. */
   lastAgentModel?: string;
   initialized: boolean;
   api: OpenClawPluginApi;

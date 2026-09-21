@@ -30,17 +30,14 @@ it("sends host and plugin headers on every request", async () => {
 
     expect(seen.length).toBeGreaterThan(1);
     for (const headers of seen) {
-      // The version is present because the plugin resolves the openclaw peer
-      // dependency it is actually loaded against.
       expect(headers.get("X-Honcho-Host")).toBe(`openclaw/${getHostVersion()} (${process.platform})`);
       expect(headers.get("X-Honcho-Plugin")).toBe(`openclaw-honcho/${pkgVersion}`);
-      // Not wired yet, and the legacy designs must never appear.
+      // Legacy designs must never appear.
       expect(headers.get("X-Honcho-Agent-Model")).toBeNull();
       expect(headers.get("X-Honcho-Runtime")).toBeNull();
       expect(headers.get("X-Honcho-Client")).toBeNull();
     }
 
-    // Drive the real hook: a turn on model A, then a switch to B.
     const state = { honcho } as unknown as PluginState;
     let llmOutput: ((e: unknown) => Promise<void>) | undefined;
     registerTelemetryHook(
@@ -57,7 +54,6 @@ it("sends host and plugin headers on every request", async () => {
     await honcho.peer("owner");
     expect(seen.at(-1)?.get("X-Honcho-Agent-Model")).toBe("openrouter/openai/gpt-5.6-sol");
 
-    // Host and plugin survive the refresh.
     expect(seen.at(-1)?.get("X-Honcho-Host")).toBe(`openclaw/${getHostVersion()} (${process.platform})`);
     expect(seen.at(-1)?.get("X-Honcho-Plugin")).toBe(`openclaw-honcho/${pkgVersion}`);
   } finally {
@@ -69,7 +65,6 @@ it("reads both versions at runtime rather than from a constant", () => {
   const id = telemetryIdentity();
   expect(id.pluginVersion).toBe(pkgVersion);
   expect(id.pluginVersion).not.toBe("unknown");
-  // Resolved from the running openclaw install, not pinned in source.
   expect(id.hostVersion).toBe(getHostVersion());
   expect(id.hostVersion).toMatch(/^\d{4}\./);
 });

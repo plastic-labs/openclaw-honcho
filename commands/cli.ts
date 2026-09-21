@@ -335,8 +335,6 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             }
 
             // Upload files to Honcho
-            // Goes through the factory too, so the setup upload carries the
-            // same host/plugin headers. It legitimately has no model.
             const setupHoncho = createHonchoClient({
               apiKey: resolvedApiKey || undefined,
               baseUrl: resolvedBaseUrl,

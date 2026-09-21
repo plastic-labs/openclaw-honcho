@@ -1,4 +1,4 @@
-/** Honcho client construction. Every client is built here so the telemetry headers cannot be missed. */
+/** Every Honcho client is built here so the telemetry headers cannot be missed. */
 
 import { createRequire } from "node:module";
 import { Honcho } from "@honcho-ai/sdk";
@@ -12,14 +12,11 @@ import { VERSION as OPENCLAW_VERSION } from "openclaw/plugin-sdk/cli-runtime";
 // @ts-ignore - resolved by openclaw runtime
 import { readPluginPackageVersion } from "openclaw/plugin-sdk/extension-shared";
 
-/** The `hosts.<name>` config key for this harness. */
 export const HOST_ID = "openclaw";
-/** npm package name without the scope. */
 export const PLUGIN_ID = "openclaw-honcho";
 
 let pluginVersion: string | undefined;
 
-/** OpenClaw's helper handles the source, bundled and test layouts, which differ here. */
 export function getPluginVersion(): string {
   if (pluginVersion) return pluginVersion;
   try {
@@ -34,7 +31,6 @@ export function getPluginVersion(): string {
   return "unknown";
 }
 
-/** The running OpenClaw version, from the runtime's own constant. */
 export function getHostVersion(): string | undefined {
   const version: unknown = OPENCLAW_VERSION;
   return typeof version === "string" && version ? version : undefined;

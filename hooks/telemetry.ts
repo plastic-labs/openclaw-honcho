@@ -4,12 +4,9 @@ import type { PluginState } from "../state.js";
 import { refreshTelemetryHeaders } from "../honcho-client.js";
 
 /**
- * `X-Honcho-Agent-Model` value.
- *
- * `resolvedRef` is OpenClaw's fully-qualified ref and is preferred: `model`
- * already contains a slash on aggregating providers (`anthropic/claude-sonnet-5`
- * under openrouter), so joining it to `provider` by hand is not equivalent and
- * dropping the provider loses who served the turn.
+ * Prefers `resolvedRef`: under an aggregating provider `model` already contains a
+ * slash (`anthropic/claude-sonnet-5` under openrouter), so `provider + "/" + model`
+ * is not the runtime's own ref and the bare id loses who served the turn.
  */
 export function formatAgentModel(event: {
   provider?: unknown;
@@ -26,15 +23,9 @@ export function formatAgentModel(event: {
 }
 
 /**
- * Records the model that answered onto the held client's headers.
- *
- * `llm_output` is the source: it is the only hook carrying `resolvedRef`, and it
- * fires once per turn where `model_call_ended` fires per model call (twice on a
- * turn that used tools). `reply_payload_sending` carries a usage snapshot but
- * never fires on the gateway/CLI path.
- *
- * Conversation-gated, like capture. Without `hooks.allowConversationAccess` the
- * model header is simply absent; host and plugin are unaffected.
+ * `llm_output` is the only hook carrying `resolvedRef`, and it fires once per turn
+ * where `model_call_ended` fires per model call. Conversation-gated like capture:
+ * without `allowConversationAccess` the model header is absent.
  */
 export function registerTelemetryHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("llm_output", async (event) => {
