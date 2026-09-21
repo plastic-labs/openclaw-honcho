@@ -1,0 +1,53 @@
+# TEMPORARY — delete before merging #143.
+#
+# Proves ClawHub trusted publishing works from this workflow. Publishing an
+# already-published version fails with "Version X already exists", and that
+# error only comes back after authentication succeeds — so seeing it is the
+# pass condition. Nothing is published.
+name: ClawHub OIDC test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Attempt publish of the already-published version
+        run: |
+          set +e
+          OUT=$(npx -y clawhub@latest package publish . \
+            --source-repo "${GITHUB_REPOSITORY}" \
+            --source-commit "${GITHUB_SHA}" \
+            --json 2>&1)
+          CODE=$?
+          echo "exit=$CODE"
+          echo "$OUT"
+          echo "---"
+          if echo "$OUT" | grep -qi "already exists"; then
+            echo "PASS: authenticated via OIDC and reached the version check"
+            exit 0
+          fi
+          if echo "$OUT" | grep -qiE "unauthor|forbidden|not authenticated|no token|login"; then
+            echo "FAIL: OIDC authentication rejected"
+            exit 1
+          fi
+          echo "INCONCLUSIVE: unexpected output, inspect above"
+          exit 1
