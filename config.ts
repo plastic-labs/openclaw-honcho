@@ -13,9 +13,10 @@ export const DEFAULT_NOISE_PATTERNS: string[] = [
  * How far a recall call may reach.
  *
  * - `session`   — this Honcho session only.
- * - `scope`     — the sessions in `recall.scopeName`, a Honcho scope. Fails
- *                 closed when the scope is empty and needs a workspace-level
- *                 API key.
+ * - `scope`     — the sessions in `recall.scopeName`, a Honcho scope. Needs a
+ *                 workspace-level API key. A scope with no member sessions
+ *                 returns nothing rather than widening. Not to be confused with
+ *                 a missing `scopeName`, which falls back to `session` below.
  * - `workspace` — every session the peer has written to.
  */
 export const RECALL_SCOPES = ["session", "scope", "workspace"] as const;
