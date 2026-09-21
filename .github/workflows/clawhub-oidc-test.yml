@@ -37,6 +37,18 @@ jobs:
           echo "ACTIONS_ID_TOKEN_REQUEST_URL set:   ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}${ACTIONS_ID_TOKEN_REQUEST_URL:-NO}"
           echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-NO}"
 
+      - name: Mint a publish token directly, to see the real error
+        run: |
+          set +e
+          OIDC=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=clawhub" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).value||"")}catch{console.log("")}})')
+          if [ -z "$OIDC" ]; then echo "could not obtain an OIDC token"; exit 1; fi
+          echo "OIDC token obtained (${#OIDC} chars)"
+          echo "--- mint response ---"
+          curl -sS -w "\nHTTP %{http_code}\n" -X POST https://clawhub.ai/api/v1/publish/token/mint \
+            -H "content-type: application/json" \
+            -d "$(node -e 'const t=process.argv[1];console.log(JSON.stringify({packageName:"@honcho-ai/openclaw-honcho",version:"1.5.6",githubOidcToken:t}))' "$OIDC")"
+
       - name: Attempt publish of the already-published version
         run: |
           set +e
