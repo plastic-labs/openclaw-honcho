@@ -19,6 +19,8 @@ import { registerGatewayHook } from "./hooks/gateway.js";
 import { registerContextHook } from "./hooks/context.js";
 import { registerCaptureHook } from "./hooks/capture.js";
 import { registerSubagentHooks } from "./hooks/subagent.js";
+import { registerTelemetryHook } from "./hooks/telemetry.js";
+import { registerModelProbe } from "./hooks/model-probe.js";
 import { registerSessionTool } from "./tools/session.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerContextTool } from "./tools/context.js";
@@ -123,6 +125,8 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
 
     // Hooks
     registerGatewayHook(api, state);
+    registerTelemetryHook(api, state);
+    registerModelProbe(api);
     registerSubagentHooks(api);
     registerContextHook(api, state);
     registerCaptureHook(api, state);
