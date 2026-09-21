@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { Honcho } from "@honcho-ai/sdk";
+import { createHonchoClient } from "../honcho-client.js";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
@@ -335,9 +335,11 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             }
 
             // Upload files to Honcho
-            const setupHoncho = new Honcho({
+            // Goes through the factory too, so the setup upload carries the
+            // same host/plugin headers. It legitimately has no model.
+            const setupHoncho = createHonchoClient({
               apiKey: resolvedApiKey || undefined,
-              baseURL: resolvedBaseUrl,
+              baseUrl: resolvedBaseUrl,
               workspaceId: resolvedWorkspaceId,
             });
 
