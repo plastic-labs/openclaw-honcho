@@ -84,7 +84,7 @@
               "workspace"
             ],
             "default": "workspace",
-            "description": "Boundary for the memory context injected before every prompt."
+            "description": "Boundary for the memory context injected before every prompt. \"session\" also drops the peer card, which has no session dimension."
           },
           "ask": {
             "type": "string",
@@ -94,7 +94,7 @@
               "workspace"
             ],
             "default": "workspace",
-            "description": "Boundary for honcho_ask."
+            "description": "Boundary for honcho_ask. \"session\" scopes conclusions but not the peer card, which peer.chat fetches unconditionally upstream."
           },
           "scopeName": {
             "type": "string",

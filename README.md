@@ -232,11 +232,19 @@ hand rather than everything the peer has ever said:
 }
 ```
 
-| value | Reach |
-|---|---|
-| `workspace` | Every session the peer has written to. The default. |
-| `session` | The current Honcho session only. |
-| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when the scope is empty, and needs a workspace-level API key. |
+| value | Conclusions | Peer card |
+|---|---|---|
+| `workspace` | Every session the peer has written to. The default. | Full card. |
+| `session` | The current Honcho session only. | **Dropped.** |
+| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when empty, and needs a workspace-level API key. | The scope's own card. |
+
+`session` drops the peer card because a card has no session dimension — it is
+synthesized from everything the observer has seen, so Honcho cannot narrow it and
+withholds it rather than leak past the boundary.
+
+`ask: "session"` scopes conclusions but not the card: `peer.chat` fetches it
+unconditionally upstream. `automatic: "session"` is a true boundary; `ask: "session"`
+is a partial one.
 
 A path set to `scope` without a `scopeName` falls back to `session` rather than
 silently widening.
