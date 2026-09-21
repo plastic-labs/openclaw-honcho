@@ -42,11 +42,13 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      # postinstall only prints guidance; skipping it keeps unreviewed
+      # install scripts out of the job that builds the published artifact.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
       - name: Pack the ClawPack tarball
-        run: npx -y clawhub@latest package pack . --pack-destination dist-pack --json
+        run: npx -y clawhub@0.23.3 package pack . --pack-destination dist-pack --json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -56,7 +58,9 @@ jobs:
 
   publish:
     needs: pack
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@main
+    # Pinned: this job holds id-token: write, so a mutable @main would give
+    # our publishing identity to whatever lands upstream. Bump deliberately.
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@ff6c118c132ae89b5351739cc45fe9227ff1574e
     permissions:
       actions: read
       contents: read
