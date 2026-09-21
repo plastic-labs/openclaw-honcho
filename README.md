@@ -236,7 +236,7 @@ hand rather than everything the peer has ever said:
 |---|---|---|
 | `workspace` | Every session the peer has written to. The default. | Full card. |
 | `session` | The current Honcho session only. | **Dropped.** |
-| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Fails closed when empty, and needs a workspace-level API key. | The scope's own card. |
+| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Needs a workspace-level API key. A scope with no member sessions returns nothing rather than widening. | The scope's own card. |
 
 `session` drops the peer card because a card has no session dimension — it is
 synthesized from everything the observer has seen, so Honcho cannot narrow it and
