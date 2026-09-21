@@ -2,6 +2,23 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.5.6] - 2026-09-21
+
+### Added
+- **Telemetry headers (#141)**: Requests carry `X-Honcho-Host`, `X-Honcho-Plugin` and `X-Honcho-Agent-Model`. The model header needs `hooks.allowConversationAccess`.
+
+### Changed
+- **Legacy `memory_search` / `memory_get` aliases are opt-in (#125)**: Behind `enableMemoryCompatibilityTools` (default `false`). Modern OpenClaw provides these names itself, so the plugin's registrations were shadowed and warned on every load.
+- **`@honcho-ai/sdk` upgraded to 2.5.0 (#139)**.
+
+### Fixed
+- **Capture watermark no longer relies on array positions (#136)**: It anchors on message identity, so a runtime that passes only the current turn to `agent_end` no longer selects an empty range.
+- **The context hook wiped the watermark every turn (#137, #138)**: Passing `metadata` to `session()` replaces stored metadata; it now doesn't.
+- **Imports moved off the `openclaw/plugin-sdk` barrel (#127)**: OpenClaw removed it in 2026.8.2.
+
+### Documentation
+- Document the `plugins.slots.memory` requirement and `plugins enable` on 2026.6.x and 8.x (#133).
+
 ## [1.5.5] - 2026-08-24
 
 ### Fixed
