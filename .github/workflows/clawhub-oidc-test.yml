@@ -32,6 +32,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      - name: Is the OIDC env actually present?
+        run: |
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL set:   ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}${ACTIONS_ID_TOKEN_REQUEST_URL:-NO}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN set: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+yes}${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-NO}"
+
       - name: Attempt publish of the already-published version
         run: |
           set +e
