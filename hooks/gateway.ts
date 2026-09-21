@@ -2,33 +2,16 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { getPluginVersion } from "../honcho-client.js";
 
 const PLUGIN_ID = "openclaw-honcho";
 const NPM_PACKAGE = "@honcho-ai/openclaw-honcho";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-
-// Compiled to dist/hooks/, so the package root is two levels up; one level up
-// covers running straight from source. Never throws — an unknown version just
-// skips the update check.
-function readPluginVersion(): string | null {
-  for (const rel of [["..", "..", "package.json"], ["..", "package.json"]]) {
-    try {
-      const pkg = require(join(__dirname, ...rel));
-      if (pkg?.name === NPM_PACKAGE && pkg.version) return pkg.version;
-    } catch {
-      // Not here — try the next candidate.
-    }
-  }
-  return null;
-}
-
-const PLUGIN_VERSION = readPluginVersion();
+// Shared with the telemetry headers so the two cannot disagree.
+const rawPluginVersion = getPluginVersion();
+const PLUGIN_VERSION = rawPluginVersion === "unknown" ? null : rawPluginVersion;
 
 function getConfigPath(): string {
   return join(

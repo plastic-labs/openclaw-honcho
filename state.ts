@@ -5,6 +5,7 @@
  */
 
 import { Honcho, type Peer } from "@honcho-ai/sdk";
+import { createHonchoClient } from "./honcho-client.js";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { honchoConfigSchema, type HonchoConfig } from "./config.js";
@@ -47,6 +48,7 @@ export type PluginState = {
    * Used by the capture hook to determine where the current turn starts in the
    * accumulated message array, so first-init skips pre-installation history. */
   turnStartIndex: Map<string, number>;
+  lastAgentModel?: string;
   initialized: boolean;
   api: OpenClawPluginApi;
   ensureInitialized: () => Promise<void>;
@@ -76,11 +78,11 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     );
   }
 
-  const honcho = new Honcho({
+  const honcho = createHonchoClient({
     apiKey: cfg.apiKey,
-    baseURL: cfg.baseUrl,
+    baseUrl: cfg.baseUrl,
     workspaceId: cfg.workspaceId,
-    timeout: cfg.timeoutMs,
+    timeoutMs: cfg.timeoutMs,
   });
 
   const peersFilePath = resolvePeersFilePath();

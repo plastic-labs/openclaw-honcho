@@ -22,6 +22,7 @@
     "openclaw.plugin.json"
   ],
   "dependencies": {
+    "@honcho-ai/harness-plugin-core": "^0.1.1",
     "@honcho-ai/sdk": "^2.5.0",
     "@sinclair/typebox": "^0.32.0"
   },
