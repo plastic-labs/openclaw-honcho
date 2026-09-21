@@ -1,4 +1,4 @@
-name: Publish
+name: Publish to npm
 
 on:
   push:
@@ -11,9 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # Required for ClawHub trusted publishing, which mints an OIDC token
-      # instead of using a stored credential.
-      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -79,12 +76,3 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "${TAG}"
           git push origin "${TAG}"
-
-      - name: Publish to ClawHub
-        if: steps.version-check.outputs.changed == 'true'
-        run: |
-          npx -y clawhub@latest package publish . \
-            --source-repo "${GITHUB_REPOSITORY}" \
-            --source-ref "v${{ steps.version-check.outputs.local }}" \
-            --source-commit "${GITHUB_SHA}" \
-            --wait --wait-timeout 300 --json
