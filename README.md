@@ -236,7 +236,7 @@ hand rather than everything the peer has ever said:
 |---|---|---|
 | `workspace` | Every session the peer has written to. The default. | Full card. |
 | `session` | The current Honcho session only. | **Dropped.** |
-| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Needs a workspace-level API key. A scope with no member sessions returns nothing rather than widening. | The scope's own card. |
+| `scope` | The sessions belonging to `scopeName`, a [Honcho scope](https://docs.honcho.dev). Needs a workspace-level API key. A scope that exists but has no member sessions returns nothing rather than widening; a missing or blank `scopeName` falls back to `session` (see below). | The scope's own card. |
 
 `session` drops the peer card because a card has no session dimension — it is
 synthesized from everything the observer has seen, so Honcho cannot narrow it and
@@ -246,8 +246,8 @@ withholds it rather than leak past the boundary.
 unconditionally upstream. `automatic: "session"` is a true boundary; `ask: "session"`
 is a partial one.
 
-A path set to `scope` without a `scopeName` falls back to `session` rather than
-silently widening.
+A path set to `scope` with a missing or blank `scopeName` falls back to `session`
+rather than silently widening.
 
 The explicitly invoked tools (`honcho_context`, `honcho_search_conclusions`,
 `honcho_search_messages`) are always workspace-wide. They cannot be bounded
