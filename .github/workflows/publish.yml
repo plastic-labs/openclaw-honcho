@@ -3,7 +3,7 @@ name: Publish
 # npm publishes on a package.json change; ClawHub is a workflow_dispatch, because
 # its trusted publishing only mints a token for workflow_dispatch runs. ClawHub binds
 # that token to the run's OIDC ref and sha claims, so the dispatch has to happen on the
-# tag being published: "Use workflow from" and the ref input must both be the tag.
+# tag being published: pick it under "Use workflow from". The job checks out that ref.
 on:
   push:
     branches: [main]
@@ -11,9 +11,6 @@ on:
       - "package.json"
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Tag to publish to ClawHub, e.g. v1.5.6. Run the workflow from that same tag."
-        required: true
       dry_run:
         description: "Preview without publishing"
         type: boolean
@@ -100,7 +97,7 @@ jobs:
         run: |
           # Dispatch on the tag itself so the OIDC ref and sha claims are the tag's;
           # ClawHub rejects a publish whose source ref or commit differ from them.
-          gh workflow run publish.yml --ref "v${VERSION}" -f ref="v${VERSION}" -f dry_run=false
+          gh workflow run publish.yml --ref "v${VERSION}" -f dry_run=false
           echo "Queued a ClawHub publish for v${VERSION}. This only queues a run —"
           echo "check Actions for whether it succeeded."
 
@@ -111,15 +108,15 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # Checks out the ref the run was dispatched on, which is the only commit ClawHub
+      # will accept: it must equal the OIDC token's sha.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      # No cache: a user-supplied ref must not write a cache the default branch reads.
+      # No cache: a tag ref must not write a cache the default branch reads.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
