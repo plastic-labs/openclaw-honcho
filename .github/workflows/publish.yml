@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -88,6 +89,18 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "${TAG}"
           git push origin "${TAG}"
+
+      - name: Dispatch the ClawHub publish
+        if: steps.version-check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version-check.outputs.local }}
+        run: |
+          # --ref main is where the workflow definition lives; -f ref= is the tag
+          # the ClawHub job checks out. They are not the same thing.
+          gh workflow run publish.yml --ref main -f ref="v${VERSION}" -f dry_run=false
+          echo "Queued a ClawHub publish for v${VERSION}. This only queues a run —"
+          echo "check Actions for whether it succeeded."
 
   clawhub:
     if: github.event_name == 'workflow_dispatch'
