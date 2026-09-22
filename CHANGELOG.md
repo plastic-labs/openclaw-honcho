@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.5.7] - 2026-09-22
+
+### Fixed
+- **Gateway start no longer writes `allowConversationAccess` (#144)**: Since 1.5.4 the `gateway_start` hook set `hooks.allowConversationAccess=true` in the OpenClaw config when it was missing, enabling message capture without the operator asking. It now logs a warning with the `openclaw config set` command instead, as the README documents. The install step and `openclaw honcho setup` still set the flag deliberately.
+
 ## [1.5.6] - 2026-09-21
 
 ### Added
