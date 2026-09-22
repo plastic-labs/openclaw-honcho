@@ -1,13 +1,27 @@
-name: Publish to npm
+name: Publish
 
+# npm publishes automatically when package.json changes on main.
+# ClawHub is a manual dispatch: it does not ingest from npm, and its trusted
+# publishing only mints a token for workflow_dispatch runs — a push-triggered
+# run is rejected with "GitHub OIDC workflow requires workflow_dispatch".
 on:
   push:
     branches: [main]
     paths:
       - "package.json"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish to ClawHub, e.g. v1.5.6"
+        required: true
+      dry_run:
+        description: "Preview without publishing"
+        type: boolean
+        default: true
 
 jobs:
   publish:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,3 +90,43 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "${TAG}"
           git push origin "${TAG}"
+
+  clawhub:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # No cache here: this job checks out a user-supplied ref, and a cache
+      # shared with the default branch would be poisonable from it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+
+      - name: Publish to ClawHub
+        env:
+          REF: ${{ inputs.ref }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          # git rev-parse, not GITHUB_SHA: on a dispatch that is the branch head,
+          # not the tag actually checked out.
+          COMMIT="$(git rev-parse HEAD)"
+          ARGS=""
+          [ "$DRY_RUN" = "true" ] && ARGS="--dry-run"
+          npx -y clawhub@0.23.3 package publish . \
+            --source-repo "$GITHUB_REPOSITORY" \
+            --source-ref "$REF" \
+            --source-commit "$COMMIT" \
+            --wait --wait-timeout 300 --json $ARGS
