@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import type { Peer, MessageInput } from "@honcho-ai/sdk";
+import type { RecallScope } from "./config.js";
 // @ts-ignore - resolved by openclaw runtime
 import {
   isCronSessionKey,
@@ -283,6 +284,33 @@ export function extractSenderId(content: string): string | undefined {
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * Recall options for `session.context()`.
+ *
+ * `scope` is mutually exclusive with `peerPerspective` and requires
+ * `peerTarget`, so callers must drop the perspective peer when a scope is
+ * returned — the scope peer becomes the observer instead.
+ */
+export function sessionRecallOptions(
+  scope: RecallScope,
+  scopeName?: string,
+): { limitToSession?: boolean; scope?: string } {
+  if (scope === "session") return { limitToSession: true };
+  if (scope === "scope" && scopeName) return { scope: scopeName };
+  return {};
+}
+
+/** Recall options for `peer.chat()` and `peer.representation()`. */
+export function peerRecallOptions(
+  scope: RecallScope,
+  scopeName: string | undefined,
+  sessionId: string,
+): { session?: string; scope?: string } {
+  if (scope === "session") return { session: sessionId };
+  if (scope === "scope" && scopeName) return { scope: scopeName };
+  return {};
 }
 
 /**
