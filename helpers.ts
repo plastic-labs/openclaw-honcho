@@ -313,6 +313,44 @@ export function peerRecallOptions(
   return {};
 }
 
+/** `__openclaw` envelope OpenClaw attaches to inbound messages (>= 2026.8). Undocumented. */
+type OpenClawEnvelope = {
+  senderId?: unknown;
+  senderIsOwner?: unknown;
+  senderIdentity?: { id?: unknown } | unknown;
+};
+
+export type ResolvedSender = {
+  senderId?: string;
+  isOwner: boolean;
+};
+
+function readEnvelope(msg: unknown): OpenClawEnvelope | undefined {
+  if (!msg || typeof msg !== "object") return undefined;
+  const env = (msg as Record<string, unknown>).__openclaw;
+  return env && typeof env === "object" ? (env as OpenClawEnvelope) : undefined;
+}
+
+/** Per-message sender: `__openclaw` envelope first, legacy text block (< 2026.8) as fallback. */
+export function extractMessageSender(msg: unknown): ResolvedSender {
+  const env = readEnvelope(msg);
+  const isOwner = env?.senderIsOwner === true;
+
+  if (env) {
+    if (typeof env.senderId === "string" && env.senderId.length > 0) {
+      return { senderId: env.senderId, isOwner };
+    }
+    const identity = env.senderIdentity;
+    if (identity && typeof identity === "object") {
+      const id = (identity as { id?: unknown }).id;
+      if (typeof id === "string" && id.length > 0) return { senderId: id, isOwner };
+    }
+  }
+
+  const legacy = extractSenderId(getRawContent(msg));
+  return legacy ? { senderId: legacy, isOwner } : { isOwner };
+}
+
 /**
  * Stable identity for a raw OpenClaw message.
  *
@@ -374,10 +412,13 @@ export function extractMessages(
   agentPeer: Peer,
   noisePatterns: string[] = [],
   resolvePeer?: (senderId: string) => Peer | undefined,
+  /** Caller-resolved sender for rawMessages[i]. When supplied, no in-message lookup runs. */
+  senderIdFor?: (index: number) => string | undefined,
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
-  for (const msg of rawMessages) {
+  for (let i = 0; i < rawMessages.length; i++) {
+    const msg = rawMessages[i];
     if (!msg || typeof msg !== "object") continue;
     const m = msg as Record<string, unknown>;
     const role = m.role as string | undefined;
@@ -386,10 +427,10 @@ export function extractMessages(
 
     const rawContent = getRawContent(msg);
 
-    // For user messages, extract sender ID before cleaning strips metadata
+    // Resolve sender before cleaning strips metadata.
     let peer: Peer;
     if (role === "user") {
-      const senderId = extractSenderId(rawContent);
+      const senderId = senderIdFor ? senderIdFor(i) : extractMessageSender(msg).senderId;
       peer = (senderId && resolvePeer?.(senderId)) || defaultParticipantPeer;
     } else {
       peer = agentPeer;

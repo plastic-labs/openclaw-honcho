@@ -8,9 +8,8 @@ import {
   isSubagentSession,
   normalizeSessionKey,
   extractMessages,
-  extractSenderId,
+  extractMessageSender,
   getMessageIdentity,
-  getRawContent,
 } from "../helpers.js";
 import { subagentParentMap } from "./subagent.js";
 
@@ -23,7 +22,16 @@ export async function flushMessages(
   api: OpenClawPluginApi,
   state: PluginState,
   messages: unknown[],
-  ctx: { sessionKey?: string; agentId?: string; sessionId?: string; messageProvider?: string },
+  ctx: {
+    sessionKey?: string;
+    agentId?: string;
+    sessionId?: string;
+    messageProvider?: string;
+    /** Sender for this run (PluginHookAgentContext), not for each message. */
+    senderId?: string;
+    trigger?: string;
+    inputProvenance?: { kind?: string; sourceSessionKey?: string };
+  },
 ): Promise<number> {
   if (!messages?.length) return 0;
 
@@ -33,6 +41,9 @@ export async function flushMessages(
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
   const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
   const sessionClass = classifySession(openclawSessionKey);
+
+  // A cron session holds nothing but machine runs; skip it before touching Honcho.
+  if (sessionClass === "cron" && !state.cfg.captureSystemRuns) return 0;
 
   await state.ensureInitialized();
   const agentPeer = await state.getAgentPeer(agentId);
@@ -137,27 +148,82 @@ export async function flushMessages(
 
   const newRawMessages = messages.slice(startIndex);
 
-  // Pre-resolve participant peers for all unique sender IDs in this batch
+  // Per-message resolution: a batch can mix speakers.
+  const turnSenderId =
+    typeof ctx.senderId === "string" && ctx.senderId.length > 0 ? ctx.senderId : undefined;
+
+  // Run-level origin of the trailing user message. Cron/heartbeat runs are
+  // dropped unless captureSystemRuns; sessions_send input belongs to the
+  // sending agent's peer (#35).
+  const provenance = state.turnProvenance?.get(sessionKey) ?? ctx.inputProvenance;
+  const dropSystemRun =
+    !state.cfg.captureSystemRuns &&
+    (provenance?.kind === "internal_system" ||
+      ctx.trigger === "cron" ||
+      ctx.trigger === "heartbeat");
+  const sourceAgentId =
+    provenance?.kind === "inter_session"
+      ? /^agent:([^:]+)/.exec(provenance.sourceSessionKey ?? "")?.[1]?.toLowerCase()
+      : undefined;
+  const sourceAgentPeer = sourceAgentId ? await state.getAgentPeer(sourceAgentId) : null;
+  const sourceAgentKey = sourceAgentPeer ? `agent:${sourceAgentId}` : undefined;
+
+  let lastUserIndex = -1;
+  for (let i = newRawMessages.length - 1; i >= 0; i--) {
+    const m = newRawMessages[i] as Record<string, unknown> | null;
+    if (m && typeof m === "object" && m.role === "user") {
+      lastUserIndex = i;
+      break;
+    }
+  }
+
+  const senderIdByIndex: Array<string | undefined> = new Array(newRawMessages.length);
+  const skipIndex = new Set<number>();
   const senderIds = new Set<string>();
   let lastSenderId: string | undefined;
   let userMsgCount = 0;
-  for (const msg of newRawMessages) {
+  let unresolved = 0;
+
+  for (let i = 0; i < newRawMessages.length; i++) {
+    const msg = newRawMessages[i];
     if (!msg || typeof msg !== "object") continue;
-    const m = msg as Record<string, unknown>;
-    if (m.role !== "user") continue;
+    if ((msg as Record<string, unknown>).role !== "user") continue;
     userMsgCount++;
-    const rawContent = getRawContent(msg);
-    const senderId = extractSenderId(rawContent);
+
+    const structured = extractMessageSender(msg);
+
+    if (structured.isOwner) {
+      senderIdByIndex[i] = undefined;
+      lastSenderId = undefined;
+      continue;
+    }
+
+    if (i === lastUserIndex && dropSystemRun) {
+      // The run is the trailing prompt and everything after it.
+      for (let j = i; j < newRawMessages.length; j++) skipIndex.add(j);
+      continue;
+    }
+    if (i === lastUserIndex && sourceAgentKey) {
+      senderIdByIndex[i] = sourceAgentKey;
+      continue;
+    }
+
+    // ctx.senderId describes this run, so it only applies to the trailing message.
+    const senderId = structured.senderId ?? (i === lastUserIndex ? turnSenderId : undefined);
+
+    senderIdByIndex[i] = senderId;
     if (senderId) {
       senderIds.add(senderId);
       lastSenderId = senderId;
     } else {
-      const hasConvInfo = rawContent.includes("Conversation info (untrusted metadata):");
-      api.logger.debug?.(`[honcho] User message without sender_id (hasConvInfo=${hasConvInfo}, contentLen=${rawContent.length})`);
+      unresolved++;
     }
   }
-  if (senderIds.size > 0) {
-    api.logger.debug?.(`[honcho] Resolved ${senderIds.size} unique sender(s) from ${userMsgCount} user message(s)`);
+
+  if (userMsgCount > 0) {
+    api.logger.debug?.(
+      `[honcho] sender resolution: ${senderIds.size} distinct across ${userMsgCount} user message(s), ${unresolved} unresolved`,
+    );
   }
 
   // Parallel peer resolution — avoids sequential await bottleneck in group chats.
@@ -167,6 +233,7 @@ export async function flushMessages(
   for (let i = 0; i < senderIdArray.length; i++) {
     resolvedPeers.set(senderIdArray[i], peers[i]);
   }
+  if (sourceAgentKey && sourceAgentPeer) resolvedPeers.set(sourceAgentKey, sourceAgentPeer);
 
   const defaultParticipantPeer = await state.getParticipantPeer();
 
@@ -179,6 +246,9 @@ export async function flushMessages(
     }
   }
   peerConfigMap.set(agentPeer.id, { observeMe: true, observeOthers: true });
+  if (sourceAgentPeer && sourceAgentPeer.id !== agentPeer.id) {
+    peerConfigMap.set(sourceAgentPeer.id, { observeMe: true, observeOthers: true });
+  }
   if (parentPeer) {
     peerConfigMap.set(parentPeer.id, { observeMe: false, observeOthers: true });
   }
@@ -193,12 +263,14 @@ export async function flushMessages(
   type ExtractedMessage = ReturnType<typeof extractMessages>[number];
   const extracted: Array<{ message: ExtractedMessage; rawIndex: number }> = [];
   for (let offset = 0; offset < newRawMessages.length; offset++) {
+    if (skipIndex.has(offset)) continue;
     const [message] = extractMessages(
       [newRawMessages[offset]],
       defaultParticipantPeer,
       agentPeer,
       state.cfg.noisePatterns,
       (senderId) => resolvedPeers.get(senderId),
+      () => senderIdByIndex[offset], // aligned to the slice, not `messages`
     );
     if (message) extracted.push({ message, rawIndex: startIndex + offset });
   }
@@ -288,6 +360,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         state.resolveDefaultAgentId,
       );
       state.turnStartIndex.delete(sessionKey);
+      state.turnProvenance?.delete(sessionKey);
       if (isSubagentSession(ctx)) subagentParentMap.delete(ctx.sessionKey ?? "");
     }
   });

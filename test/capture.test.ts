@@ -130,6 +130,8 @@ describe("flushMessages metadata", () => {
   it("classifies cron and subagent sessions in the metadata block", async () => {
     {
       const { state, session } = createMockState();
+      // Cron runs are dropped by default; this test is about classification.
+      (state.cfg as { captureSystemRuns: boolean }).captureSystemRuns = true;
       const api = { logger: loggerStub() } as never;
       await flushMessages(
         api,

@@ -11,15 +11,29 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
 
     state.turnStartIndex.set(sessionKey, event.messages.length);
+    const provenance = (ctx as { inputProvenance?: { kind?: unknown; sourceSessionKey?: unknown } })
+      .inputProvenance;
+    if (provenance && typeof provenance === "object") {
+      state.turnProvenance?.set(sessionKey, {
+        ...(typeof provenance.kind === "string" ? { kind: provenance.kind } : {}),
+        ...(typeof provenance.sourceSessionKey === "string"
+          ? { sourceSessionKey: provenance.sourceSessionKey }
+          : {}),
+      });
+    } else {
+      state.turnProvenance?.delete(sessionKey);
+    }
 
     try {
       await state.ensureInitialized();
       const agentPeer = await state.getAgentPeer(agentId);
-      // Prefer the sender of the current inbound message — capture has not
-      // run yet for this turn, so session metadata still reflects the previous
-      // speaker. In group chats this would otherwise build context against the
-      // prior participant's representation whenever the speaker changes.
-      const currentSenderId = extractSenderId(event.prompt);
+      // Prefer the current sender: capture hasn't run yet, so session metadata
+      // still names the previous speaker. ctx.senderId is per-run; the prompt
+      // parse only covers OpenClaw < 2026.8.
+      const currentSenderId =
+        (typeof ctx.senderId === "string" && ctx.senderId.length > 0
+          ? ctx.senderId
+          : undefined) ?? extractSenderId(event.prompt);
       const participantPeer = currentSenderId
         ? await state.getParticipantPeer(currentSenderId)
         : await state.resolveSessionParticipantPeer(sessionKey);
