@@ -1,9 +1,7 @@
 name: Publish
 
-# npm publishes automatically when package.json changes on main.
-# ClawHub is a manual dispatch: it does not ingest from npm, and its trusted
-# publishing only mints a token for workflow_dispatch runs — a push-triggered
-# run is rejected with "GitHub OIDC workflow requires workflow_dispatch".
+# npm publishes on a package.json change; ClawHub is a manual dispatch, because
+# its trusted publishing only mints a token for workflow_dispatch runs.
 on:
   push:
     branches: [main]
@@ -106,27 +104,14 @@ jobs:
         with:
           version: 9
 
-      # No cache here: this job checks out a user-supplied ref, and a cache
-      # shared with the default branch would be poisonable from it.
+      # No cache: a user-supplied ref must not write a cache the default branch reads.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      # dist/ is gitignored, so the published folder needs a local build.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
-      - name: Publish to ClawHub
-        env:
-          REF: ${{ inputs.ref }}
-          DRY_RUN: ${{ inputs.dry_run }}
-        run: |
-          # git rev-parse, not GITHUB_SHA: on a dispatch that is the branch head,
-          # not the tag actually checked out.
-          COMMIT="$(git rev-parse HEAD)"
-          ARGS=""
-          [ "$DRY_RUN" = "true" ] && ARGS="--dry-run"
-          npx -y clawhub@0.23.3 package publish . \
-            --source-repo "$GITHUB_REPOSITORY" \
-            --source-ref "$REF" \
-            --source-commit "$COMMIT" \
-            --wait --wait-timeout 300 --json $ARGS
+      # Source repo, ref and commit are inferred from the checkout.
+      - run: npx -y clawhub@0.23.3 package publish . --wait --wait-timeout 300 ${{ inputs.dry_run && '--dry-run' || '' }}
