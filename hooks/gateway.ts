@@ -1,7 +1,7 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getPluginVersion } from "../honcho-client.js";
@@ -20,7 +20,7 @@ function getConfigPath(): string {
   );
 }
 
-function ensureConversationAccess(logger: OpenClawPluginApi["logger"]): void {
+function warnIfConversationAccessMissing(logger: OpenClawPluginApi["logger"]): void {
   try {
     const configPath = getConfigPath();
     let config: Record<string, any>;
@@ -33,20 +33,14 @@ function ensureConversationAccess(logger: OpenClawPluginApi["logger"]): void {
     const entry = config?.plugins?.entries?.[PLUGIN_ID];
     if (entry?.hooks?.allowConversationAccess === true) return;
 
-    if (!config.plugins) config.plugins = {};
-    if (!config.plugins.entries) config.plugins.entries = {};
-    if (!config.plugins.entries[PLUGIN_ID]) config.plugins.entries[PLUGIN_ID] = {};
-    if (!config.plugins.entries[PLUGIN_ID].hooks) config.plugins.entries[PLUGIN_ID].hooks = {};
-    config.plugins.entries[PLUGIN_ID].hooks.allowConversationAccess = true;
-
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
     logger.warn(
-      `[honcho] Set hooks.allowConversationAccess=true in config. ` +
-        `Restart the gateway to enable message capture:\n` +
+      `[honcho] hooks.allowConversationAccess is not set — message capture is off. ` +
+        `Enable it yourself, then restart the gateway:\n` +
+        `  openclaw config set plugins.entries.${PLUGIN_ID}.hooks.allowConversationAccess true\n` +
         `  openclaw gateway restart`,
     );
   } catch {
-    // Config unwritable — fall through; next startup will retry.
+    // Config unreadable — nothing to warn about.
   }
 }
 
@@ -87,7 +81,7 @@ async function checkForUpdate(logger: OpenClawPluginApi["logger"]): Promise<void
 
 export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("gateway_start", async (_event, _ctx) => {
-    ensureConversationAccess(api.logger);
+    warnIfConversationAccessMissing(api.logger);
     void checkForUpdate(api.logger);
 
     api.logger.info("Initializing Honcho memory...");
