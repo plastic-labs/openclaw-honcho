@@ -1,16 +1,29 @@
-name: Publish to npm
+name: Publish
 
+# npm publishes on a package.json change; ClawHub is a manual dispatch, because
+# its trusted publishing only mints a token for workflow_dispatch runs.
 on:
   push:
     branches: [main]
     paths:
       - "package.json"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag to publish to ClawHub, e.g. v1.5.6"
+        required: true
+      dry_run:
+        description: "Preview without publishing"
+        type: boolean
+        default: true
 
 jobs:
   publish:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -76,3 +89,42 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "${TAG}"
           git push origin "${TAG}"
+
+      - name: Dispatch the ClawHub publish
+        if: steps.version-check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version-check.outputs.local }}
+        run: |
+          # --ref main is where the workflow definition lives; -f ref= is the tag
+          # the ClawHub job checks out. They are not the same thing.
+          gh workflow run publish.yml --ref main -f ref="v${VERSION}" -f dry_run=false
+          echo "Queued a ClawHub publish for v${VERSION}. This only queues a run —"
+          echo "check Actions for whether it succeeded."
+
+  clawhub:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # No cache: a user-supplied ref must not write a cache the default branch reads.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # dist/ is gitignored, so the published folder needs a local build.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+
+      # Source repo, ref and commit are inferred from the checkout.
+      - run: npx -y clawhub@0.23.3 package publish . --wait --wait-timeout 300 ${{ inputs.dry_run && '--dry-run' || '' }}
