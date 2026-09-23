@@ -2,6 +2,28 @@
 import type { MemoryPluginCapability } from "openclaw/plugin-sdk/core";
 import { isManagedHonchoCloud, type PluginState } from "./state.js";
 
+type MemoryOriginClass = "owner" | "agent" | "untrusted" | "system";
+
+type MemoryProvenanceReader = (params: {
+  workspaceDir: string;
+  relativePath: string;
+}) => Promise<{ originClass: MemoryOriginClass } | undefined>;
+
+type HonchoMemoryRuntime = NonNullable<MemoryPluginCapability["runtime"]> & {
+  classifyWorkspaceMemoryPaths(params: {
+    workspaceDir: string;
+    relativePaths: string[];
+  }): Promise<Array<{ relativePath: string; originClass: MemoryOriginClass }>>;
+};
+
+/** Load OpenClaw's reader for the provenance it records on workspace memory writes. */
+async function loadProvenanceReader(): Promise<MemoryProvenanceReader | undefined> {
+  // @ts-ignore - resolved by openclaw runtime
+  const mod: unknown = await import("openclaw/plugin-sdk/memory-core-host-runtime-core").catch(() => undefined);
+  const reader = (mod as { readMemoryArtifactProvenance?: unknown } | undefined)?.readMemoryArtifactProvenance;
+  return typeof reader === "function" ? (reader as MemoryProvenanceReader) : undefined;
+}
+
 const DEFAULT_SEARCH_RESULTS = 10;
 const MAX_SEARCH_RESULTS = 50;
 
@@ -243,7 +265,7 @@ export function resolveHonchoMemoryBackendConfig(
  * resolve the session key from their tool context. */
 export function createHonchoMemoryRuntime(
   state: PluginState,
-): NonNullable<MemoryPluginCapability["runtime"]> {
+): HonchoMemoryRuntime {
   return {
     async getMemorySearchManager(params: { agentId?: string }) {
       return getHonchoMemorySearchManager(state, { agentId: params.agentId });
@@ -251,6 +273,20 @@ export function createHonchoMemoryRuntime(
 
     resolveMemoryBackendConfig(params: { agentId?: string } = {}) {
       return resolveHonchoMemoryBackendConfig(params);
+    },
+
+    /** Classify workspace memory files so OpenClaw keeps injecting them automatically.
+     * Files with no recorded provenance count as agent-authored. */
+    async classifyWorkspaceMemoryPaths(params) {
+      const readProvenance = await loadProvenanceReader();
+      return Promise.all(
+        params.relativePaths.map(async (relativePath) => ({
+          relativePath,
+          originClass:
+            (await readProvenance?.({ workspaceDir: params.workspaceDir, relativePath }))
+              ?.originClass ?? ("agent" as const),
+        })),
+      );
     },
   };
 }
