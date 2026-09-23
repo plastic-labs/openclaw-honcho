@@ -2,6 +2,21 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.6.0] - 2026-09-23
+
+### Added
+- **Per-path recall boundaries (#140)**: `recall.automatic` and `recall.ask` each take `workspace` (default, unchanged), `session` or `scope`, with `recall.scopeName` naming the Honcho scope. `scope` fails closed when empty and falls back to `session` when unnamed. The explicitly invoked tools stay workspace-wide.
+- **`captureSystemRuns` (#147)**: Cron and heartbeat runs are no longer saved unless this is `true`. Default `false`.
+
+### Changed
+- **Capture saves the current turn (#147)**: `agent_end` slices from the last user message and saves that turn. The persisted watermark, message-identity anchor and the `before_compaction` / `before_reset` flushes are removed. A turn whose flush fails is not retried.
+- **`sessions_send` runs are attributed to the sending agent's peer (#147)**, via `sourceSessionKey`.
+
+### Fixed
+- **Sender attribution on OpenClaw ≥ 2026.8 (#147)**: The plugin parsed a `Conversation info` text block that current OpenClaw no longer puts in message content, so every message was attributed to `owner`. Sender now comes from `ctx.senderId`, with the text block kept only for pre-2026.8 hosts and `owner` for sender-less runs.
+- **Subagent context was unbounded and missed the summary (#140)**: It used peer-level `context()`; it now shares the main `session.context()` path.
+- **`honcho_session` reached across sessions (#140)**: It is documented as current-session only but never passed `limitToSession`. It now does.
+
 ## [1.5.7] - 2026-09-22
 
 ### Fixed
