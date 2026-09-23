@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+
+const readMemoryArtifactProvenance = vi.fn(async (_params: { relativePath: string }) => undefined as { originClass: string } | undefined);
+vi.mock("openclaw/plugin-sdk/memory-core-host-runtime-core", () => ({ readMemoryArtifactProvenance }));
 import {
   createHonchoMemoryRuntime,
   getHonchoMemorySearchManager,
@@ -317,5 +320,22 @@ describe("Honcho memory runtime", () => {
         relPath: "sessions/session-1.txt",
       }),
     ).rejects.toThrow(/owner peer not initialized/);
+  });
+});
+
+describe("workspace memory provenance classification", () => {
+  it("lets OpenClaw inject MEMORY.md and USER.md unless core recorded them as untrusted", async () => {
+    readMemoryArtifactProvenance.mockImplementation(async ({ relativePath }) =>
+      relativePath === "USER.md" ? { originClass: "untrusted" } : undefined,
+    );
+    const runtime = createHonchoMemoryRuntime(createState());
+
+    await expect(
+      runtime.classifyWorkspaceMemoryPaths({ workspaceDir: "/ws", relativePaths: ["MEMORY.md", "USER.md"] }),
+    ).resolves.toEqual([
+      { relativePath: "MEMORY.md", originClass: "agent" },
+      { relativePath: "USER.md", originClass: "untrusted" },
+    ]);
+    expect(readMemoryArtifactProvenance).toHaveBeenCalledWith({ workspaceDir: "/ws", relativePath: "MEMORY.md" });
   });
 });
