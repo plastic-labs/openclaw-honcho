@@ -39,4 +39,23 @@ describe("context hook preserves session metadata", () => {
     expect(state.honcho.session).toHaveBeenCalledWith(expect.any(String));
     expect(session.metadata.participantSenderId).toBe("u1");
   });
+
+  it("does not open a session for a cron run", async () => {
+    const state = {
+      cfg: { captureSystemRuns: false, recall: { automatic: "workspace", ask: "workspace" } },
+      honcho: { session: vi.fn() },
+      turnProvenance: new Map(),
+      ensureInitialized: vi.fn(async () => undefined),
+      resolveDefaultAgentId: vi.fn(() => "main"),
+    } as unknown as PluginState;
+
+    let handler: ((e: unknown, c: unknown) => Promise<unknown>) | undefined;
+    registerContextHook(
+      { on: (name: string, fn: never) => { if (name === "before_prompt_build") handler = fn; }, logger: { debug: vi.fn(), warn: vi.fn() } } as never,
+      state,
+    );
+    await handler?.({ prompt: "Job ID: abc | Received: Tuesday", messages: [] }, { sessionKey: "agent:main:cron:job-1:run:r-1", agentId: "main" });
+
+    expect(state.honcho.session).not.toHaveBeenCalled();
+  });
 });

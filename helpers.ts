@@ -121,6 +121,19 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return isSubagentSessionKey(ctx?.sessionKey);
 }
 
+/** Cron/heartbeat run: machine-generated input, not a participant speaking. */
+export function isSystemRun(
+  ctx: { sessionKey?: string; trigger?: string; inputProvenance?: { kind?: string } },
+  provenanceKind?: string,
+): boolean {
+  return (
+    classifySession(normalizeSessionKey(ctx.sessionKey)) === "cron" ||
+    ctx.trigger === "cron" ||
+    ctx.trigger === "heartbeat" ||
+    (provenanceKind ?? ctx.inputProvenance?.kind) === "internal_system"
+  );
+}
+
 /**
  * Port of OpenClaw's strip-inbound-meta.ts core stripping behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.

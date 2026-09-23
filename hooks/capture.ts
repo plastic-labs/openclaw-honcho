@@ -6,6 +6,7 @@ import {
   buildSessionKey,
   classifySession,
   isSubagentSession,
+  isSystemRun,
   normalizeSessionKey,
   extractMessages,
   extractSenderId,
@@ -60,12 +61,7 @@ export async function flushMessages(
 
   // Cron/heartbeat runs are machine text; drop them unless configured.
   const provenance = state.turnProvenance?.get(sessionKey) ?? ctx.inputProvenance;
-  const isSystemRun =
-    sessionClass === "cron" ||
-    ctx.trigger === "cron" ||
-    ctx.trigger === "heartbeat" ||
-    provenance?.kind === "internal_system";
-  if (isSystemRun && !state.cfg.captureSystemRuns) return 0;
+  if (!state.cfg.captureSystemRuns && isSystemRun(ctx, provenance?.kind)) return 0;
 
   await state.ensureInitialized();
   const agentPeer = await state.getAgentPeer(agentId);
