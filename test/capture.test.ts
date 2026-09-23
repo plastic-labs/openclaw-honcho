@@ -98,6 +98,22 @@ describe("flushMessages metadata", () => {
     expect(meta.agentId).toBe("main");
   });
 
+  it("splits the shared DM key per sender and records both keys (#149)", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+
+    await flushMessages(
+      api,
+      state,
+      [{ role: "user", content: "hi", timestamp: 1 }, { role: "assistant", content: "hello", timestamp: 2 }],
+      { sessionKey: "agent:main:main", agentId: "main", channel: "telegram", senderId: "111" },
+    );
+
+    expect(state.honcho.session).toHaveBeenCalledWith(expect.stringMatching(/^chat-telegram-main-/));
+    expect(session.metadata.openclawSessionKey).toBe("agent:main:main");
+    expect(session.metadata.conversationSessionKey).toBe("agent:main:telegram:direct:111");
+  });
+
   it("records participantSenderId from the latest user message in the batch", async () => {
     const { state, session } = createMockState();
     const api = { logger: loggerStub() } as never;

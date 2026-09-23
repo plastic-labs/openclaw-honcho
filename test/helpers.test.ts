@@ -5,6 +5,7 @@ import {
   extractSenderId,
   extractProvider,
   normalizeSessionKey,
+  resolveConversationSessionKey,
 } from "../helpers.js";
 
 const CHAT_ID_RE = /^chat-[a-z0-9]+-[a-z0-9_-]+-[0-9a-f]{24}$/;
@@ -154,6 +155,47 @@ describe("buildSessionKey", () => {
 
     expect(id).toMatch(THREAD_ID_RE);
     expect(id.startsWith("thread-discord-main-")).toBe(true);
+  });
+});
+
+describe("buildSessionKey for the shared DM key (#149)", () => {
+  // Under the default session.dmScope "main", every DM routes to agent:<id>:main.
+  const dm = (senderId?: string, channel = "telegram") => ({
+    sessionKey: "agent:main:main",
+    agentId: "main",
+    ...(channel ? { channel } : {}),
+    ...(senderId ? { senderId } : {}),
+  });
+
+  it("splits the shared DM key per channel + sender and names the channel", () => {
+    const alice = buildSessionKey(dm("111"));
+    const bob = buildSessionKey(dm("222"));
+
+    expect(alice).not.toBe(bob);
+    expect(alice.startsWith("chat-telegram-main-")).toBe(true);
+    expect(bob.startsWith("chat-telegram-main-")).toBe(true);
+  });
+
+  it("matches the id OpenClaw's per-channel-peer dmScope would produce", () => {
+    expect(buildSessionKey(dm("111"))).toBe(
+      buildSessionKey({ sessionKey: "agent:main:telegram:direct:111", agentId: "main" }),
+    );
+  });
+
+  it("keeps the legacy id when channel or sender is unknown", () => {
+    const legacy = buildSessionKey({ sessionKey: "agent:main:main", agentId: "main" });
+    expect(legacy.startsWith("chat-main-main-")).toBe(true);
+    expect(buildSessionKey(dm(undefined))).toBe(legacy);
+    expect(buildSessionKey(dm("111", ""))).toBe(legacy);
+    expect(buildSessionKey(dm("111", "unknown"))).toBe(legacy);
+  });
+
+  it("never splits a routed key by sender", () => {
+    const group = { sessionKey: "agent:main:telegram:group:-52801", agentId: "main", channel: "telegram" };
+    expect(buildSessionKey({ ...group, senderId: "111" })).toBe(
+      buildSessionKey({ ...group, senderId: "222" }),
+    );
+    expect(resolveConversationSessionKey(group)).toBeNull();
   });
 });
 

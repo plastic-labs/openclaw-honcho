@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { Message } from "@honcho-ai/sdk";
 import type { PluginState } from "../state.js";
-import { buildSessionKey } from "../helpers.js";
+import { buildSessionKey, toolSessionKeyContext } from "../helpers.js";
 
 export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginState): void {
   api.registerTool(
@@ -102,7 +102,7 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
           const participantPeer = about
             ? await state.getParticipantPeer(about)
             : await state.resolveSessionParticipantPeer(
-                buildSessionKey({ sessionKey: toolCtx.sessionKey, agentId: toolCtx.agentId }),
+                buildSessionKey(toolSessionKeyContext(toolCtx)),
               );
           messages = await participantPeer.search(query, searchOpts);
         } else if (from === "agent") {
