@@ -313,76 +313,6 @@ export function peerRecallOptions(
   return {};
 }
 
-/** `__openclaw` envelope OpenClaw attaches to inbound messages (>= 2026.8). Undocumented. */
-type OpenClawEnvelope = {
-  senderId?: unknown;
-  senderIsOwner?: unknown;
-  senderIdentity?: { id?: unknown } | unknown;
-};
-
-export type ResolvedSender = {
-  senderId?: string;
-  isOwner: boolean;
-};
-
-function readEnvelope(msg: unknown): OpenClawEnvelope | undefined {
-  if (!msg || typeof msg !== "object") return undefined;
-  const env = (msg as Record<string, unknown>).__openclaw;
-  return env && typeof env === "object" ? (env as OpenClawEnvelope) : undefined;
-}
-
-/** Per-message sender: `__openclaw` envelope first, legacy text block (< 2026.8) as fallback. */
-export function extractMessageSender(msg: unknown): ResolvedSender {
-  const env = readEnvelope(msg);
-  const isOwner = env?.senderIsOwner === true;
-
-  if (env) {
-    if (typeof env.senderId === "string" && env.senderId.length > 0) {
-      return { senderId: env.senderId, isOwner };
-    }
-    const identity = env.senderIdentity;
-    if (identity && typeof identity === "object") {
-      const id = (identity as { id?: unknown }).id;
-      if (typeof id === "string" && id.length > 0) return { senderId: id, isOwner };
-    }
-  }
-
-  const legacy = extractSenderId(getRawContent(msg));
-  return legacy ? { senderId: legacy, isOwner } : { isOwner };
-}
-
-/**
- * Stable identity for a raw OpenClaw message.
- *
- * Used to anchor the capture watermark on a specific message rather than on an
- * array index. Index-based anchoring is unsafe because `before_prompt_build`
- * and `agent_end` are not contractually guaranteed to deliver the same slice:
- * the gateway path sends the full transcript to both, but a runtime that sends
- * only the current turn to `agent_end` makes any index recorded from
- * `before_prompt_build` meaningless.
- *
- * Prefers OpenClaw's own `idempotencyKey` when present. Otherwise derives a
- * digest from role, timestamp and content — stable for the same message across
- * hook invocations, and distinct for messages that differ in any of the three.
- */
-export function getMessageIdentity(msg: unknown): string | undefined {
-  if (!msg || typeof msg !== "object") return undefined;
-  const m = msg as Record<string, unknown>;
-
-  const key = m.idempotencyKey;
-  if (typeof key === "string" && key.length > 0) return `k:${key}`;
-
-  const role = typeof m.role === "string" ? m.role : "";
-  const content = getRawContent(msg);
-  if (!role && !content) return undefined;
-  const ts = typeof m.timestamp === "number" ? String(m.timestamp) : "";
-
-  return `h:${createHash("sha256")
-    .update(`${role}\0${ts}\0${content}`)
-    .digest("hex")
-    .slice(0, 24)}`;
-}
-
 /**
  * Returns true if the message should be dropped entirely.
  * Patterns starting with "/" are treated as anchored regexes (e.g. "/^HEARTBEAT/i").
@@ -430,7 +360,7 @@ export function extractMessages(
     // Resolve sender before cleaning strips metadata.
     let peer: Peer;
     if (role === "user") {
-      const senderId = senderIdFor ? senderIdFor(i) : extractMessageSender(msg).senderId;
+      const senderId = senderIdFor ? senderIdFor(i) : extractSenderId(rawContent);
       peer = (senderId && resolvePeer?.(senderId)) || defaultParticipantPeer;
     } else {
       peer = agentPeer;

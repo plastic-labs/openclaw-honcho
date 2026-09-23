@@ -35,6 +35,7 @@ function createMockState(): { state: PluginState; session: SessionStub } {
   const state = {
     cfg: {
       noisePatterns: [],
+      captureUnattributedMessages: true,
       ownerObserveOthers: false,
       crossSessionSearch: true,
       workspaceId: "openclaw",
@@ -49,7 +50,6 @@ function createMockState(): { state: PluginState; session: SessionStub } {
         return session;
       }),
     },
-    turnStartIndex: new Map<string, number>(),
     ensureInitialized: vi.fn(async () => undefined),
     getAgentPeer: vi.fn(async () => agentPeer),
     getParticipantPeer: vi.fn(async () => ownerPeer),
@@ -172,16 +172,20 @@ describe("flushMessages metadata", () => {
 });
 
 describe("flushMessages batching", () => {
-  it("chunks addMessages into requests of at most 100 messages", async () => {
+  it("chunks a long turn into requests of at most 100 messages", async () => {
     const { state, session } = createMockState();
     const api = { logger: loggerStub() } as never;
 
-    // 116 messages exceeds Honcho's 100-per-request limit (HTTP 422).
-    const messages = Array.from({ length: 116 }, (_, i) => ({
-      role: i % 2 === 0 ? "user" : "assistant",
-      content: `message ${i}`,
-      timestamp: i + 1,
-    }));
+    // One turn: the user prompt plus 115 assistant messages exceeds Honcho's
+    // 100-per-request limit (HTTP 422).
+    const messages = [
+      { role: "user", content: "go", timestamp: 1 },
+      ...Array.from({ length: 115 }, (_, i) => ({
+        role: "assistant",
+        content: `step ${i}`,
+        timestamp: i + 2,
+      })),
+    ];
 
     const saved = await flushMessages(api, state, messages, {
       sessionKey: "agent:main:discord:dm:user-1",
@@ -192,66 +196,29 @@ describe("flushMessages batching", () => {
     expect(session.addMessages).toHaveBeenCalledTimes(2);
     expect(session.addMessages.mock.calls[0][0]).toHaveLength(100);
     expect(session.addMessages.mock.calls[1][0]).toHaveLength(16);
-    // Watermark advances after each chunk: 100 after the first, then the full
-    // message count after the last chunk.
-    expect(session.setMetadata).toHaveBeenCalledTimes(2);
-    expect(session.setMetadata.mock.calls[0][0].lastSavedIndex).toBe(100);
-    expect(session.setMetadata.mock.calls[1][0].lastSavedIndex).toBe(116);
-    // Each metadata commit happens after its chunk is persisted.
-    expect(session.setMetadata.mock.invocationCallOrder[0]).toBeGreaterThan(
-      session.addMessages.mock.invocationCallOrder[0],
-    );
-    expect(session.metadata.lastSavedIndex).toBe(116);
-  });
-
-  it("re-flushing the same messages is a no-op (does not duplicate)", async () => {
-    // Regression test: passing `metadata` to honcho.session() on an existing
-    // session used to REPLACE persisted metadata, wiping `lastSavedIndex`
-    // before it was read. The second flush then saw lastSavedIndex=0 and
-    // re-sent every message, duplicating them in Honcho.
-    const { state, session } = createMockState();
-    const api = { logger: loggerStub() } as never;
-    const messages = [
-      { role: "user", content: "hello", timestamp: 1 },
-      { role: "assistant", content: "hi", timestamp: 2 },
-    ];
-    const ctx = { sessionKey: "agent:main:discord:dm:user-1", agentId: "main" };
-
-    const first = await flushMessages(api, state, messages, ctx);
-    expect(first).toBe(2);
-
-    const second = await flushMessages(api, state, messages, ctx);
-    expect(second).toBe(0);
-    expect(session.addMessages).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not re-send persisted chunks when a later chunk fails mid-batch", async () => {
-    const { state, session } = createMockState();
-    const api = { logger: loggerStub() } as never;
-
-    const messages = Array.from({ length: 116 }, (_, i) => ({
-      role: i % 2 === 0 ? "user" : "assistant",
-      content: `message ${i}`,
-      timestamp: i + 1,
-    }));
-
-    // First chunk persists; second chunk fails (e.g. transient network error).
-    session.addMessages
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("boom"));
-
-    await expect(
-      flushMessages(api, state, messages, {
-        sessionKey: "agent:main:discord:dm:user-1",
-        agentId: "main",
-      }),
-    ).rejects.toThrow("boom");
-
-    // The watermark was advanced past the first 100 persisted messages, so the
-    // next flush resumes at index 100 instead of re-sending (and duplicating)
-    // the already-saved chunk.
-    expect(session.addMessages).toHaveBeenCalledTimes(2);
     expect(session.setMetadata).toHaveBeenCalledTimes(1);
-    expect(session.metadata.lastSavedIndex).toBe(100);
+  });
+
+  it("saves only the current turn from a full transcript", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+
+    await flushMessages(
+      api,
+      state,
+      [
+        { role: "user", content: "earlier turn", timestamp: 1 },
+        { role: "assistant", content: "earlier reply", timestamp: 2 },
+        { role: "user", content: "this turn", timestamp: 3 },
+        { role: "assistant", content: "this reply", timestamp: 4 },
+      ],
+      { sessionKey: "agent:main:discord:dm:user-1", agentId: "main" },
+    );
+
+    expect(session.addMessages).toHaveBeenCalledTimes(1);
+    expect(session.addMessages.mock.calls[0][0].map((m: { text: string }) => m.text)).toEqual([
+      "this turn",
+      "this reply",
+    ]);
   });
 });

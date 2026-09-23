@@ -10,7 +10,6 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
 
-    state.turnStartIndex.set(sessionKey, event.messages.length);
     const provenance = (ctx as { inputProvenance?: { kind?: unknown; sourceSessionKey?: unknown } })
       .inputProvenance;
     if (provenance && typeof provenance === "object") {
@@ -40,9 +39,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
 
       const sections: string[] = [];
 
-      // Don't pass metadata: it replaces persisted metadata on existing
-      // sessions, wiping the capture watermark that flushMessages relies on.
-      // agentId is redundant here — flushMessages writes it on every flush.
+      // No metadata here: session() with metadata replaces what capture persisted.
       const session = await state.honcho.session(sessionKey);
 
       const recall = sessionRecallOptions(
