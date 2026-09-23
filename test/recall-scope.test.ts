@@ -19,7 +19,6 @@ function mkState(recall: Record<string, unknown>) {
   const state = {
     cfg: honchoConfigSchema.parse({ baseUrl: "http://x", recall }),
     honcho: { session: vi.fn(async () => session) },
-    turnStartIndex: new Map<string, number>(),
     ensureInitialized: vi.fn(async () => undefined),
     getAgentPeer: vi.fn(async () => agentPeer),
     getParticipantPeer: vi.fn(async () => peer),

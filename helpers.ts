@@ -121,6 +121,19 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return isSubagentSessionKey(ctx?.sessionKey);
 }
 
+/** Cron/heartbeat run: machine-generated input, not a participant speaking. */
+export function isSystemRun(
+  ctx: { sessionKey?: string; trigger?: string; inputProvenance?: { kind?: string } },
+  provenanceKind?: string,
+): boolean {
+  return (
+    classifySession(normalizeSessionKey(ctx.sessionKey)) === "cron" ||
+    ctx.trigger === "cron" ||
+    ctx.trigger === "heartbeat" ||
+    (provenanceKind ?? ctx.inputProvenance?.kind) === "internal_system"
+  );
+}
+
 /**
  * Port of OpenClaw's strip-inbound-meta.ts core stripping behavior.
  * Keep in sync with openclaw/src/auto-reply/reply/strip-inbound-meta.ts.
@@ -314,38 +327,6 @@ export function peerRecallOptions(
 }
 
 /**
- * Stable identity for a raw OpenClaw message.
- *
- * Used to anchor the capture watermark on a specific message rather than on an
- * array index. Index-based anchoring is unsafe because `before_prompt_build`
- * and `agent_end` are not contractually guaranteed to deliver the same slice:
- * the gateway path sends the full transcript to both, but a runtime that sends
- * only the current turn to `agent_end` makes any index recorded from
- * `before_prompt_build` meaningless.
- *
- * Prefers OpenClaw's own `idempotencyKey` when present. Otherwise derives a
- * digest from role, timestamp and content — stable for the same message across
- * hook invocations, and distinct for messages that differ in any of the three.
- */
-export function getMessageIdentity(msg: unknown): string | undefined {
-  if (!msg || typeof msg !== "object") return undefined;
-  const m = msg as Record<string, unknown>;
-
-  const key = m.idempotencyKey;
-  if (typeof key === "string" && key.length > 0) return `k:${key}`;
-
-  const role = typeof m.role === "string" ? m.role : "";
-  const content = getRawContent(msg);
-  if (!role && !content) return undefined;
-  const ts = typeof m.timestamp === "number" ? String(m.timestamp) : "";
-
-  return `h:${createHash("sha256")
-    .update(`${role}\0${ts}\0${content}`)
-    .digest("hex")
-    .slice(0, 24)}`;
-}
-
-/**
  * Returns true if the message should be dropped entirely.
  * Patterns starting with "/" are treated as anchored regexes (e.g. "/^HEARTBEAT/i").
  * All other patterns match by exact equality or prefix (startsWith).
@@ -374,10 +355,13 @@ export function extractMessages(
   agentPeer: Peer,
   noisePatterns: string[] = [],
   resolvePeer?: (senderId: string) => Peer | undefined,
+  /** Caller-resolved sender for rawMessages[i]. When supplied, no in-message lookup runs. */
+  senderIdFor?: (index: number) => string | undefined,
 ): MessageInput[] {
   const result: MessageInput[] = [];
 
-  for (const msg of rawMessages) {
+  for (let i = 0; i < rawMessages.length; i++) {
+    const msg = rawMessages[i];
     if (!msg || typeof msg !== "object") continue;
     const m = msg as Record<string, unknown>;
     const role = m.role as string | undefined;
@@ -386,10 +370,10 @@ export function extractMessages(
 
     const rawContent = getRawContent(msg);
 
-    // For user messages, extract sender ID before cleaning strips metadata
+    // Resolve sender before cleaning strips metadata.
     let peer: Peer;
     if (role === "user") {
-      const senderId = extractSenderId(rawContent);
+      const senderId = senderIdFor ? senderIdFor(i) : extractSenderId(rawContent);
       peer = (senderId && resolvePeer?.(senderId)) || defaultParticipantPeer;
     } else {
       peer = agentPeer;

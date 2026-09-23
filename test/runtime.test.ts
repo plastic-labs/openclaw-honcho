@@ -136,7 +136,6 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
     participantPeers: new Map(),
     agentPeers: new Map(),
     agentPeerMap: {},
-    turnStartIndex: new Map(),
     initialized: true,
     api: {} as never,
     ensureInitialized: vi.fn(async () => {}),

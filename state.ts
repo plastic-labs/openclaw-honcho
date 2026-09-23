@@ -35,6 +35,11 @@ export function isManagedHonchoCloud(baseUrl: string): boolean {
   }
 }
 
+export type TurnProvenance = {
+  kind?: string;
+  sourceSessionKey?: string;
+};
+
 export type PluginState = {
   honcho: Honcho;
   cfg: HonchoConfig;
@@ -44,10 +49,8 @@ export type PluginState = {
   participantPeers: Map<string, Peer>;
   agentPeers: Map<string, Peer>;
   agentPeerMap: Record<string, string>;
-  /** Message count recorded at before_prompt_build time, keyed by Honcho session key.
-   * Used by the capture hook to determine where the current turn starts in the
-   * accumulated message array, so first-init skips pre-installation history. */
-  turnStartIndex: Map<string, number>;
+  /** ctx.inputProvenance seen at before_prompt_build; absent from the agent_end ctx. */
+  turnProvenance: Map<string, TurnProvenance>;
   lastAgentModel?: string;
   initialized: boolean;
   api: OpenClawPluginApi;
@@ -102,7 +105,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     participantPeers: new Map<string, Peer>(),
     agentPeers: new Map<string, Peer>(),
     agentPeerMap: {},
-    turnStartIndex: new Map<string, number>(),
+    turnProvenance: new Map<string, TurnProvenance>(),
     initialized: false,
     api,
     peersPersister,

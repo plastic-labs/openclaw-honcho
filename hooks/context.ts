@@ -1,34 +1,47 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, sessionRecallOptions } from "../helpers.js";
+import { buildSessionKey, extractSenderId, isSystemRun, sessionRecallOptions } from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
     if (!event.prompt || event.prompt.length < 5) return;
+    // Opening the session here would create the cron session capture refuses to write.
+    if (!state.cfg.captureSystemRuns && isSystemRun(ctx)) return;
 
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
     const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
 
-    state.turnStartIndex.set(sessionKey, event.messages.length);
+    const provenance = (ctx as { inputProvenance?: { kind?: unknown; sourceSessionKey?: unknown } })
+      .inputProvenance;
+    if (provenance && typeof provenance === "object") {
+      state.turnProvenance?.set(sessionKey, {
+        ...(typeof provenance.kind === "string" ? { kind: provenance.kind } : {}),
+        ...(typeof provenance.sourceSessionKey === "string"
+          ? { sourceSessionKey: provenance.sourceSessionKey }
+          : {}),
+      });
+    } else {
+      state.turnProvenance?.delete(sessionKey);
+    }
 
     try {
       await state.ensureInitialized();
       const agentPeer = await state.getAgentPeer(agentId);
-      // Prefer the sender of the current inbound message — capture has not
-      // run yet for this turn, so session metadata still reflects the previous
-      // speaker. In group chats this would otherwise build context against the
-      // prior participant's representation whenever the speaker changes.
-      const currentSenderId = extractSenderId(event.prompt);
+      // Prefer the current sender: capture hasn't run yet, so session metadata
+      // still names the previous speaker. ctx.senderId is per-run; the prompt
+      // parse only covers OpenClaw < 2026.8.
+      const currentSenderId =
+        (typeof ctx.senderId === "string" && ctx.senderId.length > 0
+          ? ctx.senderId
+          : undefined) ?? extractSenderId(event.prompt);
       const participantPeer = currentSenderId
         ? await state.getParticipantPeer(currentSenderId)
         : await state.resolveSessionParticipantPeer(sessionKey);
 
       const sections: string[] = [];
 
-      // Don't pass metadata: it replaces persisted metadata on existing
-      // sessions, wiping the capture watermark that flushMessages relies on.
-      // agentId is redundant here — flushMessages writes it on every flush.
+      // No metadata here: session() with metadata replaces what capture persisted.
       const session = await state.honcho.session(sessionKey);
 
       const recall = sessionRecallOptions(

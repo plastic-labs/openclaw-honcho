@@ -101,6 +101,11 @@
             "description": "Honcho scope name used by any path set to \"scope\". Requires a workspace-level API key. A path set to \"scope\" without this falls back to \"session\"."
           }
         }
+      },
+      "captureSystemRuns": {
+        "type": "boolean",
+        "default": false,
+        "description": "Save cron and heartbeat runs to Honcho. Off by default: their prompts are machine-generated text, not something a participant said."
       }
     }
   },

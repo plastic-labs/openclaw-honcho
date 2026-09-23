@@ -84,6 +84,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
+| `captureSystemRuns`    | `boolean`  | `false`                    | Save cron and heartbeat runs. Off by default: their prompts are machine-generated, not something a participant said. |
 | `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw, which owns these canonical tool names. |
 | `recall` | `object` | see below | How far each recall path may reach. See [Recall Boundaries](#recall-boundaries). |
 
