@@ -1,7 +1,13 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { buildSessionKey, extractSenderId, isSystemRun, sessionRecallOptions } from "../helpers.js";
+import {
+  buildSessionKey,
+  extractSenderId,
+  hookSessionKeyContext,
+  isSystemRun,
+  sessionRecallOptions,
+} from "../helpers.js";
 
 export function registerContextHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("before_prompt_build", async (event, ctx) => {
@@ -10,7 +16,7 @@ export function registerContextHook(api: OpenClawPluginApi, state: PluginState):
     if (!state.cfg.captureSystemRuns && isSystemRun(ctx)) return;
 
     const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
-    const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
+    const sessionKey = buildSessionKey(hookSessionKeyContext(ctx, agentId));
 
     const provenance = (ctx as { inputProvenance?: { kind?: unknown; sourceSessionKey?: unknown } })
       .inputProvenance;
