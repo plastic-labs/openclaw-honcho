@@ -13,10 +13,11 @@ const NPM_PACKAGE = "@honcho-ai/openclaw-honcho";
 const rawPluginVersion = getPluginVersion();
 const PLUGIN_VERSION = rawPluginVersion === "unknown" ? null : rawPluginVersion;
 
+/** OpenClaw's own resolution: OPENCLAW_CONFIG_PATH is the file, else <state dir>/openclaw.json. */
 function getConfigPath(): string {
-  return join(
-    process.env.OPENCLAW_CONFIG_PATH ?? join(homedir(), ".openclaw"),
-    "openclaw.json",
+  return (
+    process.env.OPENCLAW_CONFIG_PATH ??
+    join(process.env.OPENCLAW_STATE_DIR ?? join(homedir(), ".openclaw"), "openclaw.json")
   );
 }
 
@@ -41,6 +42,22 @@ function warnIfConversationAccessMissing(logger: OpenClawPluginApi["logger"]): v
     );
   } catch {
     // Config unreadable — nothing to warn about.
+  }
+}
+
+/** Earlier versions owned the memory slot; a leftover slot value keeps memory-core disabled. */
+function noteIfMemorySlotStale(logger: OpenClawPluginApi["logger"]): void {
+  try {
+    const config = JSON.parse(readFileSync(getConfigPath(), "utf-8"));
+    if (config?.plugins?.slots?.memory !== PLUGIN_ID) return;
+    logger.warn(
+      `[honcho] plugins.slots.memory points at ${PLUGIN_ID}, which no longer owns the memory slot. ` +
+        `memory-core stays disabled until you clear it:\n` +
+        `  openclaw config unset plugins.slots.memory\n` +
+        `  openclaw gateway restart`,
+    );
+  } catch {
+    // Config unreadable — nothing to note.
   }
 }
 
@@ -82,6 +99,7 @@ async function checkForUpdate(logger: OpenClawPluginApi["logger"]): Promise<void
 export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("gateway_start", async (_event, _ctx) => {
     warnIfConversationAccessMissing(api.logger);
+    noteIfMemorySlotStale(api.logger);
     void checkForUpdate(api.logger);
 
     api.logger.info("Initializing Honcho memory...");

@@ -4,7 +4,7 @@
 
 AI-native memory with dialectic reasoning for OpenClaw. Uses [Honcho's](https://honcho.dev) peer paradigm to build and maintain separate models of the user and the agent — enabling context-aware conversations that improve over time. No local infrastructure required.
 
-This plugin uses OpenClaw's slot system (`kind: "memory"`) to replace the built-in memory plugins (`memory-core`, `memory-lancedb`). During setup, existing memory files can be migrated to Honcho. Workspace docs (`SOUL.md`, `AGENTS.md`, `BOOTSTRAP.md`) can be updated manually to reference Honcho's tools instead of the old file-based system.
+This plugin runs alongside OpenClaw's built-in memory (`memory-core`) rather than replacing it. memory-core keeps the memory slot and its file-based memory; Honcho adds its own `honcho_*` tools, prompt guidance and message capture beside it. During setup, existing memory files can optionally be uploaded to Honcho.
 
 ## Install
 
@@ -15,8 +15,6 @@ openclaw config set plugins.entries.openclaw-honcho.hooks.allowConversationAcces
 openclaw honcho setup
 openclaw gateway restart
 ```
-
-> **Important:** `openclaw plugins enable openclaw-honcho` sets `plugins.slots.memory` to `openclaw-honcho`, which OpenClaw requires in order to load this plugin. On OpenClaw 2026.8.x and earlier, `plugins install` alone does not set the slot and the plugin is silently disabled at startup: no tools, no capture, and a single loader line, `plugin disabled (memory slot set to "memory-core")`. OpenClaw 2026.9.1 sets the slot during install, so the step is redundant there but harmless. See [Running alongside memory-core](#running-alongside-memory-core).
 
 > **Important:** The `allowConversationAccess` is required to save new messages to Honcho. The plugin will log a warning at startup if this flag is missing.
 
@@ -42,11 +40,14 @@ openclaw gateway restart
 
 ## Running alongside memory-core
 
-OpenClaw allows one active memory plugin, selected by `plugins.slots.memory`. This plugin replaces `memory-core` when it owns that slot. Running Honcho **alongside** `memory-core` is not currently supported: if `plugins.slots.memory` is unset or set to `memory-core`, OpenClaw disables this plugin at load. This is the loader's behaviour on every OpenClaw release from at least 2026.6.34 through 2026.9.1, so pinning an OpenClaw version does not avoid it.
+Honcho does not take `plugins.slots.memory`. `memory-core` (or whichever memory plugin you select) keeps the slot, and Honcho attaches beside it with its own tools, hooks and prompt section.
 
-A companion mode, where Honcho stays loaded with its hooks and `honcho_*` tools while `memory-core` keeps the slot, is tracked in [#132](https://github.com/plastic-labs/openclaw-honcho/pull/132) and planned for the next release.
+Versions before 1.7.0 set the slot to `openclaw-honcho`. If your config still has that, memory-core stays disabled until you clear it; the gateway logs a reminder at startup while it does:
 
-Do not set `plugins.slots.contextEngine` to `openclaw-honcho`. The plugin provides no context engine, and OpenClaw logs a "degraded to legacy" warning on every turn.
+```bash
+openclaw config unset plugins.slots.memory
+openclaw gateway restart
+```
 
 ## Migrating Legacy Memory
 
@@ -361,7 +362,7 @@ qmd query "test"
 
 ### Plugin loads but `honcho_*` tools are missing, or nothing lands in Honcho
 
-Run `openclaw plugins inspect openclaw-honcho --runtime` and check `activationReason`. If it reads `memory slot set to "memory-core"`, the plugin does not own the memory slot. Fix with `openclaw plugins enable openclaw-honcho`, then `openclaw gateway restart`.
+Run `openclaw plugins inspect openclaw-honcho --runtime` and check `status` and `activationReason`. The plugin needs `plugins.entries.openclaw-honcho.enabled` set to `true` and `hooks.allowConversationAccess` set to `true`; it does not need the memory slot. Fix with `openclaw plugins enable openclaw-honcho`, then `openclaw gateway restart`.
 
 ### OpenClaw 2026.4.5: Hooks silently stop firing
 
