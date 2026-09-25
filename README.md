@@ -42,7 +42,7 @@ openclaw gateway restart
 
 Honcho does not take `plugins.slots.memory`. `memory-core` (or whichever memory plugin you select) keeps the slot, and Honcho attaches beside it with its own tools, hooks and prompt section.
 
-Versions before 1.7.0 set the slot to `openclaw-honcho`. If your config still has that, memory-core stays disabled until you clear it; the gateway logs a reminder at startup while it does:
+Versions before 1.7.0 set the slot to `openclaw-honcho`. On its first startup after upgrading, Honcho clears only that legacy slot value through OpenClaw's config writer; the normal config reload then restores `memory-core` as the default. A locked or failed config write logs the recovery command instead:
 
 ```bash
 openclaw config unset plugins.slots.memory
@@ -83,10 +83,10 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |
 | `disableDefaultNoisePatterns` | `boolean` | `false`           | When `true`, built-in noise patterns are not applied — only `noisePatterns` entries are used. |
-| `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for `memory_search`. `true` = results span every session the participant peer has written to; `false` = scope to the active session. `memory_search` accepts an optional `crossSessionSearch` boolean parameter to override this per-call. |
+| `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for Honcho's legacy `memory_search` alias when `enableMemoryCompatibilityTools` is enabled. It does not change memory-core's canonical `memory_search` behavior. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 | `captureSystemRuns`    | `boolean`  | `false`                    | Save cron and heartbeat runs. Off by default: their prompts are machine-generated, not something a participant said. |
-| `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw, which owns these canonical tool names. |
+| `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy Honcho-backed `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw: memory-core owns these canonical names, and enabling aliases creates a tool-name conflict. |
 | `recall` | `object` | see below | How far each recall path may reach. See [Recall Boundaries](#recall-boundaries). |
 
 ### Self-Hosted / Local Honcho
