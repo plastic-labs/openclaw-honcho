@@ -78,6 +78,42 @@ export function extractProvider(sessionKey: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
+/** Inputs that identify the conversation a hook or tool call belongs to. */
+export type SessionKeyContext = {
+  sessionKey?: string;
+  agentId?: string;
+  /** Channel id of a channel-originated run: `ctx.channel` on hooks, `messageChannel` on tools. */
+  channel?: string;
+  /** Sender of the inbound message: `ctx.senderId` on hooks, `requesterSenderId` on tools. */
+  senderId?: string;
+};
+
+/** `agent:<agentId>:main` — OpenClaw's shared DM key under the default `session.dmScope: "main"`. */
+const AGENT_MAIN_KEY_RE = /^agent:([^:]+):main$/i;
+
+function normalizeToken(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+/**
+ * Under OpenClaw's default `session.dmScope: "main"`, every DM on every channel
+ * routes to `agent:<agentId>:main`, so the key alone cannot separate two people
+ * DMing the bot. When a channel and sender are known, return the key OpenClaw
+ * would have built under `dmScope: "per-channel-peer"`
+ * (`agent:<agentId>:<channel>:direct:<senderId>`), so the Honcho id is per
+ * conversation and stays stable if the operator later switches scope.
+ * Returns null for every other key, or when either field is missing.
+ */
+export function resolveConversationSessionKey(ctx?: SessionKeyContext): string | null {
+  const normalized = normalizeSessionKey(ctx?.sessionKey);
+  const m = AGENT_MAIN_KEY_RE.exec(normalized);
+  if (!m) return null;
+  const channel = normalizeToken(ctx?.channel);
+  const senderId = normalizeToken(ctx?.senderId);
+  if (!channel || channel === "unknown" || !senderId) return null;
+  return `agent:${m[1].toLowerCase()}:${channel}:direct:${senderId}`;
+}
+
 /**
  * Build a Honcho session id of the form
  * `<sessionClass>-[<provider>-]<agentId>-<24 hex>`.
@@ -85,7 +121,8 @@ export function extractProvider(sessionKey: string): string | null {
  * The id is decoupled from OpenClaw's routing-key DSL: prefix segments are
  * derived from the same inputs as the hash, so they cannot drift independently.
  * `ctx.messageProvider` is intentionally not an input — that field is unstable
- * (missing → "unknown") and lives in session metadata instead.
+ * (missing → "unknown") and lives in session metadata instead. The one
+ * exception is the shared DM key, see `resolveConversationSessionKey`.
  *
  * When `ctx.agentId` is undefined, callers should pass `resolveDefaultAgentId`
  * (typically `state.resolveDefaultAgentId`) so the id matches the agent id used
@@ -93,10 +130,10 @@ export function extractProvider(sessionKey: string): string | null {
  * to "main", which only matches workspaces with no configured default agent.
  */
 export function buildSessionKey(
-  ctx?: { sessionKey?: string; agentId?: string },
+  ctx?: SessionKeyContext,
   resolveDefaultAgentId?: () => string,
 ): string {
-  const normalized = normalizeSessionKey(ctx?.sessionKey);
+  const normalized = resolveConversationSessionKey(ctx) ?? normalizeSessionKey(ctx?.sessionKey);
   const sessionClass = classifySession(normalized);
   const agentId = (ctx?.agentId ?? resolveDefaultAgentId?.() ?? "main").toLowerCase();
   const provider = extractProvider(normalized);
@@ -115,6 +152,37 @@ export function buildSessionKey(
   if (includeProvider) parts.push(provider!);
   parts.push(agentId, digest);
   return parts.join("-");
+}
+
+/** Session-key inputs from a `PluginHookAgentContext`. */
+export function hookSessionKeyContext(ctx: {
+  sessionKey?: string;
+  agentId?: string;
+  channel?: string;
+  messageProvider?: string;
+  senderId?: string;
+}, agentId?: string): SessionKeyContext {
+  return {
+    sessionKey: ctx.sessionKey,
+    agentId: agentId ?? ctx.agentId,
+    channel: ctx.channel ?? ctx.messageProvider,
+    senderId: ctx.senderId,
+  };
+}
+
+/** Session-key inputs from an `OpenClawPluginToolContext`. */
+export function toolSessionKeyContext(toolCtx: {
+  sessionKey?: string;
+  agentId?: string;
+  messageChannel?: string;
+  requesterSenderId?: string;
+}): SessionKeyContext {
+  return {
+    sessionKey: toolCtx.sessionKey,
+    agentId: toolCtx.agentId,
+    channel: toolCtx.messageChannel,
+    senderId: toolCtx.requesterSenderId,
+  };
 }
 
 export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {

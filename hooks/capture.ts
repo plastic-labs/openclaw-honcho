@@ -5,6 +5,8 @@ import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   classifySession,
+  hookSessionKeyContext,
+  resolveConversationSessionKey,
   isSubagentSession,
   isSystemRun,
   normalizeSessionKey,
@@ -33,6 +35,8 @@ export async function flushMessages(
     agentId?: string;
     sessionId?: string;
     messageProvider?: string;
+    /** Channel id for channel-originated runs (PluginHookAgentContext). */
+    channel?: string;
     /** Sender for this run (PluginHookAgentContext). */
     senderId?: string;
     trigger?: string;
@@ -53,8 +57,11 @@ export async function flushMessages(
   const turn = messages.slice(turnStart);
 
   const agentId = ctx.agentId ?? state.resolveDefaultAgentId();
-  const sessionKey = buildSessionKey({ sessionKey: ctx.sessionKey, agentId });
+  const keyCtx = hookSessionKeyContext(ctx, agentId);
+  const sessionKey = buildSessionKey(keyCtx);
   const openclawSessionKey = normalizeSessionKey(ctx.sessionKey);
+  // Set only when the shared DM key was split per sender (#149).
+  const conversationSessionKey = resolveConversationSessionKey(keyCtx);
   const sessionClass = classifySession(openclawSessionKey);
   const isSubagent = isSubagentSession(ctx);
   const parentAgentId = isSubagent ? subagentParentMap.get(ctx.sessionKey ?? "") : undefined;
@@ -122,6 +129,7 @@ export async function flushMessages(
     ...existingMeta,
     agentId,
     openclawSessionKey,
+    ...(conversationSessionKey ? { conversationSessionKey } : {}),
     sessionClass,
     ...(ctx.messageProvider ? { messageProvider: ctx.messageProvider } : {}),
     ...(ctx.sessionId ? { lastSessionId: ctx.sessionId } : {}),
@@ -148,10 +156,7 @@ export function registerCaptureHook(api: OpenClawPluginApi, state: PluginState):
         if (anyError.body) api.logger.error(`[honcho] Body: ${JSON.stringify(anyError.body)}`);
       }
     } finally {
-      const sessionKey = buildSessionKey(
-        { sessionKey: ctx.sessionKey, agentId: ctx.agentId },
-        state.resolveDefaultAgentId,
-      );
+      const sessionKey = buildSessionKey(hookSessionKeyContext(ctx), state.resolveDefaultAgentId);
       state.turnProvenance?.delete(sessionKey);
       if (isSubagentSession(ctx)) subagentParentMap.delete(ctx.sessionKey ?? "");
     }
