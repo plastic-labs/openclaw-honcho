@@ -65,6 +65,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
           console.log("\nHoncho Setup\n");
           console.log("Get your API key from: https://app.honcho.dev\n");
+          console.log("Honcho runs alongside OpenClaw's built-in memory-core; it does not take the memory slot.\n");
 
           const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
           const ask = (q: string): Promise<string> => new Promise((resolve) => rl.question(q, resolve));

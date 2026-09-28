@@ -27,7 +27,6 @@ import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
 import { registerCli } from "./commands/cli.js";
-import { createHonchoMemoryRuntime } from "./runtime.js";
 
 /**
  * Memory prompt section builder for Honcho tools.
@@ -111,16 +110,13 @@ const honchoPlugin: OpenClawPluginDefinition = definePluginEntry({
   id: "openclaw-honcho",
   name: "Memory (Honcho)",
   description: "AI-native memory with dialectic reasoning",
-  kind: "memory",
   configSchema: honchoConfigSchema,
 
   register(api) {
     const state = createPluginState(api);
 
-    api.registerMemoryCapability({
-      promptBuilder: buildPromptSection,
-      runtime: createHonchoMemoryRuntime(state),
-    });
+    // Additive: memory-core keeps the memory slot; Honcho adds its prompt section, hooks and tools beside it.
+    api.registerMemoryPromptSupplement(buildPromptSection);
 
     // Hooks
     registerGatewayHook(api, state);

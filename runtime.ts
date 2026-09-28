@@ -1,5 +1,3 @@
-// @ts-ignore - resolved by openclaw runtime
-import type { MemoryPluginCapability } from "openclaw/plugin-sdk/core";
 import { isManagedHonchoCloud, type PluginState } from "./state.js";
 
 const DEFAULT_SEARCH_RESULTS = 10;
@@ -220,37 +218,6 @@ export async function getHonchoMemorySearchManager(
       async probeVectorAvailability() {
         return true;
       },
-    },
-  };
-}
-
-/** Resolve the memory backend descriptor expected by the OpenClaw memory slot. */
-export function resolveHonchoMemoryBackendConfig(
-  _params: { agentId?: string } = {},
-) {
-  return {
-    backend: "qmd" as const,
-    qmd: {},
-  };
-}
-
-/** Build the Honcho adapter for OpenClaw's active memory capability.
- *
- * The current host contract creates a session-agnostic manager here and passes
- * the active session key per call via `search(query, { sessionKey })`, so this
- * adapter does not forward a session key at creation time. Session-scoped reads
- * still flow through the memory_search / memory_get passthrough tools, which
- * resolve the session key from their tool context. */
-export function createHonchoMemoryRuntime(
-  state: PluginState,
-): NonNullable<MemoryPluginCapability["runtime"]> {
-  return {
-    async getMemorySearchManager(params: { agentId?: string }) {
-      return getHonchoMemorySearchManager(state, { agentId: params.agentId });
-    },
-
-    resolveMemoryBackendConfig(params: { agentId?: string } = {}) {
-      return resolveHonchoMemoryBackendConfig(params);
     },
   };
 }

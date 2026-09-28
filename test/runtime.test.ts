@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createHonchoMemoryRuntime,
-  getHonchoMemorySearchManager,
-  resolveHonchoMemoryBackendConfig,
-} from "../runtime.js";
+import { getHonchoMemorySearchManager } from "../runtime.js";
 import type { PluginState } from "../state.js";
 
 type TestState = PluginState & {
@@ -155,38 +151,11 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
 }
 
 describe("Honcho memory runtime", () => {
-  it("builds the unified memory capability runtime", async () => {
-    const state = createState();
-    const runtime = createHonchoMemoryRuntime(state);
-
-    const { manager } = await runtime.getMemorySearchManager({
-      cfg: {} as never,
-      agentId: "main",
-    });
-
-    expect(manager).toBeDefined();
-    expect(
-      runtime.resolveMemoryBackendConfig({
-        cfg: {} as never,
-        agentId: "main",
-      }),
-    ).toEqual({
-      backend: "qmd",
-      qmd: {},
-    });
-  });
-
-  it("scopes a runtime-built manager per call via search opts.sessionKey", async () => {
-    // Regression: the active-memory runtime creates a session-agnostic manager
-    // and passes the session key per call. A false crossSessionSearch config
-    // must still scope to the requested session, not fall back to cross-session.
+  it("scopes a session-agnostic manager per call via search opts.sessionKey", async () => {
+    // A manager built without a session key must still scope to the session
+    // passed per call when crossSessionSearch is false.
     const state = createState("https://api.honcho.dev", { crossSessionSearch: false });
-    const runtime = createHonchoMemoryRuntime(state);
-
-    const { manager } = await runtime.getMemorySearchManager({
-      cfg: {} as never,
-      agentId: "main",
-    });
+    const { manager } = await getHonchoMemorySearchManager(state, { agentId: "main" });
 
     // With a per-call sessionKey, scoped search must NOT hit the participant peer.
     const scoped = await manager.search("remember", { sessionKey: "session-1" });
@@ -260,7 +229,7 @@ describe("Honcho memory runtime", () => {
     expect(scopedState.participantPeer?.search as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
-  it("reads scoped transcript slices and resolves backend metadata", async () => {
+  it("reads scoped transcript slices", async () => {
     const state = createState("http://localhost:8000", { crossSessionSearch: false });
 
     const { manager } = await getHonchoMemorySearchManager(state, {
@@ -282,10 +251,6 @@ describe("Honcho memory runtime", () => {
         relPath: "sessions/other-session.txt",
       }),
     ).rejects.toThrow(/outside the active session/);
-
-    const backendConfig = resolveHonchoMemoryBackendConfig({ agentId: "main" });
-    expect(backendConfig.backend).toBe("qmd");
-    expect(backendConfig.qmd).toEqual({});
   });
 
   it("clamps fallback snippet ranges to the transcript length", async () => {

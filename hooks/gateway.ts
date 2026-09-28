@@ -1,9 +1,6 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { getPluginVersion } from "../honcho-client.js";
 
 const PLUGIN_ID = "openclaw-honcho";
@@ -13,34 +10,46 @@ const NPM_PACKAGE = "@honcho-ai/openclaw-honcho";
 const rawPluginVersion = getPluginVersion();
 const PLUGIN_VERSION = rawPluginVersion === "unknown" ? null : rawPluginVersion;
 
-function getConfigPath(): string {
-  return join(
-    process.env.OPENCLAW_CONFIG_PATH ?? join(homedir(), ".openclaw"),
-    "openclaw.json",
+function warnIfConversationAccessMissing(api: OpenClawPluginApi): void {
+  const config = api.runtime.config.current();
+  const entry = config.plugins?.entries?.[PLUGIN_ID];
+  if (entry?.hooks?.allowConversationAccess === true) return;
+
+  api.logger.warn(
+    `[honcho] hooks.allowConversationAccess is not set — message capture is off. ` +
+      `Enable it yourself, then restart the gateway:\n` +
+      `  openclaw config set plugins.entries.${PLUGIN_ID}.hooks.allowConversationAccess true\n` +
+      `  openclaw gateway restart`,
   );
 }
 
-function warnIfConversationAccessMissing(logger: OpenClawPluginApi["logger"]): void {
+/** Clear the slot value written by releases that still owned the memory capability. */
+async function clearLegacyMemorySlot(api: OpenClawPluginApi): Promise<void> {
+  if (api.runtime.config.current().plugins?.slots?.memory !== PLUGIN_ID) return;
+
   try {
-    const configPath = getConfigPath();
-    let config: Record<string, any>;
-    try {
-      config = JSON.parse(readFileSync(configPath, "utf-8"));
-    } catch {
-      return;
+    const committed = await api.runtime.config.mutateConfigFile({
+      afterWrite: { mode: "auto" },
+      mutate: (draft) => {
+        const slots = draft.plugins?.slots;
+        if (slots?.memory !== PLUGIN_ID) return false;
+        delete slots.memory;
+        return true;
+      },
+    });
+    if (committed.result) {
+      api.logger.info(
+        `[honcho] cleared the legacy ${PLUGIN_ID} memory slot; memory-core resumes after config reload.`,
+      );
     }
-
-    const entry = config?.plugins?.entries?.[PLUGIN_ID];
-    if (entry?.hooks?.allowConversationAccess === true) return;
-
-    logger.warn(
-      `[honcho] hooks.allowConversationAccess is not set — message capture is off. ` +
-        `Enable it yourself, then restart the gateway:\n` +
-        `  openclaw config set plugins.entries.${PLUGIN_ID}.hooks.allowConversationAccess true\n` +
-        `  openclaw gateway restart`,
+  } catch (error) {
+    api.logger.warn(
+      `[honcho] could not clear the legacy ${PLUGIN_ID} memory slot; memory-core remains disabled. ` +
+        `Clear it yourself, then restart the gateway:\n` +
+        `  openclaw config unset plugins.slots.memory\n` +
+        `  openclaw gateway restart\n` +
+        `Reason: ${error instanceof Error ? error.message : String(error)}`,
     );
-  } catch {
-    // Config unreadable — nothing to warn about.
   }
 }
 
@@ -81,7 +90,8 @@ async function checkForUpdate(logger: OpenClawPluginApi["logger"]): Promise<void
 
 export function registerGatewayHook(api: OpenClawPluginApi, state: PluginState): void {
   api.on("gateway_start", async (_event, _ctx) => {
-    warnIfConversationAccessMissing(api.logger);
+    warnIfConversationAccessMissing(api);
+    await clearLegacyMemorySlot(api);
     void checkForUpdate(api.logger);
 
     api.logger.info("Initializing Honcho memory...");
