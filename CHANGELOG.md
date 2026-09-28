@@ -2,6 +2,19 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.7.0] - 2026-09-28
+
+### Changed
+- **Honcho attaches beside `memory-core` instead of taking the memory slot (#155)**: `kind: "memory"` is gone from the manifests and the prompt section registers through `registerMemoryPromptSupplement`. Whichever plugin holds `plugins.slots.memory` keeps it; Honcho adds its `honcho_*` tools, hooks and prompt guidance alongside. Enabling the plugin no longer needs the slot, and the loader no longer disables it for not owning one.
+- **Legacy slot cleared on first start after upgrading (#155)**: Earlier releases set `plugins.slots.memory` to `openclaw-honcho`. `gateway_start` now removes only that value and leaves other slots alone, so memory-core resumes after the config reload. If the write fails it logs `openclaw config unset plugins.slots.memory` instead.
+- **`crossSessionSearch` only affects the legacy `memory_search` alias (#155)**, behind `enableMemoryCompatibilityTools`. memory-core's canonical tool is untouched.
+
+### Fixed
+- **`allowConversationAccess` warning read the wrong config path (#155)**: It joined `OPENCLAW_CONFIG_PATH` as a directory, so any custom path silenced the warning. It now reads `api.runtime.config.current()`.
+
+### Removed
+- **The memory-slot runtime adapter (#155)**: `createHonchoMemoryRuntime` is gone, since memory-core serves the slot.
+
 ## [1.6.0] - 2026-09-23
 
 ### Added
