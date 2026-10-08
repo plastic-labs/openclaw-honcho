@@ -23,6 +23,7 @@ function mkState(recall: Record<string, unknown>) {
     getAgentPeer: vi.fn(async () => agentPeer),
     getParticipantPeer: vi.fn(async () => peer),
     resolveSessionParticipantPeer: vi.fn(async () => peer),
+    resolveToolParticipantPeer: vi.fn(async () => peer),
     resolveDefaultAgentId: vi.fn(() => "main"),
   } as unknown as PluginState;
   return { state, session, agentPeer };
