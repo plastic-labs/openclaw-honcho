@@ -40,6 +40,12 @@ export type TurnProvenance = {
   sourceSessionKey?: string;
 };
 
+/** Who issued a tool call, as OpenClaw's trusted tool context reports it (never tool args). */
+export type ToolRequester = {
+  requesterSenderId?: string;
+  senderIsOwner?: boolean;
+};
+
 export type PluginState = {
   honcho: Honcho;
   cfg: HonchoConfig;
@@ -65,6 +71,9 @@ export type PluginState = {
   /** Resolve the participant peer for a session by reading participantSenderId from session metadata.
    * Falls back to default "owner" peer if no metadata found. */
   resolveSessionParticipantPeer: (sessionKey: string) => Promise<Peer>;
+  /** The participant a tool call reads: the requester OpenClaw names in the tool context,
+   * never a model-supplied id. Tools are self-only. */
+  resolveToolParticipantPeer: (requester: ToolRequester, sessionKey: string) => Promise<Peer>;
   /** Returns true if the given honcho peer ID belongs to a known participant peer. */
   isParticipantPeerId: (peerId: string) => boolean;
   resolveDefaultAgentId: () => string;
@@ -113,6 +122,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     getAgentPeer,
     getParticipantPeer,
     resolveSessionParticipantPeer,
+    resolveToolParticipantPeer,
     isParticipantPeerId,
     resolveDefaultAgentId,
   };
@@ -200,6 +210,19 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
       }
     }
     return await getParticipantPeer();
+  }
+
+  async function resolveToolParticipantPeer(requester: ToolRequester, sessionKey: string): Promise<Peer> {
+    // Session metadata names whoever capture saw last, which in a shared
+    // session is often not the person asking. The tool context names the
+    // requester for this run, the same sender capture will attribute it to.
+    const senderId = requester.requesterSenderId?.trim();
+    if (senderId) return getParticipantPeer(senderId);
+    // Operator turns (TUI, Control UI) carry no sender id; capture files them
+    // under the owner peer, so read them back from there.
+    if (requester.senderIsOwner === true) return getParticipantPeer();
+    // Hosts that report neither: the last captured sender is the best guess.
+    return resolveSessionParticipantPeer(sessionKey);
   }
 
   function isParticipantPeerId(peerId: string): boolean {

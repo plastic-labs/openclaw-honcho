@@ -23,20 +23,13 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
               description: "Reasoning depth: 'quick' for simple facts (default), 'thorough' for synthesis and analysis.",
             })
           ),
-          about: Type.Optional(
-            Type.String({
-              description:
-                "Sender ID of the user to ask about. Defaults to the last active sender. Pass a specific sender_id to ask about a different participant.",
-            })
-          ),
         },
         { additionalProperties: false }
       ),
       async execute(_toolCallId, params) {
-        const { query, depth = "quick", about } = params as {
+        const { query, depth = "quick" } = params as {
           query: string;
           depth?: "quick" | "thorough";
-          about?: string;
         };
 
         await state.ensureInitialized();
@@ -45,9 +38,7 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
           sessionKey: toolCtx.sessionKey,
           agentId: toolCtx.agentId,
         });
-        const participantPeer = about
-          ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(sessionKey);
+        const participantPeer = await state.resolveToolParticipantPeer(toolCtx, sessionKey);
 
         const reasoningLevel = depth === "thorough" ? "high" : "low";
         // The model decides when to call this, not a person, so it follows the

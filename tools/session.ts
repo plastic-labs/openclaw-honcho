@@ -35,12 +35,6 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
               maximum: 32000,
             })
           ),
-          about: Type.Optional(
-            Type.String({
-              description:
-                "Sender ID of the user to get session context for. Defaults to the last active sender. Pass a specific sender_id to get session context about a different participant.",
-            })
-          ),
         },
         { additionalProperties: false }
       ),
@@ -50,13 +44,11 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           includeSummary = true,
           searchQuery,
           messageLimit = 4000,
-          about,
         } = params as {
           includeMessages?: boolean;
           includeSummary?: boolean;
           searchQuery?: string;
           messageLimit?: number;
-          about?: string;
         };
 
         await state.ensureInitialized();
@@ -65,9 +57,7 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           sessionKey: toolCtx.sessionKey,
           agentId: toolCtx.agentId,
         });
-        const participantPeer = about
-          ? await state.getParticipantPeer(about)
-          : await state.resolveSessionParticipantPeer(sessionKey);
+        const participantPeer = await state.resolveToolParticipantPeer(toolCtx, sessionKey);
 
         try {
           const session = await state.honcho.session(sessionKey);
@@ -106,7 +96,8 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
 
           if (includeMessages && context.messages.length > 0) {
             const messageLines = context.messages.map((msg) => {
-              const speaker = state.isParticipantPeerId(msg.peerId) ? "User" : "OpenClaw";
+              // A shared session has several participants; name each by peer.
+              const speaker = msg.peerId === agentPeer.id ? "OpenClaw" : msg.peerId;
               const timestamp = msg.createdAt
                 ? new Date(msg.createdAt).toLocaleString()
                 : "";
@@ -118,14 +109,15 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
           }
 
           if (sections.length === 0) {
+            // With includeMessages off, an empty result says nothing about
+            // whether the session has history, so don't claim it has none.
+            const text =
+              context.messages.length > 0
+                ? "No summary or profile for this session yet. It does have messages; call again with includeMessages: true to read them."
+                : "No conversation history available for this session yet.";
             return {
-              content: [
-                {
-                  type: "text",
-                  text: "No conversation history available for this session yet.",
-                },
-              ],
-              details: { messageCount: 0, hasSummary: false, sessionKey },
+              content: [{ type: "text", text }],
+              details: { messageCount: context.messages.length, hasSummary: false, sessionKey },
             };
           }
 
