@@ -115,10 +115,8 @@ export function registerMessageSearchTool(api: OpenClawPluginApi, state: PluginS
           };
         }
 
-        const agentPeerIds = new Set(Object.values(state.agentPeerMap));
         const results = messages.map((msg) => {
-          // Results span sessions with several participants; name each by peer.
-          const speaker = agentPeerIds.has(msg.peerId) ? "Agent" : msg.peerId;
+          const speaker = state.isParticipantPeerId(msg.peerId) ? "User" : "Agent";
           return {
             id: msg.id,
             content: msg.content,
