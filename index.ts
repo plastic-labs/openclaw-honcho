@@ -26,6 +26,7 @@ import { registerContextTool } from "./tools/context.js";
 import { registerAskTool } from "./tools/ask.js";
 import { registerMemoryPassthrough } from "./tools/memory-passthrough.js";
 import { registerMessageSearchTool } from "./tools/message-search.js";
+import { registerWorkspaceChatTool } from "./tools/workspace-chat.js";
 import { registerCli } from "./commands/cli.js";
 
 /**
@@ -100,6 +101,10 @@ export function registerHonchoTools(api: OpenClawPluginApi, state: PluginState):
   registerSearchTool(api, state);
   registerAskTool(api, state);
   registerMessageSearchTool(api, state);
+
+  if (state.cfg.enableWorkspaceChat) {
+    registerWorkspaceChatTool(api, state);
+  }
 
   if (state.cfg.enableMemoryCompatibilityTools) {
     registerMemoryPassthrough(api, state);
