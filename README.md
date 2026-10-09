@@ -86,6 +86,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 | `crossSessionSearch`   | `boolean`  | `true`                     | Default scope for Honcho's legacy `memory_search` alias when `enableMemoryCompatibilityTools` is enabled. It does not change memory-core's canonical `memory_search` behavior. |
 | `ownerObserveOthers`   | `boolean`  | `false`                    | Whether the owner peer observes agent messages in Honcho's social model. |
 | `captureSystemRuns`    | `boolean`  | `false`                    | Save cron and heartbeat runs. Off by default: their prompts are machine-generated, not something a participant said. |
+| `enableWorkspaceChat`  | `boolean`  | `false`                    | Register `honcho_workspace_chat`, which answers from every participant's memory in the workspace. Off by default: anyone who can message the agent can ask it. |
 | `enableMemoryCompatibilityTools` | `boolean` | `false`            | Register legacy Honcho-backed `memory_search` and `memory_get` aliases for older OpenClaw hosts. Leave disabled on modern OpenClaw: memory-core owns these canonical names, and enabling aliases creates a tool-name conflict. |
 | `recall` | `object` | see below | How far each recall path may reach. See [Recall Boundaries](#recall-boundaries). |
 
@@ -196,7 +197,7 @@ The plugin manages markdown files in your workspace:
 
 ## AI Tools
 
-The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interactive (LLM-powered).
+The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interactive (LLM-powered) — plus an opt-in sixth, `honcho_workspace_chat`.
 
 | Tool                     | Type | Description                                                                                     |
 | ------------------------ | ---- | ----------------------------------------------------------------------------------------------- |
@@ -205,6 +206,7 @@ The plugin provides 5 tools — 3 data retrieval (cheap, no LLM) and 2 interacti
 | `honcho_search_messages`  | Data | Find specific messages across all sessions. Filter by sender (user/agent/all), date, metadata.   |
 | `honcho_session`         | Data | Current session history and summary. Supports semantic search within the session.               |
 | `honcho_ask`             | Q&A  | Ask Honcho a question about the user. `depth='quick'` for facts, `'thorough'` for synthesis.   |
+| `honcho_workspace_chat`  | Q&A  | Ask Honcho a question about everyone in the workspace. Opt-in via `enableWorkspaceChat`.        |
 
 ## CLI Commands
 

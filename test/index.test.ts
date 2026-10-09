@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import honchoPlugin, { buildPromptSection, registerHonchoTools } from "../index.js";
 import type { PluginState } from "../state.js";
 
-function registeredNames(enableMemoryCompatibilityTools: boolean): string[] {
+function registeredNames(enableMemoryCompatibilityTools: boolean, enableWorkspaceChat = false): string[] {
   const registrations: string[] = [];
   const api = {
     registerTool: vi.fn((_factory: unknown, options?: { name?: string }) => {
@@ -10,7 +10,7 @@ function registeredNames(enableMemoryCompatibilityTools: boolean): string[] {
     }),
   };
   const state = {
-    cfg: { enableMemoryCompatibilityTools },
+    cfg: { enableMemoryCompatibilityTools, enableWorkspaceChat },
   } as unknown as PluginState;
 
   registerHonchoTools(api as never, state);
@@ -26,6 +26,11 @@ describe("Honcho tool registration", () => {
       "honcho_ask",
       "honcho_search_messages",
     ]);
+  });
+
+  it("registers honcho_workspace_chat only when explicitly enabled", () => {
+    expect(registeredNames(false)).not.toContain("honcho_workspace_chat");
+    expect(registeredNames(false, true)).toContain("honcho_workspace_chat");
   });
 
   it("registers legacy memory aliases only when explicitly enabled", () => {
