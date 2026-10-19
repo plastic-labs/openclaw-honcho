@@ -18,6 +18,7 @@
       "honcho_search_conclusions",
       "honcho_ask",
       "honcho_search_messages",
+      "honcho_workspace_chat",
       "memory_search",
       "memory_get"
     ]
@@ -105,6 +106,11 @@
         "type": "boolean",
         "default": false,
         "description": "Save cron and heartbeat runs to Honcho. Off by default: their prompts are machine-generated text, not something a participant said."
+      },
+      "enableWorkspaceChat": {
+        "type": "boolean",
+        "default": false,
+        "description": "Register honcho_workspace_chat, which answers questions from every participant's memory in the workspace. Off by default: any participant who can reach the agent can ask it."
       }
     }
   },
@@ -150,6 +156,11 @@
       "label": "Cross-Session Search",
       "advanced": true,
       "help": "When legacy memory aliases are enabled, search can return results from any session in the workspace. This does not affect memory-core's canonical memory tools."
+    },
+    "enableWorkspaceChat": {
+      "label": "Workspace Chat Tool",
+      "advanced": true,
+      "help": "Register honcho_workspace_chat. It reads every participant's memory in the workspace, so enable it only where everyone who can message the agent may see everyone else's."
     },
     "enableMemoryCompatibilityTools": {
       "label": "Legacy Memory Tool Aliases",

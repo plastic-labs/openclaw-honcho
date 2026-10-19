@@ -56,6 +56,8 @@ export type HonchoConfig = {
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
   enableMemoryCompatibilityTools: boolean;
+  /** Register honcho_workspace_chat, which reads every participant's memory. Off by default. */
+  enableWorkspaceChat: boolean;
   /** Save cron/heartbeat runs. Off by default: their prompts are machine text. */
   captureSystemRuns: boolean;
   recall: RecallConfig;
@@ -129,6 +131,7 @@ export const honchoConfigSchema = {
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
       enableMemoryCompatibilityTools: cfg.enableMemoryCompatibilityTools === true,
+      enableWorkspaceChat: cfg.enableWorkspaceChat === true,
       captureSystemRuns: cfg.captureSystemRuns === true,
       recall: (() => {
         const raw = (cfg.recall ?? {}) as Record<string, unknown>;

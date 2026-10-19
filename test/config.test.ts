@@ -16,4 +16,9 @@ describe("Honcho configuration", () => {
 
     expect(cfg.enableMemoryCompatibilityTools).toBe(true);
   });
+
+  it("keeps workspace chat off unless explicitly enabled", () => {
+    expect(honchoConfigSchema.parse({}).enableWorkspaceChat).toBe(false);
+    expect(honchoConfigSchema.parse({ enableWorkspaceChat: true }).enableWorkspaceChat).toBe(true);
+  });
 });
