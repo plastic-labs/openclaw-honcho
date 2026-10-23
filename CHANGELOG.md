@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **API key from `~/.honcho/config.json`**: With no `apiKey` in the plugin config and no `HONCHO_API_KEY`, the plugin uses the key (and server URL) in the shared Honcho config that honcho-cli and the other integrations write. A `hosts.openclaw` block there overrides the root values.
+
 ## [1.7.0] - 2026-09-28
 
 ### Changed

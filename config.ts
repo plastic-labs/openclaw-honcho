@@ -2,6 +2,8 @@
  * Configuration schema and parsing for the Honcho memory plugin.
  */
 
+import { loadConfig } from "@honcho-ai/harness-plugin-core";
+
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
   "A scheduled reminder has been triggered",
@@ -87,12 +89,19 @@ export const honchoConfigSchema = {
   parse(value: unknown): HonchoConfig {
     const cfg = (value ?? {}) as Record<string, unknown>;
 
-    // Resolve API key with env var fallback
+    // API key: plugin config, then HONCHO_API_KEY, then ~/.honcho/config.json,
+    // the file honcho-cli and the other Honcho integrations share.
     let apiKey: string | undefined;
+    let sharedBaseUrl: string | undefined;
     if (typeof cfg.apiKey === "string" && cfg.apiKey.length > 0) {
       apiKey = resolveEnvVars(cfg.apiKey);
-    } else {
+    } else if (process.env.HONCHO_API_KEY) {
       apiKey = process.env.HONCHO_API_KEY;
+    } else {
+      const shared = loadConfig({ host: "openclaw" });
+      apiKey = shared.apiKey || undefined;
+      // A key from the shared file is only valid on the server that file names.
+      if (apiKey) sharedBaseUrl = shared.baseUrl;
     }
 
     const disableDefaultNoisePatterns = cfg.disableDefaultNoisePatterns === true;
@@ -115,7 +124,7 @@ export const honchoConfigSchema = {
       baseUrl:
         typeof cfg.baseUrl === "string" && cfg.baseUrl.length > 0
           ? cfg.baseUrl
-          : process.env.HONCHO_BASE_URL ?? "https://api.honcho.dev",
+          : process.env.HONCHO_BASE_URL ?? sharedBaseUrl ?? "https://api.honcho.dev",
       timeoutMs: (() => {
         if (typeof cfg.timeoutMs === "number" && Number.isFinite(cfg.timeoutMs) && cfg.timeoutMs > 0) {
           return cfg.timeoutMs;

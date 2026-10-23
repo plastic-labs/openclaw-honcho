@@ -86,7 +86,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
 
   if (!cfg.apiKey && !selfHosted) {
     api.logger.warn(
-      "openclaw-honcho: No API key configured. Set HONCHO_API_KEY or configure apiKey in plugin config."
+      "openclaw-honcho: No API key configured. Set apiKey in plugin config, HONCHO_API_KEY, or apiKey in ~/.honcho/config.json."
     );
   }
 
