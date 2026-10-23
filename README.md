@@ -155,13 +155,13 @@ Map `sender_id` → Honcho peer ID in `~/.honcho/openclaw-peers.json` (override 
 In group chats (Discord, Slack, etc.), the plugin extracts the sender's platform ID from each inbound message and uses it directly as the Honcho peer ID. This gives every participant — humans and any other bots in the room — their own memory and representation in Honcho, rather than attributing all non-agent messages to a single generic peer.
 
 **How it works:**
-- The plugin reads the `sender_id` field from OpenClaw's "Conversation info (untrusted metadata):" block, which OpenClaw injects on every inbound message that has a known sender — including 1-on-1 DMs on platforms like Telegram, not just group chats.
+- The plugin takes the sender from the `senderId` OpenClaw passes with each run, which is set for every inbound message with a known sender — including 1-on-1 DMs on platforms like Telegram, not just group chats. On older OpenClaw releases that don't pass it, the plugin falls back to the `sender_id` in the "Conversation info (untrusted metadata):" block.
 - Each distinct sender ID becomes its own Honcho peer (e.g., `U07KX7DG002` becomes the Honcho peer ID directly, sanitized to `[A-Za-z0-9_-]`). You can alias a sender to a friendlier peer ID by editing the [peers file](#peer-mappings).
-- The default `owner` peer is used as a fallback when a message has no sender metadata at all (e.g., synthetic/system messages, or channel integrations that don't emit a `Conversation info` block), and — on legacy installs whose peers file uses `defaultUnknownPolicy: "owner"` — for any unknown sender. On fresh installs (`per-sender` policy) and platforms like Telegram, even DMs are attributed to the sender's own peer, not `owner`.
+- The default `owner` peer is used as a fallback when a message has no sender metadata at all (e.g., synthetic/system messages, or channel integrations that don't report a sender), and — on legacy installs whose peers file uses `defaultUnknownPolicy: "owner"` — for any unknown sender. On fresh installs (`per-sender` policy) and platforms like Telegram, even DMs are attributed to the sender's own peer, not `owner`.
 - Each OpenClaw agent gets its own Honcho peer (default `agent-{id}`, e.g., `agent-main`).
 - All tools (`honcho_context`, `honcho_ask`, etc.) automatically resolve the correct peer for the current session.
 
-Both message *attribution* (capture) and *context injection* (`before_prompt_build`) read `sender_id` directly from the current inbound message's metadata block, so the right participant peer is used from the very first turn — and on every turn in group chats, even when the speaker changes between turns. Sessions whose channel never emits sender metadata (no `Conversation info` block) stay attributed to `owner`.
+Both message *attribution* (capture) and *context injection* (`before_prompt_build`) use the current message's sender, so the right participant peer is used from the very first turn — and on every turn in group chats, even when the speaker changes between turns. Sessions whose channel never reports a sender stay attributed to `owner`.
 
 ## How it works
 
