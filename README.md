@@ -78,7 +78,7 @@ Run `openclaw honcho setup` to configure interactively, or set values directly i
 
 | Key                    | Type       | Default                    | Description                               |
 | ---------------------- | ---------- | -------------------------- | ----------------------------------------- |
-| `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). |
+| `apiKey`               | `string`   | —                          | Honcho API key (required for managed; omit for self-hosted). Unset, it falls back to `HONCHO_API_KEY`, then to `apiKey` in `~/.honcho/config.json` (shared with honcho-cli and the other Honcho integrations), together with that file's server URL. |
 | `workspaceId`          | `string`   | `"openclaw"`               | Honcho workspace ID for memory isolation. |
 | `baseUrl`              | `string`   | `"https://api.honcho.dev"` | API endpoint (for self-hosted instances). |
 | `noisePatterns`        | `string[]` | built-in defaults          | Patterns to skip messages. User-provided patterns are merged with built-in defaults (unless `disableDefaultNoisePatterns` is set). |

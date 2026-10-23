@@ -29,7 +29,7 @@
     "properties": {
       "apiKey": {
         "type": "string",
-        "description": "Honcho API key (or set HONCHO_API_KEY env var)"
+        "description": "Honcho API key (falls back to HONCHO_API_KEY, then apiKey in ~/.honcho/config.json)"
       },
       "workspaceId": {
         "type": "string",
