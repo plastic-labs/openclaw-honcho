@@ -49,7 +49,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
                   text: "No profile facts available yet. The user's profile builds over time through conversations.",
                 },
               ],
-              details: { detail, factCount: 0 },
+              details: { detail, factCount: 0, facts: [] },
             };
           }
 
@@ -60,7 +60,7 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
                 text: `## User Profile\n\n${card.map((f) => `• ${f}`).join("\n")}`,
               },
             ],
-            details: { detail, factCount: card.length },
+            details: { detail, factCount: card.length, facts: card },
           };
         }
 
@@ -77,13 +77,13 @@ export function registerContextTool(api: OpenClawPluginApi, state: PluginState):
                 text: "No context available yet. Context builds over time through conversations.",
               },
             ],
-            details: { detail, representationLength: 0 },
+            details: { detail, representationLength: 0, representation: "" },
           };
         }
 
         return {
           content: [{ type: "text", text: `## User Context\n\n${representation}` }],
-          details: { detail, representationLength: representation.length },
+          details: { detail, representationLength: representation.length, representation },
         };
       },
     }),
