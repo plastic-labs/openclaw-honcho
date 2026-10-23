@@ -2,6 +2,23 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [1.8.0] - 2026-10-23
+
+### Added
+- **`honcho_workspace_chat` (#160)**: An opt-in tool, off unless `enableWorkspaceChat` is `true`, that asks Honcho across every peer and session in the workspace. Anyone who can message the agent can call it.
+- **API key from `~/.honcho/config.json` (#163)**: With no `apiKey` in the plugin config and no `HONCHO_API_KEY`, the plugin uses the key and server URL from the shared Honcho config that honcho-cli and the other integrations write. A `hosts.openclaw` block there overrides the root values.
+
+### Changed
+- **Tools read only the requester's own memory (#158)**: `honcho_session`, `honcho_context`, `honcho_search_conclusions`, `honcho_ask` and `honcho_search_messages` target the sender OpenClaw reports for the tool call (`owner` for operator turns), not whoever spoke last in the channel.
+
+### Removed
+- **The `about` argument on those tools (#158)**: The model can no longer point a tool at another participant.
+
+### Fixed
+- **Tool calls no longer create empty peers (#158)**: A name the model picked up from the prompt used to mint a new peer beside the real one.
+- **Honcho tools return their results in Code Mode (#164)**: Code Mode hands the model only a tool's `details`, which held counts, so every tool looked like it succeeded with nothing in it. `details` now carries the result too: facts, representation, answer, or session context. `honcho_search_conclusions` reports `resultCount` as the number of conclusions found rather than lines of output.
+- **Active-memory recall runs are no longer saved (#165)**: OpenClaw's recall lookups were stored as messages from `owner`, each in a new Honcho session.
+
 ## [1.7.0] - 2026-09-28
 
 ### Changed
