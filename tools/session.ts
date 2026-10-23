@@ -94,16 +94,23 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
             );
           }
 
-          if (includeMessages && context.messages.length > 0) {
-            const messageLines = context.messages.map((msg) => {
-              const speaker = state.isParticipantPeerId(msg.peerId) ? "User" : "OpenClaw";
+          const messages = includeMessages
+            ? context.messages.map((msg) => ({
+                speaker: state.isParticipantPeerId(msg.peerId) ? "User" : "OpenClaw",
+                createdAt: msg.createdAt ?? null,
+                content: cleanMessageContent(msg.content as string),
+              }))
+            : [];
+
+          if (messages.length > 0) {
+            const messageLines = messages.map((msg) => {
               const timestamp = msg.createdAt
                 ? new Date(msg.createdAt).toLocaleString()
                 : "";
-              return `**${speaker}**${timestamp ? ` (${timestamp})` : ""}:\n${cleanMessageContent(msg.content as string)}`;
+              return `**${msg.speaker}**${timestamp ? ` (${timestamp})` : ""}:\n${msg.content}`;
             });
             sections.push(
-              `## Recent Messages (${context.messages.length})\n\n${messageLines.join("\n\n---\n\n")}`
+              `## Recent Messages (${messages.length})\n\n${messageLines.join("\n\n---\n\n")}`
             );
           }
 
@@ -134,6 +141,10 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
               messageCount: context.messages.length,
               hasSummary: !!context.summary?.content,
               sessionKey,
+              summary: context.summary?.content ?? null,
+              peerCard: context.peerCard ?? [],
+              representation: context.peerRepresentation ?? null,
+              messages,
             },
           };
         } catch (error) {
