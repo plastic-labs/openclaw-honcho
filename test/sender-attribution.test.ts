@@ -35,7 +35,7 @@ function createMockState() {
   const makePeer = (id: string) => ({ id, message: (text: string) => ({ peerId: id, text }) });
 
   const state = {
-    cfg: { noisePatterns: [], ownerObserveOthers: false, captureSystemRuns: false },
+    cfg: { noisePatterns: [], peerName: "owner", ownerObserveOthers: false, captureSystemRuns: false },
     honcho: { session: vi.fn(async () => session) },
     turnProvenance: new Map(),
     ensureInitialized: vi.fn(async () => undefined),

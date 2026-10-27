@@ -1,7 +1,6 @@
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { OWNER_ID } from "../state.js";
 import {
   buildSessionKey,
   classifySession,
@@ -99,10 +98,10 @@ export async function flushMessages(
     meta && typeof meta === "object" ? (meta as Record<string, unknown>) : {};
 
   const peerConfigs: Array<[string, { observeMe: boolean; observeOthers: boolean }]> = [
-    [OWNER_ID, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers }],
+    [state.cfg.peerName, { observeMe: true, observeOthers: state.cfg.ownerObserveOthers }],
     [agentPeer.id, { observeMe: true, observeOthers: true }],
   ];
-  if (participantPeer.id !== OWNER_ID && participantPeer.id !== agentPeer.id) {
+  if (participantPeer.id !== state.cfg.peerName && participantPeer.id !== agentPeer.id) {
     peerConfigs.push([
       participantPeer.id,
       sourceAgentPeer

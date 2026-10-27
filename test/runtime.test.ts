@@ -122,7 +122,7 @@ function createState(baseUrl = "https://api.honcho.dev", { crossSessionSearch = 
       baseUrl,
       noisePatterns: [],
       disableDefaultNoisePatterns: false,
-      ownerObserveOthers: false,
+      peerName: "owner", ownerObserveOthers: false,
       crossSessionSearch,
     },
     honcho: {

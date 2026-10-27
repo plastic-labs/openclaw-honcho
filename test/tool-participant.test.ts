@@ -72,9 +72,13 @@ let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), "oc-honcho-peers-"));
   process.env.OPENCLAW_HONCHO_PEERS_FILE = path.join(dir, "openclaw-peers.json");
+  // Keep the developer's real ~/.honcho/config.json (peerName) out of the owner peer id.
+  process.env.HONCHO_CONFIG_PATH = path.join(dir, "no-honcho-config.json");
+  delete process.env.HONCHO_PEER_NAME;
 });
 afterEach(() => {
   delete process.env.OPENCLAW_HONCHO_PEERS_FILE;
+  delete process.env.HONCHO_CONFIG_PATH;
   rmSync(dir, { recursive: true, force: true });
 });
 

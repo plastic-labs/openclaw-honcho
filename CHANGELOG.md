@@ -2,6 +2,11 @@
 
 All notable changes to `@honcho-ai/openclaw-honcho` will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`peerName` config option (opt-in)**: The owner peer id was hardcoded to `owner`. Set `peerName` in the plugin config, `HONCHO_PEER_NAME`, or `hosts.openclaw.peerName` in `~/.honcho/config.json` to share one user representation with another Honcho integration in the same workspace. The shared root `peerName` and `$USER` are not used, so nothing changes unless you set one of these. It applies to CLI runs, migration, capture and unknown senders under the `owner` policy.
+
 ## [1.7.0] - 2026-09-28
 
 ### Changed

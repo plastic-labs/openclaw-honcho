@@ -14,7 +14,7 @@ describe("context hook preserves session metadata", () => {
     };
     const peer = { id: "owner" };
     const state = {
-      cfg: { noisePatterns: [], ownerObserveOthers: false, crossSessionSearch: true, workspaceId: "w", baseUrl: "b", recall: { automatic: "workspace", ask: "workspace" } },
+      cfg: { noisePatterns: [], peerName: "owner", ownerObserveOthers: false, crossSessionSearch: true, workspaceId: "w", baseUrl: "b", recall: { automatic: "workspace", ask: "workspace" } },
       honcho: {
         session: vi.fn(async (_k: string, opts?: { metadata?: Meta }) => {
           if (opts?.metadata) session.metadata = { ...opts.metadata };

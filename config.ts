@@ -2,7 +2,8 @@
  * Configuration schema and parsing for the Honcho memory plugin.
  */
 
-import { loadConfig } from "@honcho-ai/harness-plugin-core";
+import { readFileSync } from "node:fs";
+import { configPath, loadConfig } from "@honcho-ai/harness-plugin-core";
 
 export const DEFAULT_NOISE_PATTERNS: string[] = [
   "HEARTBEAT_OK",
@@ -55,6 +56,7 @@ export type HonchoConfig = {
   timeoutMs?: number;
   noisePatterns: string[];
   disableDefaultNoisePatterns: boolean;
+  peerName: string;
   ownerObserveOthers: boolean;
   crossSessionSearch: boolean;
   enableMemoryCompatibilityTools: boolean;
@@ -83,6 +85,29 @@ function resolveEnvVars(value: string): string {
     }
     return envValue;
   });
+}
+
+/**
+ * Owner peer id, opt-in only: plugin config, then HONCHO_PEER_NAME, then
+ * hosts.openclaw.peerName in ~/.honcho/config.json, then the legacy "owner".
+ * The shared root peerName and $USER are ignored on purpose: other integrations
+ * default to them in their own workspaces, and moving existing installs off
+ * "owner" would orphan their conclusions.
+ */
+function resolvePeerName(configured: unknown): string {
+  const explicit = (v: unknown) => (typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined);
+  const fromConfig = explicit(configured);
+  if (fromConfig) return fromConfig;
+  const fromEnv = explicit(process.env.HONCHO_PEER_NAME);
+  if (fromEnv) return fromEnv;
+  try {
+    const file = JSON.parse(readFileSync(configPath(), "utf-8")) as {
+      hosts?: Record<string, { peerName?: unknown } | undefined>;
+    };
+    return explicit(file.hosts?.openclaw?.peerName) ?? "owner";
+  } catch {
+    return "owner";
+  }
 }
 
 export const honchoConfigSchema = {
@@ -137,6 +162,7 @@ export const honchoConfigSchema = {
       })(),
       noisePatterns,
       disableDefaultNoisePatterns,
+      peerName: resolvePeerName(cfg.peerName),
       ownerObserveOthers: typeof cfg.ownerObserveOthers === "boolean" ? cfg.ownerObserveOthers : false,
       crossSessionSearch: typeof cfg.crossSessionSearch === "boolean" ? cfg.crossSessionSearch : true,
       enableMemoryCompatibilityTools: cfg.enableMemoryCompatibilityTools === true,
