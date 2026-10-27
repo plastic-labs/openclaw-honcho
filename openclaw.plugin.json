@@ -51,6 +51,11 @@
         },
         "description": "Additional substring patterns to skip messages. Built-in defaults (HEARTBEAT_OK, cron reminders, etc.) always apply."
       },
+      "peerName": {
+        "type": "string",
+        "default": "owner",
+        "description": "Honcho peer id for the owner. Opt-in: falls back to HONCHO_PEER_NAME, then hosts.openclaw.peerName in ~/.honcho/config.json, then \"owner\". Set it to your user peer in another integration, in the same workspace, to share one representation."
+      },
       "ownerObserveOthers": {
         "type": "boolean",
         "default": false,
@@ -141,6 +146,11 @@
       "label": "Noise Patterns",
       "advanced": true,
       "help": "Additional substring patterns to filter. Messages containing any pattern are dropped before saving to Honcho."
+    },
+    "peerName": {
+      "label": "Owner Peer ID",
+      "advanced": true,
+      "help": "Peer id for the owner in Honcho. Default: owner. Match another integration's user peer, in the same workspace, to share one representation."
     },
     "ownerObserveOthers": {
       "label": "Owner Observes Agent",

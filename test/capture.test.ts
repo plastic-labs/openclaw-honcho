@@ -36,7 +36,7 @@ function createMockState(): { state: PluginState; session: SessionStub } {
     cfg: {
       noisePatterns: [],
       captureUnattributedMessages: true,
-      ownerObserveOthers: false,
+      peerName: "owner", ownerObserveOthers: false,
       crossSessionSearch: true,
       workspaceId: "openclaw",
       baseUrl: "https://api.honcho.dev",

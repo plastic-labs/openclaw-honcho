@@ -7,7 +7,6 @@ import { createHonchoClient } from "../honcho-client.js";
 // @ts-ignore - resolved by openclaw runtime
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import type { PluginState } from "../state.js";
-import { OWNER_ID } from "../state.js";
 
 /* ── Upload manifest ─────────────────────────────────────────────────── */
 
@@ -188,7 +187,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
             function collectDir(dirPath: string, peerType: "owner" | "agent", agentId?: string): void {
               if (!fs.existsSync(dirPath)) return;
               const dirEntries = fs.readdirSync(dirPath, { withFileTypes: true });
-              const peerId = peerType === "owner" ? OWNER_ID : `agent-${agentId ?? defaultAgentId}`;
+              const peerId = peerType === "owner" ? state.cfg.peerName : `agent-${agentId ?? defaultAgentId}`;
               for (const e of dirEntries) {
                 const full = path.join(dirPath, e.name);
                 if (e.isDirectory()) collectDir(full, peerType, agentId);
@@ -222,8 +221,8 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
               // Owner files (USER.md) always route to the owner peer.
               for (const file of OWNER_FILES) {
                 const p = path.join(wsDir, file);
-                if (fs.existsSync(p) && !hasDetected(p, OWNER_ID))
-                  detected.push({ filePath: p, peer: "owner", peerId: OWNER_ID });
+                if (fs.existsSync(p) && !hasDetected(p, state.cfg.peerName))
+                  detected.push({ filePath: p, peer: "owner", peerId: state.cfg.peerName });
               }
               // Agent files, MEMORY.md, and working dirs (memory/, canvas/)
               // are the agent's state — only collected when we know which
@@ -298,15 +297,15 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
                 }
                 if (fs.statSync(inputPath).isDirectory()) {
                   collectDir(inputPath, peerType, peerType === "agent" ? defaultAgentId : undefined);
-                  console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  console.log(`  + ${inputPath}/ (directory) → ${peerType === "owner" ? state.cfg.peerName : defaultAgentPeerId}`);
                 } else {
                   detected.push({
                     filePath: inputPath,
                     peer: peerType,
-                    peerId: peerType === "owner" ? OWNER_ID : defaultAgentPeerId,
+                    peerId: peerType === "owner" ? state.cfg.peerName : defaultAgentPeerId,
                     agentId: peerType === "agent" ? defaultAgentId : undefined,
                   });
-                  console.log(`  + ${inputPath} → ${peerType === "owner" ? OWNER_ID : defaultAgentPeerId}`);
+                  console.log(`  + ${inputPath} → ${peerType === "owner" ? state.cfg.peerName : defaultAgentPeerId}`);
                 }
               }
             }
@@ -344,7 +343,7 @@ export function registerCli(api: OpenClawPluginApi, state: PluginState): void {
 
             const existingMeta = await setupHoncho.getMetadata();
             await setupHoncho.setMetadata({ ...existingMeta });
-            const ownerPeerSetup = await setupHoncho.peer(OWNER_ID, { metadata: {} });
+            const ownerPeerSetup = await setupHoncho.peer(state.cfg.peerName, { metadata: {} });
             const agentPeerSetupMap = new Map<string, Awaited<ReturnType<typeof setupHoncho.peer>>>();
             for (const agent of normalizedAgents) {
               const peerId = `agent-${agent.id}`;

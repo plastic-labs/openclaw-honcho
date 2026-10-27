@@ -16,7 +16,7 @@ import {
   resolveParticipantPeerId,
 } from "./peers.js";
 
-export const OWNER_ID = "owner";
+export const OWNER_ID = "owner"; // default for `peerName`
 export const LEGACY_PEER_ID = "openclaw";
 
 export const HONCHO_CLOUD_HOSTNAME = "api.honcho.dev";
@@ -162,17 +162,17 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     }
 
     // Create default "owner" peer
-    const defaultPeer = await honcho.peer(OWNER_ID, { metadata: {} });
-    state.participantPeers.set(OWNER_ID, defaultPeer);
+    const defaultPeer = await honcho.peer(cfg.peerName, { metadata: {} });
+    state.participantPeers.set(cfg.peerName, defaultPeer);
 
     state.initialized = true;
   }
 
   async function ensureOwnerPeer(): Promise<Peer> {
-    let peer = state.participantPeers.get(OWNER_ID);
+    let peer = state.participantPeers.get(cfg.peerName);
     if (peer) return peer;
-    peer = await honcho.peer(OWNER_ID, { metadata: {} });
-    state.participantPeers.set(OWNER_ID, peer);
+    peer = await honcho.peer(cfg.peerName, { metadata: {} });
+    state.participantPeers.set(cfg.peerName, peer);
     return peer;
   }
 
@@ -181,15 +181,15 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
 
     // Known senders resolve via the peers file. Unknown senders auto-seed
     // per the persister's defaultUnknownPolicy: legacy installs merge into
-    // OWNER_ID; fresh installs mint a distinct participant-<sanitized> peer.
+    // the owner peer; fresh installs mint a distinct participant-<sanitized> peer.
     let peer = state.participantPeers.get(channelPeerId);
     if (peer) return peer;
 
     const wasInFile = channelPeerId in peersPersister.peers;
-    const resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, OWNER_ID);
-    const autoSeeded = !wasInFile && resolvedPeerId !== OWNER_ID;
+    const resolvedPeerId = resolveParticipantPeerId(channelPeerId, peersPersister, cfg.peerName);
+    const autoSeeded = !wasInFile && resolvedPeerId !== cfg.peerName;
 
-    if (resolvedPeerId === OWNER_ID) {
+    if (resolvedPeerId === cfg.peerName) {
       peer = await ensureOwnerPeer();
     } else {
       const metadata: Record<string, unknown> = { channelPeerId };
@@ -226,7 +226,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
   }
 
   function isParticipantPeerId(peerId: string): boolean {
-    if (peerId === OWNER_ID) return true;
+    if (peerId === cfg.peerName) return true;
     // Check if this peer ID is a known participant peer
     for (const [, peer] of state.participantPeers) {
       if (peer.id === peerId) return true;
@@ -245,7 +245,7 @@ export function createPluginState(api: OpenClawPluginApi): PluginState {
     if (!peerId) {
       const allPeers = await honcho.peers();
       for await (const p of allPeers) {
-        if (p.id === OWNER_ID) continue;
+        if (p.id === cfg.peerName) continue;
         const meta = await p.getMetadata();
         if (meta?.agentId === id) {
           peerId = p.id;
