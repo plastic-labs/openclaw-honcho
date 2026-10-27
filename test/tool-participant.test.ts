@@ -112,3 +112,20 @@ describe("tools read the requester's own memory", () => {
     expect(session.context.mock.calls[0][0].peerTarget.id).toBe("owner");
   });
 });
+
+describe("tool results", () => {
+  it("carry the payload in details, the only part Code Mode hands the model", async () => {
+    const { state, peers } = setup();
+    const aliceTurn = { sessionKey: GROUP_KEY, agentId: "main", requesterSenderId: "111" };
+    const representation = "EXPLICIT:\n\n1. [2026-01-01 00:00:00] likes hiking\n2. [2026-01-01 00:00:00] has a dog\n\nDEDUCTIVE:\n\n1. [2026-01-01 00:00:00] goes outdoors\n    - likes hiking\n";
+    peers.get("111")!.representation.mockResolvedValue(representation);
+
+    const context = await tool(registerContextTool, state, aliceTurn).execute("id", {});
+    const search = await tool(registerSearchTool, state, aliceTurn).execute("id", { query: "hike" });
+    const ask = await tool(registerAskTool, state, aliceTurn).execute("id", { query: "q" });
+
+    expect(context.details.facts).toEqual(["fact"]);
+    expect(search.details).toMatchObject({ resultCount: 3, representation });
+    expect(ask.details.answer).toBe("answer");
+  });
+});
