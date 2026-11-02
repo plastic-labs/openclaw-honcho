@@ -122,7 +122,15 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
                   text: "No conversation history available for this session yet.",
                 },
               ],
-              details: { messageCount: 0, hasSummary: false, sessionKey },
+              details: {
+                messageCount: 0,
+                hasSummary: false,
+                sessionKey,
+                summary: null,
+                peerCard: [],
+                representation: null,
+                messages: [],
+              },
             };
           }
 
@@ -161,7 +169,15 @@ export function registerSessionTool(api: OpenClawPluginApi, state: PluginState):
                   text: "No conversation history found. This appears to be a new session.",
                 },
               ],
-              details: { messageCount: 0, hasSummary: false, sessionKey },
+              details: {
+                messageCount: 0,
+                hasSummary: false,
+                sessionKey,
+                summary: null,
+                peerCard: [],
+                representation: null,
+                messages: [],
+              },
             };
           }
 

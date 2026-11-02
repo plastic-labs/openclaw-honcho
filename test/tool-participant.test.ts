@@ -110,6 +110,24 @@ describe("tools read the requester's own memory", () => {
 });
 
 describe("tool results", () => {
+  it("returns a stable empty Code Mode payload when a session has no sections", async () => {
+    const { state } = setup();
+    const result = await tool(registerSessionTool, state, {
+      sessionKey: GROUP_KEY,
+      agentId: "main",
+      requesterSenderId: "111",
+    }).execute("id", {});
+
+    expect(result.details).toMatchObject({
+      messageCount: 0,
+      hasSummary: false,
+      summary: null,
+      peerCard: [],
+      representation: null,
+      messages: [],
+    });
+  });
+
   it("carry the payload in details, the only part Code Mode hands the model", async () => {
     const { state, peers } = setup();
     const aliceTurn = { sessionKey: GROUP_KEY, agentId: "main", requesterSenderId: "111" };
