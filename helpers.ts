@@ -121,6 +121,11 @@ export function isSubagentSession(ctx?: { sessionKey?: string }): boolean {
   return isSubagentSessionKey(ctx?.sessionKey);
 }
 
+/** OpenClaw's active-memory recall run: a lookup made for the user, not something they said. */
+export function isMemoryRecallRun(ctx: { sessionKey?: string }): boolean {
+  return /(^|:)active-memory:/i.test(ctx.sessionKey ?? "");
+}
+
 /** Cron/heartbeat run: machine-generated input, not a participant speaking. */
 export function isSystemRun(
   ctx: { sessionKey?: string; trigger?: string; inputProvenance?: { kind?: string } },

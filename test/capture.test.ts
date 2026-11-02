@@ -155,6 +155,19 @@ describe("flushMessages metadata", () => {
     }
   });
 
+  it("drops OpenClaw's active-memory recall runs", async () => {
+    const { state, session } = createMockState();
+    const api = { logger: loggerStub() } as never;
+    const saved = await flushMessages(
+      api,
+      state,
+      [{ role: "user", content: "What do you remember about the user's travel plans?", timestamp: 1 }],
+      { sessionKey: "agent:main:telegram:direct:111:active-memory:0123456789ab", agentId: "main" },
+    );
+    expect(saved).toBe(0);
+    expect(session.addMessages).not.toHaveBeenCalled();
+  });
+
   it("omits messageProvider and lastSessionId when not provided", async () => {
     const { state, session } = createMockState();
     const api = { logger: loggerStub() } as never;

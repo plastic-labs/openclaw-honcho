@@ -5,6 +5,7 @@ import {
   buildSessionKey,
   classifySession,
   isSubagentSession,
+  isMemoryRecallRun,
   isSystemRun,
   normalizeSessionKey,
   extractMessages,
@@ -61,6 +62,8 @@ export async function flushMessages(
   // Cron/heartbeat runs are machine text; drop them unless configured.
   const provenance = state.turnProvenance?.get(sessionKey) ?? ctx.inputProvenance;
   if (!state.cfg.captureSystemRuns && isSystemRun(ctx, provenance?.kind)) return 0;
+  // Active-memory recall prompts are lookups, never a participant speaking.
+  if (isMemoryRecallRun(ctx)) return 0;
 
   await state.ensureInitialized();
   const agentPeer = await state.getAgentPeer(agentId);
