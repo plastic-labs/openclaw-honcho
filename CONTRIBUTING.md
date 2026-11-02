@@ -73,7 +73,7 @@ To test the plugin locally with OpenClaw:
 
 1. **TypeScript source** is in `index.ts` and `config.ts`
 2. **Build before testing**: Always run `pnpm build` after changes
-3. **Tool return types**: All tool `execute` functions must return `{ content: [...], details: undefined }`
+3. **Tool return types**: `execute` returns `{ content: [...], details }` with the full result in both; OpenClaw's Code Mode hands the model only `details`
 4. **Hooks vs Tools**: Hooks receive `(event, ctx)` with session context; tools receive `(toolCallId, params, signal?)` without session context
 
 ### Install Script Behavior

@@ -51,7 +51,7 @@ export function registerAskTool(api: OpenClawPluginApi, state: PluginState): voi
 
         return {
           content: [{ type: "text", text: answer! }],
-          details: { query, depth },
+          details: { query, depth, answer },
         };
       },
     }),

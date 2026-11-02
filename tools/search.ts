@@ -60,13 +60,14 @@ export function registerSearchTool(api: OpenClawPluginApi, state: PluginState): 
                 text: `No memories found matching: "${query}"\n\nTry broadening your search or increasing maxDistance.`,
               },
             ],
-            details: { query, resultCount: 0 },
+            details: { query, resultCount: 0, representation: "" },
           };
         }
 
         return {
           content: [{ type: "text", text: `## Search Results: "${query}"\n\n${representation}` }],
-          details: { query, resultCount: representation.split("\n").filter(Boolean).length },
+          // One numbered line per conclusion; section headers and premises aren't results.
+          details: { query, resultCount: (representation.match(/^\d+\. /gm) ?? []).length, representation },
         };
       },
     }),

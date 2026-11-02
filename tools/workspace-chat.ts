@@ -38,7 +38,7 @@ export function registerWorkspaceChatTool(api: OpenClawPluginApi, state: PluginS
 
         return {
           content: [{ type: "text", text: answer ?? "Honcho has no relevant information in this workspace." }],
-          details: { query, depth },
+          details: { query, depth, answer: answer ?? null },
         };
       },
     }),
